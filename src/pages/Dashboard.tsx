@@ -28,7 +28,6 @@ export default function Dashboard() {
         </p>
         <h1 className="text-3xl" style={{ color: 'var(--white)' }}>Склад Ресторана</h1>
         <div className="flex items-center gap-2 mt-3">
-          <span className="badge badge-ok">PWA активен</span>
           {selectedVenue && (
             <span className="badge badge-ordered">{selectedVenue.address}</span>
           )}

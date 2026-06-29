@@ -179,6 +179,30 @@ export const useStore = create<Store>()(
       updateCategory: (id, category) => set((s) => ({ categories: s.categories.map((c) => c.id === id ? { ...c, ...category } : c) })),
       deleteCategory: (id) => set((s) => ({ categories: s.categories.filter((c) => c.id !== id) })),
     }),
-    { name: 'restaurant-warehouse-v2' }
+    {
+      name: 'restaurant-warehouse-v4',
+      migrate: (persisted: unknown) => {
+        const s = persisted as Record<string, unknown>
+        // migrate old purchase items: price -> unitPrice, itemId -> inventoryItemId
+        if (Array.isArray(s.purchases)) {
+          s.purchases = (s.purchases as Purchase[]).map((p) => ({
+            ...p,
+            items: Array.isArray(p.items) ? p.items.map((item) => {
+              const anyItem = item as Record<string, unknown>
+              return {
+                id: anyItem.id ?? Math.random().toString(36).slice(2),
+                name: anyItem.name ?? '',
+                quantity: Number(anyItem.quantity ?? 1),
+                unit: anyItem.unit ?? 'кг',
+                unitPrice: Number(anyItem.unitPrice ?? anyItem.price ?? 0),
+                inventoryItemId: anyItem.inventoryItemId ?? anyItem.itemId,
+              }
+            }) : [],
+          }))
+        }
+        return s
+      },
+      version: 4,
+    }
   )
 )
