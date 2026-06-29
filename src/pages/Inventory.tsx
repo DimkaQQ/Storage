@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Trash2, ArrowDownCircle, ArrowUpCircle, Package } from 'lucide-react'
+import { Plus, Trash2, ArrowUp, ArrowDown, Package } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import SearchInput from '../components/SearchInput'
 import Modal from '../components/Modal'
@@ -113,21 +113,24 @@ export default function Inventory() {
       {/* Main layout: table + add panel */}
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         {/* Table */}
-        <div className="card p-0" style={{ minWidth: 0, overflowX: 'auto' }}>
+        <div className="card p-0" style={{ minWidth: 0, overflow: 'hidden' }}>
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16">
               <Package className="w-10 h-10 mb-3" style={{ color: 'var(--muted)' }} />
               <p style={{ color: 'var(--muted)' }}>Ничего не найдено</p>
             </div>
           ) : (
-            <table className="data-table" style={{ minWidth: 600 }}>
+            <table className="data-table" style={{ width: '100%', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '40%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '20%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Наименование</th>
-                  <th>Категория</th>
                   <th>Остаток</th>
-                  <th>Ед.</th>
-                  <th>Цена/ед.</th>
                   <th>Статус</th>
                   <th></th>
                 </tr>
@@ -136,59 +139,56 @@ export default function Inventory() {
                 {filtered.map((item) => {
                   const cat = categories.find((c) => c.id === item.categoryId)
                   const status = getStockStatus(item)
-                  const pct = item.minQuantity === 0 ? 100 : Math.min(100, Math.round((item.quantity / (item.minQuantity * 2)) * 100))
                   return (
                     <tr key={item.id}>
-                      <td>
+                      <td style={{ overflow: 'hidden' }}>
                         <button
-                          className="text-left hover:underline font-medium"
+                          className="text-left hover:underline font-medium w-full truncate block"
                           style={{ color: 'var(--white)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                           onClick={() => setEditItem(item)}
                         >
                           {item.name}
                         </button>
+                        {cat && (
+                          <span className="block text-xs truncate mt-0.5" style={{ color: 'var(--muted)' }}>
+                            {cat.icon} {cat.name}
+                          </span>
+                        )}
                       </td>
-                      <td>
-                        <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{cat?.icon} {cat?.name}</span>
+                      <td className="num" style={{ color: 'var(--white)' }}>
+                        <span>{item.quantity}</span>
+                        <span className="text-xs ml-1" style={{ color: 'var(--muted)' }}>{item.unit}</span>
                       </td>
-                      <td style={{ minWidth: 100 }}>
-                        <div className="mb-1 text-sm num" style={{ color: 'var(--white)' }}>{item.quantity}</div>
-                        <div className="stock-bar">
-                          <div className={`stock-bar-fill ${status}`} style={{ width: `${pct}%` }} />
-                        </div>
-                      </td>
-                      <td style={{ color: 'var(--muted)' }}>{item.unit}</td>
-                      <td className="num" style={{ color: 'var(--white)' }}>{formatPrice(item.price)}</td>
                       <td>
                         <span className={`badge badge-${status}`}>{statusLabels[status]}</span>
                       </td>
                       <td>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-0.5">
                           <button
                             title="Приход"
                             onClick={() => { setQtyModal({ item, type: 'in' }); setQtyValue('') }}
-                            className="p-1.5 rounded transition-colors"
-                            style={{ color: 'var(--green)' }}
+                            className="p-2 rounded transition-colors"
+                            style={{ color: 'var(--green)', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44, minWidth: 36 }}
                             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(48,209,88,0.1)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                           >
-                            <ArrowDownCircle className="w-4 h-4" />
+                            <ArrowDown className="w-4 h-4" />
                           </button>
                           <button
                             title="Списание"
                             onClick={() => { setQtyModal({ item, type: 'out' }); setQtyValue('') }}
-                            className="p-1.5 rounded transition-colors"
-                            style={{ color: 'var(--amber)' }}
+                            className="p-2 rounded transition-colors"
+                            style={{ color: 'var(--amber)', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44, minWidth: 36 }}
                             onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,214,10,0.1)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                           >
-                            <ArrowUpCircle className="w-4 h-4" />
+                            <ArrowUp className="w-4 h-4" />
                           </button>
                           <button
                             title="Удалить"
                             onClick={() => { if (confirm(`Удалить "${item.name}"?`)) deleteInventoryItem(item.id) }}
-                            className="p-1.5 rounded transition-colors"
-                            style={{ color: 'var(--muted)' }}
+                            className="p-2 rounded transition-colors"
+                            style={{ color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44, minWidth: 36 }}
                             onMouseEnter={e => (e.currentTarget.style.color = 'var(--red)')}
                             onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
                           >
@@ -204,7 +204,7 @@ export default function Inventory() {
           )}
         </div>
 
-        {/* Right panel - sticky add form (hidden on mobile) */}
+        {/* Right panel - sticky add form (desktop only) */}
         <div className="hidden lg:block">
           <div className="card sticky top-6">
             <h2 className="mb-4" style={{ color: 'var(--white)' }}>Добавить позицию</h2>
@@ -213,7 +213,15 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Add modal (mobile) */}
+      {/* Add panel for mobile - below the table */}
+      <div className="block lg:hidden">
+        <div className="card">
+          <h2 className="mb-4" style={{ color: 'var(--white)' }}>Добавить позицию</h2>
+          <InventoryForm onClose={() => {}} inline />
+        </div>
+      </div>
+
+      {/* Add modal (mobile fallback) */}
       <Modal isOpen={showAdd} onClose={() => setShowAdd(false)} title="Добавить товар">
         <InventoryForm onClose={() => setShowAdd(false)} />
       </Modal>

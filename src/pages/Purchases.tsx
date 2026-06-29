@@ -81,8 +81,46 @@ export default function Purchases() {
       {/* Search */}
       <SearchInput value={search} onChange={setSearch} placeholder="Поиск по поставщику..." />
 
-      {/* Table */}
-      <div className="card p-0 overflow-x-auto">
+      {/* Mobile card list */}
+      <div className="block lg:hidden space-y-2">
+        {filtered.length === 0 ? (
+          <div className="card flex flex-col items-center justify-center py-16">
+            <ShoppingCart className="w-10 h-10 mb-3" style={{ color: 'var(--muted)' }} />
+            <p style={{ color: 'var(--muted)' }}>Заказов не найдено</p>
+          </div>
+        ) : (
+          filtered.map((p) => {
+            const supplier = suppliers.find((s) => s.id === p.supplierId)
+            const venue = venues.find((v) => v.id === p.venueId)
+            return (
+              <Link
+                key={p.id}
+                to={`/purchases/${p.id}`}
+                className="card flex items-center justify-between gap-3"
+                style={{ textDecoration: 'none', padding: '0.875rem 1rem' }}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm truncate" style={{ color: 'var(--white)' }}>
+                    {supplier?.name ?? 'Неизвестно'}
+                  </p>
+                  <p className="text-xs mt-0.5 num" style={{ color: 'var(--muted)' }}>
+                    {p.createdAt.slice(0, 10)}
+                    {venue && !selectedVenueId && <span> • {venue.name}</span>}
+                    <span> • {p.items.length} поз.</span>
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                  <Badge variant={p.status as PurchaseStatus}>{labels[p.status as PurchaseStatus] ?? p.status}</Badge>
+                  <span className="text-sm font-semibold num" style={{ color: 'var(--white)' }}>{formatPrice(p.totalAmount)}</span>
+                </div>
+              </Link>
+            )
+          })
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden lg:block card p-0">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
             <ShoppingCart className="w-10 h-10 mb-3" style={{ color: 'var(--muted)' }} />
