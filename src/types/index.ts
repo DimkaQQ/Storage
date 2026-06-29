@@ -1,3 +1,9 @@
+export type Venue = {
+  id: string
+  name: string
+  address: string
+}
+
 export type Category = {
   id: string
   name: string
@@ -15,6 +21,7 @@ export type InventoryItem = {
   price: number
   supplierId: string
   lastUpdated: string
+  venueId: string
   location?: string
   notes?: string
 }
@@ -44,6 +51,7 @@ export type PurchaseItem = {
 export type Purchase = {
   id: string
   supplierId: string
+  venueId: string
   status: PurchaseStatus
   items: PurchaseItem[]
   totalAmount: number

@@ -4,6 +4,7 @@ import { ArrowLeft, Edit2, Trash2, MapPin, Package, AlertTriangle } from 'lucide
 import { useStore } from '../store/useStore'
 import Modal from '../components/Modal'
 import InventoryForm from '../components/forms/InventoryForm'
+import { formatPrice } from '../utils/format'
 
 type StockStatus = 'ok' | 'warning' | 'low' | 'empty'
 
@@ -24,12 +25,13 @@ const statusColors: Record<StockStatus, string> = {
 export default function InventoryItem() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { inventory, categories, suppliers, deleteInventoryItem } = useStore()
+  const { inventory, categories, suppliers, venues, deleteInventoryItem } = useStore()
   const [showEdit, setShowEdit] = useState(false)
 
   const item = inventory.find((i) => i.id === id)
   const cat = categories.find((c) => c.id === item?.categoryId)
   const supplier = suppliers.find((s) => s.id === item?.supplierId)
+  const venue = venues.find((v) => v.id === item?.venueId)
 
   if (!item) return (
     <div className="p-6 text-center">
@@ -101,12 +103,12 @@ export default function InventoryItem() {
       <div className="grid grid-cols-2 gap-3">
         <div className="kpi-card">
           <p className="label">Цена за единицу</p>
-          <p className="text-xl font-bold" style={{ color: 'var(--white)', fontFamily: "'Instrument Serif', serif" }}>{item.price.toLocaleString('ru-RU')} ₽</p>
+          <p className="text-xl font-bold num" style={{ color: 'var(--white)' }}>{formatPrice(item.price)}</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>за {item.unit}</p>
         </div>
         <div className="kpi-card">
           <p className="label">Стоимость запаса</p>
-          <p className="text-xl font-bold" style={{ color: '#22c55e', fontFamily: "'Instrument Serif', serif" }}>{value.toLocaleString('ru-RU')} ₽</p>
+          <p className="text-xl font-bold num" style={{ color: 'var(--green)' }}>{formatPrice(value)}</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>текущий остаток</p>
         </div>
       </div>
@@ -114,6 +116,16 @@ export default function InventoryItem() {
       {/* Info */}
       <div className="card space-y-3">
         <h3 className="font-semibold" style={{ color: 'var(--white)' }}>Информация</h3>
+        {venue && (
+          <div className="flex items-start gap-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
+            <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--gold)' }} />
+            <div>
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>Точка продаж</p>
+              <p className="text-sm font-medium" style={{ color: 'var(--white)' }}>{venue.name}</p>
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>{venue.address}</p>
+            </div>
+          </div>
+        )}
         {supplier && (
           <div className="flex items-start gap-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
             <Package className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--muted)' }} />

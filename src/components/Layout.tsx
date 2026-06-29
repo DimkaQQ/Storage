@@ -1,9 +1,11 @@
-import { NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Package, ShoppingCart, Truck, Tag, BarChart3, ChefHat, Menu, X } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
+import { LayoutDashboard, Package, ShoppingCart, Truck, Tag, BarChart3, ChefHat, Menu, X, MapPin, Building2 } from 'lucide-react'
 import { useState } from 'react'
+import { useStore } from '../store/useStore'
 
 const navItems = [
   { to: '/dashboard', label: 'Дашборд', icon: LayoutDashboard },
+  { to: '/venues', label: 'Точки', icon: Building2 },
   { to: '/inventory', label: 'Склад', icon: Package },
   { to: '/purchases', label: 'Закупки', icon: ShoppingCart },
   { to: '/suppliers', label: 'Поставщики', icon: Truck },
@@ -15,30 +17,81 @@ const mobileNavItems = [
   { to: '/dashboard', label: 'Главная', icon: LayoutDashboard },
   { to: '/inventory', label: 'Склад', icon: Package },
   { to: '/purchases', label: 'Закупки', icon: ShoppingCart },
-  { to: '/suppliers', label: 'Поставщики', icon: Truck },
+  { to: '/venues', label: 'Точки', icon: Building2 },
   { to: '/analytics', label: 'Аналитика', icon: BarChart3 },
 ]
 
+function VenueSelector({ onSelect }: { onSelect?: () => void }) {
+  const { venues, selectedVenueId, setSelectedVenue } = useStore()
+  return (
+    <div className="px-3 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+      <p className="label mb-2 px-1">Точка продаж</p>
+      <div className="space-y-0.5">
+        <button
+          onClick={() => { setSelectedVenue(null); onSelect?.() }}
+          className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
+          style={{
+            background: selectedVenueId === null ? 'var(--gold-dim)' : 'transparent',
+            color: selectedVenueId === null ? 'var(--gold)' : 'var(--muted)',
+            border: '1px solid',
+            borderColor: selectedVenueId === null ? 'rgba(200,168,75,0.2)' : 'transparent',
+            boxShadow: selectedVenueId === null ? 'inset 3px 0 0 var(--gold)' : 'none',
+          }}
+        >
+          <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="font-medium">Все точки</span>
+        </button>
+        {venues.map((v) => (
+          <button
+            key={v.id}
+            onClick={() => { setSelectedVenue(v.id); onSelect?.() }}
+            className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
+            style={{
+              background: selectedVenueId === v.id ? 'var(--gold-dim)' : 'transparent',
+              color: selectedVenueId === v.id ? 'var(--gold)' : 'var(--muted)',
+              border: '1px solid',
+              borderColor: selectedVenueId === v.id ? 'rgba(200,168,75,0.2)' : 'transparent',
+              boxShadow: selectedVenueId === v.id ? 'inset 3px 0 0 var(--gold)' : 'none',
+            }}
+          >
+            <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="truncate">{v.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { selectedVenueId, venues } = useStore()
+  const selectedVenue = venues.find((v) => v.id === selectedVenueId)
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'var(--black)' }}>
+    <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
       {/* Desktop sidebar */}
       <aside
-        className="hidden lg:flex flex-col w-60 min-h-screen fixed left-0 top-0 z-30"
-        style={{ background: 'var(--card)', borderRight: '1px solid var(--border)' }}
+        className="hidden lg:flex flex-col w-64 min-h-screen fixed left-0 top-0 z-30"
+        style={{
+          background: 'rgba(10,10,10,0.85)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderRight: '1px solid var(--border)',
+        }}
       >
         <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(200,168,75,0.15)', border: '1px solid rgba(200,168,75,0.3)' }}>
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ background: 'var(--gold-dim)', border: '1px solid rgba(200,168,75,0.3)' }}>
             <ChefHat className="w-5 h-5" style={{ color: 'var(--gold)' }} />
           </div>
           <div>
             <p style={{ fontFamily: "'Instrument Serif', serif", color: 'var(--white)', fontSize: '1rem', lineHeight: 1.2, fontWeight: 600 }}>Склад</p>
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>Ресторан</p>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>Сеть ресторанов</p>
           </div>
         </div>
+
+        <VenueSelector />
 
         <nav className="flex-1 px-3 py-4 space-y-0.5">
           {navItems.map(({ to, label, icon: Icon }) => (
@@ -54,7 +107,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="px-5 py-4" style={{ borderTop: '1px solid var(--border)' }}>
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>v1.0.0 • PWA</p>
+          <p className="text-xs num" style={{ color: 'var(--muted)' }}>v2.0.0 • PWA</p>
         </div>
       </aside>
 
@@ -67,18 +120,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             onClick={() => setMobileOpen(false)}
           />
           <aside
-            className="absolute left-0 top-0 bottom-0 w-60 flex flex-col"
-            style={{ background: 'var(--card)', borderRight: '1px solid var(--border)' }}
+            className="absolute left-0 top-0 bottom-0 w-64 flex flex-col"
+            style={{
+              background: 'rgba(10,10,10,0.95)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              borderRight: '1px solid var(--border)',
+            }}
           >
             <div className="flex items-center justify-between px-5 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center"
-                  style={{ background: 'rgba(200,168,75,0.15)', border: '1px solid rgba(200,168,75,0.3)' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ background: 'var(--gold-dim)', border: '1px solid rgba(200,168,75,0.3)' }}>
                   <ChefHat className="w-5 h-5" style={{ color: 'var(--gold)' }} />
                 </div>
                 <div>
                   <p style={{ fontFamily: "'Instrument Serif', serif", color: 'var(--white)', fontSize: '1rem', fontWeight: 600 }}>Склад</p>
-                  <p className="text-xs" style={{ color: 'var(--muted)' }}>Ресторан</p>
+                  <p className="text-xs" style={{ color: 'var(--muted)' }}>Сеть ресторанов</p>
                 </div>
               </div>
               <button
@@ -88,7 +146,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <nav className="flex-1 px-3 py-4 space-y-0.5">
+
+            <VenueSelector onSelect={() => setMobileOpen(false)} />
+
+            <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
               {navItems.map(({ to, label, icon: Icon }) => (
                 <NavLink
                   key={to}
@@ -106,11 +167,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Content area */}
-      <div className="flex-1 flex flex-col lg:ml-60 min-w-0">
+      <div className="flex-1 flex flex-col lg:ml-64 min-w-0">
         {/* Mobile header */}
         <header
           className="lg:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-20"
-          style={{ background: 'var(--card)', borderBottom: '1px solid var(--border)' }}
+          style={{
+            background: 'rgba(10,10,10,0.9)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderBottom: '1px solid var(--border)',
+          }}
         >
           <button
             onClick={() => setMobileOpen(true)}
@@ -118,12 +184,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-              style={{ background: 'rgba(200,168,75,0.15)', border: '1px solid rgba(200,168,75,0.3)' }}>
-              <ChefHat className="w-4 h-4" style={{ color: 'var(--gold)' }} />
+          <div className="flex flex-col items-center">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ background: 'var(--gold-dim)', border: '1px solid rgba(200,168,75,0.3)' }}>
+                <ChefHat className="w-3.5 h-3.5" style={{ color: 'var(--gold)' }} />
+              </div>
+              <span className="font-semibold text-sm" style={{ color: 'var(--white)' }}>Склад Ресторана</span>
             </div>
-            <span className="font-semibold text-sm" style={{ color: 'var(--white)' }}>Склад Ресторана</span>
+            {selectedVenue && (
+              <span className="text-xs mt-0.5" style={{ color: 'var(--gold)' }}>{selectedVenue.name}</span>
+            )}
           </div>
           <div className="w-7" />
         </header>
@@ -135,7 +206,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Mobile bottom nav */}
         <nav
           className="lg:hidden fixed bottom-0 left-0 right-0 z-30"
-          style={{ background: 'var(--card)', borderTop: '1px solid var(--border)' }}
+          style={{
+            background: 'rgba(10,10,10,0.9)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderTop: '1px solid var(--border)',
+          }}
         >
           <div className="flex items-center justify-around">
             {mobileNavItems.map(({ to, label, icon: Icon }) => (
@@ -145,8 +221,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 className="flex flex-col items-center gap-0.5 px-3 py-2.5 flex-1 transition-colors relative"
                 style={({ isActive }) => ({ color: isActive ? 'var(--gold)' : 'var(--muted)' })}
               >
-                <Icon className="w-5 h-5" />
-                <span className="text-[10px] font-medium">{label}</span>
+                {({ isActive }) => (
+                  <>
+                    <Icon className="w-5 h-5" />
+                    <span className="text-[10px] font-medium">{label}</span>
+                    {isActive && (
+                      <span
+                        className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                        style={{ background: 'var(--gold)' }}
+                      />
+                    )}
+                  </>
+                )}
               </NavLink>
             ))}
           </div>

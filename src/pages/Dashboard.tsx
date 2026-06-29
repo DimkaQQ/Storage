@@ -5,23 +5,33 @@ import LowStockAlert from '../components/LowStockAlert'
 import { Link } from 'react-router-dom'
 import Badge, { labels } from '../components/Badge'
 import type { PurchaseStatus } from '../types'
+import { formatPrice } from '../utils/format'
 
 export default function Dashboard() {
-  const { inventory, purchases, suppliers } = useStore()
+  const { inventory, purchases, suppliers, selectedVenueId, venues } = useStore()
 
-  const lowStockCount = inventory.filter((i) => i.quantity <= i.minQuantity).length
-  const totalValue = inventory.reduce((sum, i) => sum + i.quantity * i.price, 0)
-  const pendingOrders = purchases.filter((p) => p.status === 'pending' || p.status === 'ordered')
-  const recentPurchases = [...purchases].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5)
+  const filteredInventory = selectedVenueId ? inventory.filter((i) => i.venueId === selectedVenueId) : inventory
+  const filteredPurchases = selectedVenueId ? purchases.filter((p) => p.venueId === selectedVenueId) : purchases
+
+  const selectedVenue = venues.find((v) => v.id === selectedVenueId)
+  const lowStockCount = filteredInventory.filter((i) => i.quantity <= i.minQuantity).length
+  const totalValue = filteredInventory.reduce((sum, i) => sum + i.quantity * i.price, 0)
+  const pendingOrders = filteredPurchases.filter((p) => p.status === 'pending' || p.status === 'ordered')
+  const recentPurchases = [...filteredPurchases].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5)
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
       {/* Header */}
       <div>
-        <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>Добро пожаловать в</p>
+        <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>
+          {selectedVenue ? selectedVenue.name : 'Все точки продаж'}
+        </p>
         <h1 className="text-3xl" style={{ color: 'var(--white)' }}>Склад Ресторана</h1>
         <div className="flex items-center gap-2 mt-3">
           <span className="badge badge-ok">PWA активен</span>
+          {selectedVenue && (
+            <span className="badge badge-ordered">{selectedVenue.address}</span>
+          )}
           {lowStockCount > 0 && (
             <span className="badge badge-low flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
@@ -33,8 +43,8 @@ export default function Dashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard title="Позиций на складе" value={inventory.length} subtitle="товаров учтено" icon={Package} />
-        <StatCard title="Стоимость склада" value={`${(totalValue / 1000).toFixed(0)}к ₽`} subtitle="текущий запас" icon={TrendingUp} />
+        <StatCard title="Позиций на складе" value={filteredInventory.length} subtitle="товаров учтено" icon={Package} />
+        <StatCard title="Стоимость склада" value={formatPrice(totalValue)} subtitle="текущий запас" icon={TrendingUp} />
         <StatCard title="Активных заказов" value={pendingOrders.length} subtitle="в ожидании" icon={ShoppingCart} />
         <StatCard title="Поставщиков" value={suppliers.length} subtitle="контрагентов" icon={Truck} />
       </div>
@@ -52,6 +62,7 @@ export default function Dashboard() {
           <div className="space-y-3">
             {recentPurchases.map((p) => {
               const supplier = suppliers.find((s) => s.id === p.supplierId)
+              const venue = venues.find((v) => v.id === p.venueId)
               return (
                 <Link
                   key={p.id}
@@ -63,10 +74,13 @@ export default function Dashboard() {
                 >
                   <div>
                     <p className="text-sm font-medium" style={{ color: 'var(--white)' }}>{supplier?.name}</p>
-                    <p className="text-xs" style={{ color: 'var(--muted)' }}>{p.items.length} позиц. • {p.createdAt.slice(0, 10)}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                      {p.items.length} позиц. • {p.createdAt.slice(0, 10)}
+                      {venue && !selectedVenueId && <span> • {venue.name}</span>}
+                    </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold" style={{ color: 'var(--white)' }}>{p.totalAmount.toLocaleString('ru-RU')} ₽</p>
+                    <p className="text-sm font-semibold num" style={{ color: 'var(--white)' }}>{formatPrice(p.totalAmount)}</p>
                     <Badge variant={p.status}>{labels[p.status as PurchaseStatus] ?? p.status}</Badge>
                   </div>
                 </Link>
@@ -92,10 +106,8 @@ export default function Dashboard() {
             <Link
               key={to}
               to={to}
-              className="kpi-card block transition-colors"
+              className="kpi-card card-lift block"
               style={{ textDecoration: 'none' }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(200,168,75,0.3)')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
             >
               <Icon className="w-5 h-5 mb-2" style={{ color: 'var(--gold)' }} />
               <p className="font-semibold text-sm" style={{ color: 'var(--white)' }}>{label}</p>

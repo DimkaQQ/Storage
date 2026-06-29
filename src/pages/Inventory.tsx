@@ -5,6 +5,7 @@ import SearchInput from '../components/SearchInput'
 import Modal from '../components/Modal'
 import InventoryForm from '../components/forms/InventoryForm'
 import type { InventoryItem } from '../types'
+import { formatPrice } from '../utils/format'
 
 type StockStatus = 'ok' | 'warning' | 'low' | 'empty'
 
@@ -23,7 +24,7 @@ const statusLabels: Record<StockStatus, string> = {
 }
 
 export default function Inventory() {
-  const { inventory, categories, updateInventoryItem, deleteInventoryItem } = useStore()
+  const { inventory, categories, updateInventoryItem, deleteInventoryItem, selectedVenueId } = useStore()
   const [search, setSearch] = useState('')
   const [filterCat, setFilterCat] = useState('')
   const [showAdd, setShowAdd] = useState(false)
@@ -31,14 +32,16 @@ export default function Inventory() {
   const [qtyModal, setQtyModal] = useState<{ item: InventoryItem; type: 'in' | 'out' } | null>(null)
   const [qtyValue, setQtyValue] = useState('')
 
-  const filtered = inventory.filter((item) => {
+  const venueInventory = selectedVenueId ? inventory.filter((i) => i.venueId === selectedVenueId) : inventory
+
+  const filtered = venueInventory.filter((item) => {
     const matchSearch = item.name.toLowerCase().includes(search.toLowerCase())
     const matchCat = filterCat ? item.categoryId === filterCat : true
     return matchSearch && matchCat
   })
 
-  const totalValue = inventory.reduce((sum, i) => sum + i.quantity * i.price, 0)
-  const lowCount = inventory.filter((i) => getStockStatus(i) === 'low' || getStockStatus(i) === 'empty').length
+  const totalValue = venueInventory.reduce((sum, i) => sum + i.quantity * i.price, 0)
+  const lowCount = venueInventory.filter((i) => getStockStatus(i) === 'low' || getStockStatus(i) === 'empty').length
 
   const handleQty = () => {
     if (!qtyModal) return
@@ -62,8 +65,8 @@ export default function Inventory() {
       <div className="flex items-start justify-between">
         <div>
           <h1 style={{ color: 'var(--white)' }}>Склад</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
-            {inventory.length} позиций • {(totalValue / 1000).toFixed(1)}к ₽
+          <p className="text-sm mt-0.5 num" style={{ color: 'var(--muted)' }}>
+            {venueInventory.length} позиций • {formatPrice(totalValue)}
           </p>
         </div>
         <button onClick={() => setShowAdd(true)} className="btn-primary">
@@ -76,15 +79,15 @@ export default function Inventory() {
       <div className="grid grid-cols-3 gap-3">
         <div className="kpi-card">
           <p className="label">Всего позиций</p>
-          <p className="text-2xl font-bold" style={{ color: 'var(--white)', fontFamily: "'Instrument Serif', serif" }}>{inventory.length}</p>
+          <p className="text-2xl font-bold num" style={{ color: 'var(--white)' }}>{venueInventory.length}</p>
         </div>
         <div className="kpi-card">
           <p className="label">Стоимость склада</p>
-          <p className="text-2xl font-bold" style={{ color: 'var(--gold)', fontFamily: "'Instrument Serif', serif" }}>{(totalValue / 1000).toFixed(1)}к ₽</p>
+          <p className="text-xl font-bold num" style={{ color: 'var(--gold)' }}>{formatPrice(totalValue)}</p>
         </div>
         <div className="kpi-card">
           <p className="label">Нехватка</p>
-          <p className="text-2xl font-bold" style={{ color: lowCount > 0 ? '#ef4444' : '#22c55e', fontFamily: "'Instrument Serif', serif" }}>{lowCount}</p>
+          <p className="text-2xl font-bold num" style={{ color: lowCount > 0 ? 'var(--red)' : 'var(--green)' }}>{lowCount}</p>
         </div>
       </div>
 
@@ -147,13 +150,13 @@ export default function Inventory() {
                         <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{cat?.icon} {cat?.name}</span>
                       </td>
                       <td style={{ minWidth: 100 }}>
-                        <div className="mb-1 text-sm" style={{ color: 'var(--white)' }}>{item.quantity}</div>
+                        <div className="mb-1 text-sm num" style={{ color: 'var(--white)' }}>{item.quantity}</div>
                         <div className="stock-bar">
                           <div className={`stock-bar-fill ${status}`} style={{ width: `${pct}%` }} />
                         </div>
                       </td>
                       <td style={{ color: 'var(--muted)' }}>{item.unit}</td>
-                      <td style={{ color: 'var(--white)' }}>{item.price.toLocaleString('ru-RU')} ₽</td>
+                      <td className="num" style={{ color: 'var(--white)' }}>{formatPrice(item.price)}</td>
                       <td>
                         <span className={`badge badge-${status}`}>{statusLabels[status]}</span>
                       </td>
@@ -163,8 +166,8 @@ export default function Inventory() {
                             title="Приход"
                             onClick={() => { setQtyModal({ item, type: 'in' }); setQtyValue('') }}
                             className="p-1.5 rounded transition-colors"
-                            style={{ color: '#22c55e' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.1)')}
+                            style={{ color: 'var(--green)' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(48,209,88,0.1)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                           >
                             <ArrowDownCircle className="w-4 h-4" />
@@ -173,8 +176,8 @@ export default function Inventory() {
                             title="Списание"
                             onClick={() => { setQtyModal({ item, type: 'out' }); setQtyValue('') }}
                             className="p-1.5 rounded transition-colors"
-                            style={{ color: '#f59e0b' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(245,158,11,0.1)')}
+                            style={{ color: 'var(--amber)' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,214,10,0.1)')}
                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                           >
                             <ArrowUpCircle className="w-4 h-4" />
@@ -183,9 +186,9 @@ export default function Inventory() {
                             title="Удалить"
                             onClick={() => { if (confirm(`Удалить "${item.name}"?`)) deleteInventoryItem(item.id) }}
                             className="p-1.5 rounded transition-colors"
-                            style={{ color: '#6b7280' }}
-                            onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
-                            onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}
+                            style={{ color: 'var(--muted)' }}
+                            onMouseEnter={e => (e.currentTarget.style.color = 'var(--red)')}
+                            onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -228,7 +231,7 @@ export default function Inventory() {
         {qtyModal && (
           <div className="space-y-4">
             <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              {qtyModal.item.name} — текущий остаток: <span style={{ color: 'var(--white)' }}>{qtyModal.item.quantity} {qtyModal.item.unit}</span>
+              {qtyModal.item.name} — текущий остаток: <span className="num" style={{ color: 'var(--white)' }}>{qtyModal.item.quantity} {qtyModal.item.unit}</span>
             </p>
             <div>
               <label className="label">{qtyModal.type === 'in' ? 'Количество прихода' : 'Количество списания'} ({qtyModal.item.unit})</label>

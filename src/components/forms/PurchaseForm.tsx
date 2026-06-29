@@ -2,14 +2,16 @@ import { useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { Plus, Trash2 } from 'lucide-react'
 import type { PurchaseItem } from '../../types'
+import { formatPrice } from '../../utils/format'
 
 type Props = {
   onClose: () => void
 }
 
 export default function PurchaseForm({ onClose }: Props) {
-  const { suppliers, inventory, addPurchase } = useStore()
+  const { suppliers, inventory, venues, selectedVenueId, addPurchase } = useStore()
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? '')
+  const [venueId, setVenueId] = useState(selectedVenueId ?? venues[0]?.id ?? '')
   const [expectedDate, setExpectedDate] = useState('')
   const [notes, setNotes] = useState('')
   const [items, setItems] = useState<PurchaseItem[]>([
@@ -47,6 +49,7 @@ export default function PurchaseForm({ onClose }: Props) {
     addPurchase({
       id: `p${Date.now()}`,
       supplierId,
+      venueId,
       status: 'pending',
       items: validItems,
       totalAmount,
@@ -67,9 +70,16 @@ export default function PurchaseForm({ onClose }: Props) {
           </select>
         </div>
         <div>
-          <label className="label">Ожидаемая дата</label>
-          <input className="input" type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
+          <label className="label">Точка продаж</label>
+          <select className="input" value={venueId} onChange={(e) => setVenueId(e.target.value)}>
+            {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
         </div>
+      </div>
+
+      <div>
+        <label className="label">Ожидаемая дата</label>
+        <input className="input" type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
       </div>
 
       <div>
@@ -100,9 +110,9 @@ export default function PurchaseForm({ onClose }: Props) {
                   type="button"
                   onClick={() => removeItem(idx)}
                   className="p-2 flex-shrink-0 transition-colors"
-                  style={{ color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
-                  onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}
+                  style={{ color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--red)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -117,7 +127,7 @@ export default function PurchaseForm({ onClose }: Props) {
                   <input className="input text-xs" value={item.unit} onChange={(e) => updateItem(idx, 'unit', e.target.value)} />
                 </div>
                 <div>
-                  <label className="label">Цена (₽)</label>
+                  <label className="label">Цена (₸)</label>
                   <input className="input text-xs" type="number" min="0" step="0.01" value={item.price} onChange={(e) => updateItem(idx, 'price', e.target.value)} />
                 </div>
               </div>
@@ -129,7 +139,7 @@ export default function PurchaseForm({ onClose }: Props) {
       {totalAmount > 0 && (
         <div className="rounded-lg p-3 flex justify-between items-center" style={{ background: 'rgba(200,168,75,0.08)', border: '1px solid rgba(200,168,75,0.2)' }}>
           <span className="text-sm" style={{ color: 'var(--muted)' }}>Итого:</span>
-          <span className="text-lg font-bold" style={{ color: 'var(--gold)' }}>{totalAmount.toLocaleString('ru-RU')} ₽</span>
+          <span className="text-lg font-bold num" style={{ color: 'var(--gold)' }}>{formatPrice(totalAmount)}</span>
         </div>
       )}
 

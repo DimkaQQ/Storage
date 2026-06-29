@@ -8,6 +8,7 @@ import PurchaseDetail from './pages/PurchaseDetail'
 import Suppliers from './pages/Suppliers'
 import Categories from './pages/Categories'
 import Analytics from './pages/Analytics'
+import Venues from './pages/Venues'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/venues" element={<Venues />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/inventory/:id" element={<InventoryItem />} />
         <Route path="/purchases" element={<Purchases />} />

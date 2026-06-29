@@ -9,7 +9,7 @@ type Props = {
 }
 
 export default function InventoryForm({ item, onClose, inline }: Props) {
-  const { categories, suppliers, addInventoryItem, updateInventoryItem } = useStore()
+  const { categories, suppliers, venues, selectedVenueId, addInventoryItem, updateInventoryItem } = useStore()
   const [form, setForm] = useState({
     name: item?.name ?? '',
     categoryId: item?.categoryId ?? (categories[0]?.id ?? ''),
@@ -18,6 +18,7 @@ export default function InventoryForm({ item, onClose, inline }: Props) {
     minQuantity: item?.minQuantity ?? 5,
     price: item?.price ?? 0,
     supplierId: item?.supplierId ?? (suppliers[0]?.id ?? ''),
+    venueId: item?.venueId ?? (selectedVenueId ?? venues[0]?.id ?? ''),
     location: item?.location ?? '',
     notes: item?.notes ?? '',
   })
@@ -30,10 +31,17 @@ export default function InventoryForm({ item, onClose, inline }: Props) {
     if (item) {
       updateInventoryItem({ ...item, ...form, quantity: Number(form.quantity), minQuantity: Number(form.minQuantity), price: Number(form.price) })
     } else {
-      addInventoryItem({ ...form, quantity: Number(form.quantity), minQuantity: Number(form.minQuantity), price: Number(form.price), id: `i${Date.now()}`, lastUpdated: new Date().toISOString().slice(0, 10) })
+      addInventoryItem({
+        ...form,
+        quantity: Number(form.quantity),
+        minQuantity: Number(form.minQuantity),
+        price: Number(form.price),
+        id: `i${Date.now()}`,
+        lastUpdated: new Date().toISOString().slice(0, 10),
+      })
     }
     if (inline) {
-      setForm({ name: '', categoryId: categories[0]?.id ?? '', quantity: 0, unit: 'кг', minQuantity: 5, price: 0, supplierId: suppliers[0]?.id ?? '', location: '', notes: '' })
+      setForm({ name: '', categoryId: categories[0]?.id ?? '', quantity: 0, unit: 'кг', minQuantity: 5, price: 0, supplierId: suppliers[0]?.id ?? '', venueId: selectedVenueId ?? venues[0]?.id ?? '', location: '', notes: '' })
       setSubmitted(true)
       setTimeout(() => setSubmitted(false), 2000)
     } else {
@@ -46,7 +54,7 @@ export default function InventoryForm({ item, onClose, inline }: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       {submitted && (
-        <div className="text-sm text-center py-2 rounded-lg" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>
+        <div className="text-sm text-center py-2 rounded-lg" style={{ background: 'rgba(48,209,88,0.1)', color: 'var(--green)' }}>
           Товар добавлен!
         </div>
       )}
@@ -69,6 +77,12 @@ export default function InventoryForm({ item, onClose, inline }: Props) {
           </select>
         </div>
       </div>
+      <div>
+        <label className="label">Точка продаж</label>
+        <select className="input" value={form.venueId} onChange={(e) => set('venueId', e.target.value)}>
+          {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+      </div>
       <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="label">Кол-во</label>
@@ -86,7 +100,7 @@ export default function InventoryForm({ item, onClose, inline }: Props) {
         </div>
       </div>
       <div>
-        <label className="label">Цена за ед. (₽)</label>
+        <label className="label">Цена за ед. (₸)</label>
         <input className="input" type="number" min="0" step="0.01" value={form.price} onChange={(e) => set('price', e.target.value)} />
       </div>
       <div>

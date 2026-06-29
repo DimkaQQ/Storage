@@ -7,30 +7,33 @@ import Modal from '../components/Modal'
 import PurchaseForm from '../components/forms/PurchaseForm'
 import { Link } from 'react-router-dom'
 import type { PurchaseStatus } from '../types'
+import { formatPrice } from '../utils/format'
 
 const statuses: PurchaseStatus[] = ['pending', 'ordered', 'received', 'cancelled']
 
 const statusFilterStyle: Record<PurchaseStatus, { active: string; dot: string }> = {
-  pending:   { active: 'rgba(245,158,11,0.15)', dot: '#f59e0b' },
-  ordered:   { active: 'rgba(59,130,246,0.15)', dot: '#60a5fa' },
-  received:  { active: 'rgba(34,197,94,0.15)', dot: '#22c55e' },
-  cancelled: { active: 'rgba(107,114,128,0.15)', dot: '#9ca3af' },
+  pending:   { active: 'rgba(255,214,10,0.12)', dot: 'var(--amber)' },
+  ordered:   { active: 'rgba(10,132,255,0.12)', dot: 'var(--blue)' },
+  received:  { active: 'rgba(48,209,88,0.12)',  dot: 'var(--green)' },
+  cancelled: { active: 'rgba(255,255,255,0.06)', dot: 'var(--muted)' },
 }
 
 export default function Purchases() {
-  const { purchases, suppliers } = useStore()
+  const { purchases, suppliers, venues, selectedVenueId } = useStore()
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<PurchaseStatus | ''>('')
   const [showAdd, setShowAdd] = useState(false)
 
-  const filtered = purchases.filter((p) => {
+  const venuePurchases = selectedVenueId ? purchases.filter((p) => p.venueId === selectedVenueId) : purchases
+
+  const filtered = venuePurchases.filter((p) => {
     const supplier = suppliers.find((s) => s.id === p.supplierId)
     const matchSearch = supplier?.name.toLowerCase().includes(search.toLowerCase()) || p.notes?.toLowerCase().includes(search.toLowerCase())
     const matchStatus = filterStatus ? p.status === filterStatus : true
     return matchSearch && matchStatus
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
-  const totalActive = purchases
+  const totalActive = venuePurchases
     .filter((p) => p.status === 'pending' || p.status === 'ordered')
     .reduce((sum, p) => sum + p.totalAmount, 0)
 
@@ -40,8 +43,8 @@ export default function Purchases() {
       <div className="flex items-start justify-between">
         <div>
           <h1 style={{ color: 'var(--white)' }}>Закупки</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
-            {purchases.length} заказов • {totalActive.toLocaleString('ru-RU')} ₽ активных
+          <p className="text-sm mt-0.5 num" style={{ color: 'var(--muted)' }}>
+            {venuePurchases.length} заказов • {formatPrice(totalActive)} активных
           </p>
         </div>
         <button onClick={() => setShowAdd(true)} className="btn-primary">
@@ -53,7 +56,7 @@ export default function Purchases() {
       {/* Status filter chips */}
       <div className="grid grid-cols-4 gap-2">
         {statuses.map((s) => {
-          const count = purchases.filter((p) => p.status === s).length
+          const count = venuePurchases.filter((p) => p.status === s).length
           const isActive = filterStatus === s
           const style = statusFilterStyle[s]
           return (
@@ -68,7 +71,7 @@ export default function Purchases() {
                 padding: '0.625rem',
               }}
             >
-              <p className="text-lg font-bold" style={{ color: isActive ? style.dot : 'var(--white)', fontFamily: "'Instrument Serif', serif" }}>{count}</p>
+              <p className="text-lg font-bold num" style={{ color: isActive ? style.dot : 'var(--white)' }}>{count}</p>
               <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{labels[s]}</p>
             </button>
           )
@@ -91,6 +94,7 @@ export default function Purchases() {
               <tr>
                 <th>Номер</th>
                 <th>Поставщик</th>
+                {!selectedVenueId && <th>Точка</th>}
                 <th>Дата</th>
                 <th>Ожидается</th>
                 <th>Статус</th>
@@ -102,21 +106,27 @@ export default function Purchases() {
             <tbody>
               {filtered.map((p) => {
                 const supplier = suppliers.find((s) => s.id === p.supplierId)
+                const venue = venues.find((v) => v.id === p.venueId)
                 return (
                   <tr key={p.id}>
-                    <td style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>#{p.id.replace('p', '')}</td>
+                    <td className="num" style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>#{p.id.replace('p', '')}</td>
                     <td>
                       <span className="font-medium" style={{ color: 'var(--white)' }}>{supplier?.name ?? 'Неизвестно'}</span>
                       {p.notes && <p className="text-xs mt-0.5 truncate max-w-xs" style={{ color: 'var(--muted)' }}>{p.notes}</p>}
                     </td>
-                    <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{p.createdAt.slice(0, 10)}</td>
-                    <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{p.expectedDate?.slice(0, 10) ?? '—'}</td>
+                    {!selectedVenueId && (
+                      <td>
+                        <span className="text-xs" style={{ color: 'var(--muted)' }}>{venue?.name ?? '—'}</span>
+                      </td>
+                    )}
+                    <td className="num" style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{p.createdAt.slice(0, 10)}</td>
+                    <td className="num" style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{p.expectedDate?.slice(0, 10) ?? '—'}</td>
                     <td>
                       <Badge variant={p.status as PurchaseStatus}>{labels[p.status as PurchaseStatus] ?? p.status}</Badge>
                     </td>
-                    <td style={{ color: 'var(--muted)' }}>{p.items.length}</td>
+                    <td className="num" style={{ color: 'var(--muted)' }}>{p.items.length}</td>
                     <td>
-                      <span className="font-semibold" style={{ color: 'var(--white)' }}>{p.totalAmount.toLocaleString('ru-RU')} ₽</span>
+                      <span className="font-semibold num" style={{ color: 'var(--white)' }}>{formatPrice(p.totalAmount)}</span>
                     </td>
                     <td>
                       <Link
