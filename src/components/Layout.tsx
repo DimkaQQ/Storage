@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Package, ShoppingCart, Truck, Tag, BarChart3, ChefHat, Menu, X, MapPin, Building2 } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingCart, Truck, Tag, BarChart3, ChefHat, Menu, X, MapPin, Building2, ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
 
@@ -23,42 +23,56 @@ const mobileNavItems = [
 
 function VenueSelector({ onSelect }: { onSelect?: () => void }) {
   const { venues, selectedVenueId, setSelectedVenue } = useStore()
+  const [open, setOpen] = useState(false)
+  const selected = venues.find((v) => v.id === selectedVenueId)
+
   return (
-    <div className="px-3 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-      <p className="label mb-2 px-1">Точка продаж</p>
-      <div className="space-y-0.5">
-        <button
-          onClick={() => { setSelectedVenue(null); onSelect?.() }}
-          className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
-          style={{
-            background: selectedVenueId === null ? 'var(--gold-dim)' : 'transparent',
-            color: selectedVenueId === null ? 'var(--gold)' : 'var(--muted)',
-            border: '1px solid',
-            borderColor: selectedVenueId === null ? 'rgba(200,168,75,0.2)' : 'transparent',
-            boxShadow: selectedVenueId === null ? 'inset 3px 0 0 var(--gold)' : 'none',
-          }}
-        >
-          <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-          <span className="font-medium">Все точки</span>
-        </button>
-        {venues.map((v) => (
-          <button
-            key={v.id}
-            onClick={() => { setSelectedVenue(v.id); onSelect?.() }}
-            className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all"
-            style={{
-              background: selectedVenueId === v.id ? 'var(--gold-dim)' : 'transparent',
-              color: selectedVenueId === v.id ? 'var(--gold)' : 'var(--muted)',
-              border: '1px solid',
-              borderColor: selectedVenueId === v.id ? 'rgba(200,168,75,0.2)' : 'transparent',
-              boxShadow: selectedVenueId === v.id ? 'inset 3px 0 0 var(--gold)' : 'none',
-            }}
-          >
-            <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="truncate">{v.name}</span>
-          </button>
-        ))}
-      </div>
+    <div style={{ borderBottom: '1px solid var(--border)' }}>
+      {/* Collapsible header */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 transition-colors"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}
+        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+      >
+        <div className="flex items-center gap-2">
+          <MapPin className="w-3.5 h-3.5 flex-shrink-0" style={{ color: selectedVenueId ? 'var(--gold)' : 'var(--muted)' }} />
+          <span className="text-sm font-medium truncate" style={{ color: selectedVenueId ? 'var(--gold)' : 'var(--white)' }}>
+            {selected ? selected.name : 'Все точки'}
+          </span>
+        </div>
+        <ChevronDown
+          className="w-3.5 h-3.5 flex-shrink-0 transition-transform"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', color: 'var(--muted)' }}
+        />
+      </button>
+
+      {/* Dropdown list */}
+      {open && (
+        <div className="px-3 pb-2 space-y-0.5">
+          {[{ id: null, name: 'Все точки' }, ...venues].map((v) => {
+            const isActive = v.id === selectedVenueId
+            return (
+              <button
+                key={v.id ?? 'all'}
+                onClick={() => { setSelectedVenue(v.id); setOpen(false); onSelect?.() }}
+                className="w-full text-left flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all"
+                style={{
+                  background: isActive ? 'var(--gold-dim)' : 'transparent',
+                  color: isActive ? 'var(--gold)' : 'var(--muted)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  boxShadow: isActive ? 'inset 3px 0 0 var(--gold)' : 'none',
+                }}
+              >
+                <span className="truncate">{v.name}</span>
+                {isActive && <span className="ml-auto w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: 'var(--gold)' }} />}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
