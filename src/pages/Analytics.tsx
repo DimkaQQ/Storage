@@ -1,135 +1,163 @@
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend, LineChart, Line
+} from 'recharts'
 import { useStore } from '../store/useStore'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
+import { TrendingUp, Package, ShoppingCart } from 'lucide-react'
 
-const COLORS = ['#F97316', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4', '#84CC16']
+const COLORS = ['#F97316', '#3B82F6', '#22C55E', '#8B5CF6', '#EF4444', '#F59E0B', '#06B6D4', '#EC4899']
 
 export default function Analytics() {
-  const { inventory, purchases, categories, suppliers } = useStore()
+  const { purchases, inventory, categories, suppliers } = useStore()
 
-  // Spending by category
-  const categorySpend = categories.map((cat) => {
-    const items = inventory.filter((i) => i.categoryId === cat.id)
-    const value = items.reduce((s, i) => s + i.quantity * i.price, 0)
-    return { name: cat.name.split(' ')[0], value, icon: cat.icon }
-  }).filter((c) => c.value > 0).sort((a, b) => b.value - a.value)
+  // Spending by supplier
+  const spendBySupplier = suppliers.map((s) => ({
+    name: s.name.split(' ')[0],
+    amount: purchases
+      .filter((p) => p.supplierId === s.id && p.status === 'received')
+      .reduce((sum, p) => sum + p.totalAmount, 0),
+  })).filter((s) => s.amount > 0).sort((a, b) => b.amount - a.amount)
 
-  // Spending by supplier (received orders)
-  const supplierSpend = suppliers.map((sup) => {
-    const total = purchases.filter((p) => p.supplierId === sup.id && p.status === 'received').reduce((s, p) => s + p.totalAmount, 0)
-    return { name: sup.name, value: total }
-  }).filter((s) => s.value > 0).sort((a, b) => b.value - a.value)
+  // Stock by category
+  const stockByCategory = categories.map((c) => {
+    const items = inventory.filter((i) => i.categoryId === c.id)
+    const value = items.reduce((sum, i) => sum + i.quantity * i.price, 0)
+    return { name: c.name.split(' ')[0], value, icon: c.icon }
+  }).filter((c) => c.value > 0)
 
-  // Monthly purchases (by createdAt)
-  const monthlyMap: Record<string, number> = {}
-  purchases.filter((p) => p.status === 'received').forEach((p) => {
-    const month = p.createdAt.slice(0, 7)
-    monthlyMap[month] = (monthlyMap[month] ?? 0) + p.totalAmount
-  })
-  const monthly = Object.entries(monthlyMap).sort().map(([k, v]) => ({ month: k.slice(5), value: v }))
+  // Purchase status distribution
+  const statusData = [
+    { name: 'Ожидает', value: purchases.filter((p) => p.status === 'pending').length, color: '#F59E0B' },
+    { name: 'Заказан', value: purchases.filter((p) => p.status === 'ordered').length, color: '#3B82F6' },
+    { name: 'Получен', value: purchases.filter((p) => p.status === 'received').length, color: '#22C55E' },
+    { name: 'Отменён', value: purchases.filter((p) => p.status === 'cancelled').length, color: '#EF4444' },
+  ].filter((d) => d.value > 0)
 
-  // Totals
-  const totalReceived = purchases.filter((p) => p.status === 'received').reduce((s, p) => s + p.totalAmount, 0)
-  const totalPending = purchases.filter((p) => p.status === 'pending' || p.status === 'ordered').reduce((s, p) => s + p.totalAmount, 0)
-  const stockValue = inventory.reduce((s, i) => s + i.quantity * i.price, 0)
-  const avgOrder = purchases.filter((p) => p.status === 'received').length > 0
-    ? Math.round(totalReceived / purchases.filter((p) => p.status === 'received').length)
-    : 0
+  // Top items by value
+  const topItems = [...inventory]
+    .sort((a, b) => (b.quantity * b.price) - (a.quantity * a.price))
+    .slice(0, 8)
+    .map((i) => ({ name: i.name.split(' ')[0], value: i.quantity * i.price }))
+
+  const totalSpent = purchases.filter((p) => p.status === 'received').reduce((sum, p) => sum + p.totalAmount, 0)
+  const totalStock = inventory.reduce((sum, i) => sum + i.quantity * i.price, 0)
+  const avgOrder = purchases.length > 0 ? Math.round(purchases.reduce((sum, p) => sum + p.totalAmount, 0) / purchases.length) : 0
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 lg:p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Аналитика</h1>
-        <p className="text-sm text-gray-500">Финансовые показатели склада</p>
+        <p className="text-sm text-gray-500 mt-0.5">Статистика закупок и склада</p>
       </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          { label: 'Куплено всего', value: totalReceived.toLocaleString() + ' ₽', color: 'text-green-600', bg: 'bg-green-50' },
-          { label: 'В ожидании', value: totalPending.toLocaleString() + ' ₽', color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Стоимость склада', value: stockValue.toLocaleString() + ' ₽', color: 'text-orange-600', bg: 'bg-orange-50' },
-          { label: 'Средний заказ', value: avgOrder.toLocaleString() + ' ₽', color: 'text-purple-600', bg: 'bg-purple-50' },
-        ].map((kpi) => (
-          <div key={kpi.label} className={`card p-4 ${kpi.bg}`}>
-            <p className="text-xs text-gray-500 mb-1">{kpi.label}</p>
-            <p className={`text-xl font-bold ${kpi.color}`}>{kpi.value}</p>
-          </div>
-        ))}
+      {/* KPIs */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="card text-center">
+          <p className="text-xs text-gray-400 mb-1">Потрачено всего</p>
+          <p className="text-lg font-bold text-gray-900">{(totalSpent / 1000).toFixed(0)}к ₽</p>
+        </div>
+        <div className="card text-center">
+          <p className="text-xs text-gray-400 mb-1">Стоимость склада</p>
+          <p className="text-lg font-bold text-green-600">{(totalStock / 1000).toFixed(0)}к ₽</p>
+        </div>
+        <div className="card text-center">
+          <p className="text-xs text-gray-400 mb-1">Средний заказ</p>
+          <p className="text-lg font-bold text-primary-600">{(avgOrder / 1000).toFixed(0)}к ₽</p>
+        </div>
       </div>
 
-      {/* Bar chart: monthly */}
-      {monthly.length > 0 && (
-        <div className="card p-4">
-          <h2 className="font-semibold text-gray-900 mb-4">Расходы по месяцам</h2>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={monthly} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-              <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `${(v/1000).toFixed(0)}к`} />
-              <Tooltip formatter={(v: number) => [`${v.toLocaleString()} ₽`, 'Сумма']} />
-              <Bar dataKey="value" fill="#F97316" radius={[6, 6, 0, 0]} />
+      {/* Spending by supplier */}
+      {spendBySupplier.length > 0 && (
+        <div className="card">
+          <h3 className="font-semibold text-gray-900 mb-4">Расходы по поставщикам (₽)</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={spendBySupplier} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1000).toFixed(0)}к`} />
+              <Tooltip formatter={(v: number) => [`${v.toLocaleString('ru-RU')} ₽`, 'Сумма']} />
+              <Bar dataKey="amount" fill="#F97316" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Pie: by category */}
-        {categorySpend.length > 0 && (
-          <div className="card p-4">
-            <h2 className="font-semibold text-gray-900 mb-4">Склад по категориям</h2>
-            <ResponsiveContainer width="100%" height={220}>
+      {/* Two column charts */}
+      <div className="grid lg:grid-cols-2 gap-4">
+        {/* Category stock value */}
+        {stockByCategory.length > 0 && (
+          <div className="card">
+            <h3 className="font-semibold text-gray-900 mb-4">Запасы по категориям</h3>
+            <ResponsiveContainer width="100%" height={200}>
               <PieChart>
-                <Pie data={categorySpend} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false}>
-                  {categorySpend.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <Pie data={stockByCategory} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                  {stockByCategory.map((_, idx) => (
+                    <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                  ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => [`${v.toLocaleString()} ₽`]} />
+                <Tooltip formatter={(v: number) => [`${v.toLocaleString('ru-RU')} ₽`, 'Стоимость']} />
               </PieChart>
             </ResponsiveContainer>
           </div>
         )}
 
-        {/* Bar: by supplier */}
-        {supplierSpend.length > 0 && (
-          <div className="card p-4">
-            <h2 className="font-semibold text-gray-900 mb-4">Расходы по поставщикам</h2>
-            <div className="space-y-2.5">
-              {supplierSpend.map((s, i) => {
-                const pct = Math.round((s.value / supplierSpend[0].value) * 100)
-                return (
-                  <div key={i}>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-700 font-medium">{s.name}</span>
-                      <span className="text-gray-500">{s.value.toLocaleString()} ₽</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: COLORS[i % COLORS.length] }} />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+        {/* Order status */}
+        {statusData.length > 0 && (
+          <div className="card">
+            <h3 className="font-semibold text-gray-900 mb-4">Статусы заказов</h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                  {statusData.map((d, idx) => (
+                    <Cell key={idx} fill={d.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         )}
       </div>
 
-      {/* Top expensive items */}
-      <div className="card p-4">
-        <h2 className="font-semibold text-gray-900 mb-4">Топ по стоимости на складе</h2>
+      {/* Top items */}
+      <div className="card">
+        <h3 className="font-semibold text-gray-900 mb-4">Топ товаров по стоимости запаса</h3>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={topItems} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1000).toFixed(0)}к`} />
+            <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
+            <Tooltip formatter={(v: number) => [`${v.toLocaleString('ru-RU')} ₽`, 'Стоимость']} />
+            <Bar dataKey="value" fill="#3B82F6" radius={[0, 6, 6, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Low stock warning items */}
+      <div className="card">
+        <h3 className="font-semibold text-gray-900 mb-3">Позиции требующие пополнения</h3>
         <div className="space-y-2">
-          {[...inventory].sort((a, b) => (b.quantity * b.price) - (a.quantity * a.price)).slice(0, 8).map((item, i) => {
+          {inventory.filter((i) => i.quantity <= i.minQuantity).map((item) => {
             const cat = categories.find((c) => c.id === item.categoryId)
+            const pct = Math.round((item.quantity / Math.max(item.minQuantity, 1)) * 100)
             return (
               <div key={item.id} className="flex items-center gap-3">
-                <span className="text-xs font-bold text-gray-400 w-5">#{i+1}</span>
                 <span className="text-lg">{cat?.icon ?? '📦'}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
-                  <p className="text-xs text-gray-500">{item.quantity} {item.unit} × {item.price} ₽/ед.</p>
+                <div className="flex-1">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="font-medium text-gray-800 truncate">{item.name}</span>
+                    <span className="text-red-500 font-medium flex-shrink-0 ml-2">{item.quantity}/{item.minQuantity} {item.unit}</span>
+                  </div>
+                  <div className="bg-red-100 rounded-full h-1.5">
+                    <div className="bg-red-400 h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
                 </div>
-                <span className="font-bold text-gray-900">{(item.quantity * item.price).toLocaleString()} ₽</span>
               </div>
             )
           })}
+          {inventory.filter((i) => i.quantity <= i.minQuantity).length === 0 && (
+            <p className="text-sm text-green-600 text-center py-4">✓ Все запасы в норме!</p>
+          )}
         </div>
       </div>
     </div>

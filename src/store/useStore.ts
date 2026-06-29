@@ -127,6 +127,8 @@ type Store = {
   updatePurchaseStatus: (id: string, status: PurchaseStatus) => void
   deletePurchase: (id: string) => void
   addCategory: (category: Category) => void
+  updateCategory: (id: string, category: Partial<Category>) => void
+  deleteCategory: (id: string) => void
 }
 
 export const useStore = create<Store>()(
@@ -147,7 +149,9 @@ export const useStore = create<Store>()(
         purchases: s.purchases.map((p) => p.id === id ? { ...p, status, ...(status === 'received' ? { receivedDate: new Date().toISOString().slice(0, 10) } : {}) } : p)
       })),
       deletePurchase: (id) => set((s) => ({ purchases: s.purchases.filter((p) => p.id !== id) })),
-      addCategory: (category) => set((s) => ({ categories: [...s.categories, category] })),
+      addCategory: (category) => set((s) => ({ categories: [...s.categories, { ...category, id: `cat-${Math.random().toString(36).slice(2,8)}` }] })),
+      updateCategory: (id, category) => set((s) => ({ categories: s.categories.map((c) => c.id === id ? { ...c, ...category } : c) })),
+      deleteCategory: (id) => set((s) => ({ categories: s.categories.filter((c) => c.id !== id) })),
     }),
     { name: 'restaurant-warehouse' }
   )
