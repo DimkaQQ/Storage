@@ -26,11 +26,8 @@ function DarkTooltip({ active, payload, label, formatter }: {
     }}>
       {label && <p style={{ color: 'rgba(255,255,255,0.45)', marginBottom: '4px' }}>{label}</p>}
       {payload.map((p, i) => (
-        <p key={i} style={{ color: '#f5f5f7' }}>
-          {p.name && <span style={{ color: 'rgba(255,255,255,0.45)', marginRight: '6px' }}>{p.name}:</span>}
-          <span style={{ color: p.color && p.color !== 'rgba(255,255,255,0.3)' ? p.color : '#f5f5f7' }}>
-            {formatter ? formatter(p.value) : p.value}
-          </span>
+        <p key={i} style={{ color: p.color && p.color !== 'rgba(255,255,255,0.3)' ? p.color : '#f5f5f7' }}>
+          {formatter ? formatter(p.value) : p.value}
         </p>
       ))}
     </div>
