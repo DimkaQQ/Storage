@@ -7,16 +7,35 @@ import { formatPrice } from '../utils/format'
 
 const COLORS = ['#c8a84b', '#30d158', '#0a84ff', '#a78bfa', '#ffd60a', '#ff453a', '#06b6d4', '#ec4899']
 
-const tooltipStyle = {
-  backgroundColor: '#1a1a1a',
-  border: '1px solid rgba(255,255,255,0.07)',
-  borderRadius: '8px',
-  color: '#f5f5f7',
-  fontSize: '0.8rem',
-}
-const tooltipLabelStyle = { color: 'rgba(255,255,255,0.5)', marginBottom: '2px' }
-
 const legendStyle = { fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }
+
+function DarkTooltip({ active, payload, label, formatter }: {
+  active?: boolean
+  payload?: Array<{ value: number; name?: string; color?: string }>
+  label?: string
+  formatter?: (v: number) => string
+}) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{
+      background: '#1a1a1a',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '8px',
+      padding: '8px 12px',
+      fontSize: '0.8rem',
+    }}>
+      {label && <p style={{ color: 'rgba(255,255,255,0.45)', marginBottom: '4px' }}>{label}</p>}
+      {payload.map((p, i) => (
+        <p key={i} style={{ color: '#f5f5f7' }}>
+          {p.name && <span style={{ color: 'rgba(255,255,255,0.45)', marginRight: '6px' }}>{p.name}:</span>}
+          <span style={{ color: p.color && p.color !== 'rgba(255,255,255,0.3)' ? p.color : '#f5f5f7' }}>
+            {formatter ? formatter(p.value) : p.value}
+          </span>
+        </p>
+      ))}
+    </div>
+  )
+}
 
 export default function Analytics() {
   const { purchases, inventory, categories, suppliers, selectedVenueId } = useStore()
@@ -88,11 +107,7 @@ export default function Analytics() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }} />
               <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}к`} />
-              <Tooltip
-                formatter={(v: number) => [formatPrice(v), 'Сумма']}
-                contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle}
-                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-              />
+              <Tooltip content={<DarkTooltip formatter={formatPrice} />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
               <Bar dataKey="amount" fill="var(--gold)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -118,7 +133,7 @@ export default function Analytics() {
                     <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => [formatPrice(v), 'Стоимость']} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
+                <Tooltip content={<DarkTooltip formatter={formatPrice} />} />
                 <Legend
                   iconType="circle"
                   iconSize={8}
@@ -146,7 +161,7 @@ export default function Analytics() {
                     <Cell key={idx} fill={d.color} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
+                <Tooltip content={<DarkTooltip />} />
                 <Legend
                   iconType="circle"
                   iconSize={8}
@@ -167,7 +182,7 @@ export default function Analytics() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}к`} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} width={65} />
-              <Tooltip formatter={(v: number) => [formatPrice(v), 'Стоимость']} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+              <Tooltip content={<DarkTooltip formatter={formatPrice} />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
               <Bar dataKey="value" fill="var(--blue)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
