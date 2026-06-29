@@ -4,8 +4,4 @@ services:
     container_name: restaurant-warehouse
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-      - /var/www/certbot:/var/www/certbot:ro
+      - "127.0.0.1:3000:80"
