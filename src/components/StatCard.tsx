@@ -5,26 +5,30 @@ type Props = {
   value: string | number
   subtitle?: string
   icon: LucideIcon
-  color: string
+  color?: string
   trend?: { value: number; label: string }
+  danger?: boolean
 }
 
-export default function StatCard({ title, value, subtitle, icon: Icon, color, trend }: Props) {
+export default function StatCard({ title, value, subtitle, icon: Icon, danger, trend }: Props) {
   return (
-    <div className="card flex items-start gap-4">
-      <div className={`p-3 rounded-xl ${color} flex-shrink-0`}>
-        <Icon className="w-5 h-5 text-white" />
+    <div className="kpi-card">
+      <div className="flex items-start justify-between mb-2">
+        <p className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{title}</p>
+        <Icon className="w-4 h-4 flex-shrink-0" style={{ color: danger ? '#ef4444' : 'var(--gold)' }} />
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-gray-500 font-medium">{title}</p>
-        <p className="text-2xl font-bold text-gray-900 mt-0.5">{value}</p>
-        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
-        {trend && (
-          <p className={`text-xs mt-1 font-medium ${trend.value >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-            {trend.value >= 0 ? '↑' : '↓'} {Math.abs(trend.value)}% {trend.label}
-          </p>
-        )}
-      </div>
+      <p
+        className="text-2xl font-bold"
+        style={{ color: danger ? '#ef4444' : 'var(--white)', fontFamily: "'Instrument Serif', serif" }}
+      >
+        {value}
+      </p>
+      {subtitle && <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{subtitle}</p>}
+      {trend && (
+        <p className="text-xs mt-1 font-medium" style={{ color: trend.value >= 0 ? '#22c55e' : '#ef4444' }}>
+          {trend.value >= 0 ? '↑' : '↓'} {Math.abs(trend.value)}% {trend.label}
+        </p>
+      )}
     </div>
   )
 }

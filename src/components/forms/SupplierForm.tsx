@@ -71,11 +71,12 @@ export default function SupplierForm({ supplier, onClose }: Props) {
               key={c.id}
               type="button"
               onClick={() => toggleCategory(c.id)}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                form.categories.includes(c.id)
-                  ? 'bg-primary-500 text-white border-primary-500'
-                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300'
-              }`}
+              className="chip"
+              style={form.categories.includes(c.id) ? {
+                background: 'rgba(200,168,75,0.15)',
+                borderColor: 'var(--gold)',
+                color: 'var(--gold)',
+              } : {}}
             >
               {c.icon} {c.name}
             </button>
@@ -90,7 +91,8 @@ export default function SupplierForm({ supplier, onClose }: Props) {
               key={r}
               type="button"
               onClick={() => set('rating', r)}
-              className={`text-2xl transition-transform hover:scale-110 ${r <= form.rating ? 'text-amber-400' : 'text-gray-200'}`}
+              className="text-2xl transition-transform hover:scale-110"
+              style={{ color: r <= form.rating ? '#f59e0b' : 'rgba(255,255,255,0.12)', background: 'none', border: 'none', cursor: 'pointer' }}
             >
               ★
             </button>

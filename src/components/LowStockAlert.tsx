@@ -9,22 +9,28 @@ export default function LowStockAlert() {
   if (lowItems.length === 0) return null
 
   return (
-    <div className="card border-red-100 bg-red-50">
+    <div className="card" style={{ borderColor: 'rgba(239,68,68,0.25)' }}>
       <div className="flex items-center gap-2 mb-3">
-        <AlertTriangle className="w-5 h-5 text-red-500" />
-        <h3 className="font-semibold text-red-700">Нехватка товаров ({lowItems.length})</h3>
+        <AlertTriangle className="w-4 h-4" style={{ color: '#ef4444' }} />
+        <h3 className="font-semibold text-sm" style={{ color: '#ef4444' }}>Нехватка товаров ({lowItems.length})</h3>
       </div>
       <div className="space-y-2">
-        {lowItems.slice(0, 5).map((item) => (
-          <Link key={item.id} to={`/inventory/${item.id}`} className="flex items-center justify-between py-1.5 hover:opacity-80 transition-opacity">
-            <span className="text-sm text-red-800">{item.name}</span>
-            <span className="text-xs font-medium bg-red-100 text-red-600 px-2 py-0.5 rounded-full border border-red-200">
-              {item.quantity} / {item.minQuantity} {item.unit}
-            </span>
-          </Link>
-        ))}
+        {lowItems.slice(0, 5).map((item) => {
+          const pct = Math.min(100, Math.round((item.quantity / Math.max(item.minQuantity, 1)) * 100))
+          return (
+            <Link key={item.id} to={`/inventory/${item.id}`} className="block py-1.5 hover:opacity-80 transition-opacity">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm" style={{ color: 'var(--white)' }}>{item.name}</span>
+                <span className="badge badge-low">{item.quantity} / {item.minQuantity} {item.unit}</span>
+              </div>
+              <div className="stock-bar">
+                <div className="stock-bar-fill low" style={{ width: `${pct}%` }} />
+              </div>
+            </Link>
+          )
+        })}
         {lowItems.length > 5 && (
-          <Link to="/inventory" className="block text-xs text-red-500 hover:underline mt-1">
+          <Link to="/inventory" className="block text-xs mt-1 hover:underline" style={{ color: '#ef4444' }}>
             Ещё {lowItems.length - 5} товаров...
           </Link>
         )}

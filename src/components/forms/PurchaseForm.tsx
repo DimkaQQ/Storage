@@ -75,13 +75,18 @@ export default function PurchaseForm({ onClose }: Props) {
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="label mb-0">Позиции заказа</label>
-          <button type="button" onClick={addItem} className="text-xs text-primary-500 hover:text-primary-600 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={addItem}
+            className="flex items-center gap-1 text-xs font-medium"
+            style={{ color: 'var(--gold)', background: 'none', border: 'none', cursor: 'pointer' }}
+          >
             <Plus className="w-3.5 h-3.5" /> Добавить
           </button>
         </div>
         <div className="space-y-2">
           {items.map((item, idx) => (
-            <div key={idx} className="bg-gray-50 rounded-xl p-3 space-y-2">
+            <div key={idx} className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
               <div className="flex items-center gap-2">
                 <select
                   className="input flex-1 text-xs"
@@ -91,21 +96,28 @@ export default function PurchaseForm({ onClose }: Props) {
                   <option value="">— Выберите товар —</option>
                   {inventory.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                 </select>
-                <button type="button" onClick={() => removeItem(idx)} className="p-2 text-red-400 hover:text-red-600 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => removeItem(idx)}
+                  className="p-2 flex-shrink-0 transition-colors"
+                  style={{ color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+                  onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}
+                >
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Кол-во</label>
+                  <label className="label">Кол-во</label>
                   <input className="input text-xs" type="number" min="0" step="0.01" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Ед.</label>
+                  <label className="label">Ед.</label>
                   <input className="input text-xs" value={item.unit} onChange={(e) => updateItem(idx, 'unit', e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Цена (₽)</label>
+                  <label className="label">Цена (₽)</label>
                   <input className="input text-xs" type="number" min="0" step="0.01" value={item.price} onChange={(e) => updateItem(idx, 'price', e.target.value)} />
                 </div>
               </div>
@@ -115,9 +127,9 @@ export default function PurchaseForm({ onClose }: Props) {
       </div>
 
       {totalAmount > 0 && (
-        <div className="bg-primary-50 border border-primary-100 rounded-xl p-3 flex justify-between items-center">
-          <span className="text-sm text-gray-600">Итого:</span>
-          <span className="text-lg font-bold text-primary-600">{totalAmount.toLocaleString('ru-RU')} ₽</span>
+        <div className="rounded-lg p-3 flex justify-between items-center" style={{ background: 'rgba(200,168,75,0.08)', border: '1px solid rgba(200,168,75,0.2)' }}>
+          <span className="text-sm" style={{ color: 'var(--muted)' }}>Итого:</span>
+          <span className="text-lg font-bold" style={{ color: 'var(--gold)' }}>{totalAmount.toLocaleString('ru-RU')} ₽</span>
         </div>
       )}
 

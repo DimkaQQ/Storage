@@ -22,8 +22,8 @@ export default function Suppliers() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Поставщики</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{suppliers.length} контрагентов</p>
+          <h1 style={{ color: 'var(--white)' }}>Поставщики</h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{suppliers.length} контрагентов</p>
         </div>
         <button onClick={() => setShowAdd(true)} className="btn-primary">
           <Plus className="w-4 h-4" />
@@ -35,9 +35,9 @@ export default function Suppliers() {
 
       <div className="space-y-3">
         {filtered.length === 0 ? (
-          <div className="card text-center py-12">
-            <Truck className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-            <p className="text-gray-400">Поставщики не найдены</p>
+          <div className="card flex flex-col items-center justify-center py-16">
+            <Truck className="w-10 h-10 mb-3" style={{ color: 'var(--muted)' }} />
+            <p style={{ color: 'var(--muted)' }}>Поставщики не найдены</p>
           </div>
         ) : (
           filtered.map((s) => {
@@ -47,27 +47,36 @@ export default function Suppliers() {
               <div key={s.id} className="card">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                      <Truck className="w-5 h-5 text-primary-600" />
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'rgba(200,168,75,0.1)', border: '1px solid rgba(200,168,75,0.2)' }}
+                    >
+                      <Truck className="w-5 h-5" style={{ color: 'var(--gold)' }} />
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900">{s.name}</p>
-                      <p className="text-xs text-gray-400">{s.contact}</p>
+                      <p className="font-semibold" style={{ color: 'var(--white)' }}>{s.name}</p>
+                      <p className="text-xs" style={{ color: 'var(--muted)' }}>{s.contact}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 text-amber-400">
-                    <Star className="w-3.5 h-3.5 fill-current" />
-                    <span className="text-xs font-medium text-gray-600">{s.rating}/5</span>
+                  <div className="flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-current" style={{ color: '#f59e0b' }} />
+                    <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>{s.rating}/5</span>
                   </div>
                 </div>
 
                 <div className="space-y-1.5 mb-3">
-                  <a href={`tel:${s.phone}`} className="flex items-center gap-2 text-sm text-gray-600 hover:text-primary-500">
-                    <Phone className="w-3.5 h-3.5 text-gray-400" />
+                  <a href={`tel:${s.phone}`} className="flex items-center gap-2 text-sm transition-colors" style={{ color: 'var(--muted)' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--gold)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+                  >
+                    <Phone className="w-3.5 h-3.5 flex-shrink-0" />
                     {s.phone}
                   </a>
-                  <a href={`mailto:${s.email}`} className="flex items-center gap-2 text-sm text-gray-600 hover:text-primary-500">
-                    <Mail className="w-3.5 h-3.5 text-gray-400" />
+                  <a href={`mailto:${s.email}`} className="flex items-center gap-2 text-sm transition-colors" style={{ color: 'var(--muted)' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--gold)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+                  >
+                    <Mail className="w-3.5 h-3.5 flex-shrink-0" />
                     {s.email}
                   </a>
                 </div>
@@ -75,27 +84,29 @@ export default function Suppliers() {
                 {supCategories.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     {supCategories.map((c) => (
-                      <span key={c.id} className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                      <span key={c.id} className="chip" style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>
                         {c.icon} {c.name}
                       </span>
                     ))}
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-                  <span className="text-xs text-gray-400">{itemCount} товаров на складе</span>
-                  <div className="flex gap-2">
+                <div className="flex items-center justify-between pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>{itemCount} товаров на складе</span>
+                  <div className="flex gap-3">
                     <button
                       onClick={() => setEditSupplier(s)}
-                      className="text-xs text-primary-500 hover:text-primary-600 font-medium"
+                      className="text-xs font-medium transition-colors"
+                      style={{ color: 'var(--gold)', background: 'none', border: 'none', cursor: 'pointer' }}
                     >
                       Редактировать
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm(`Удалить "${s.name}"?`)) deleteSupplier(s.id)
-                      }}
-                      className="text-xs text-red-400 hover:text-red-600 font-medium"
+                      onClick={() => { if (confirm(`Удалить "${s.name}"?`)) deleteSupplier(s.id) }}
+                      className="text-xs font-medium transition-colors"
+                      style={{ color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+                      onMouseLeave={e => (e.currentTarget.style.color = '#6b7280')}
                     >
                       Удалить
                     </button>

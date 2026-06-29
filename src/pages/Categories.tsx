@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Tag, Edit2, Trash2 } from 'lucide-react'
+import { Plus, Edit2, Trash2 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import Modal from '../components/Modal'
 
@@ -10,24 +10,12 @@ type FormState = {
 }
 
 const ICONS = ['🥩', '🐟', '🥦', '🧀', '🥤', '🌶️', '🌾', '🫙', '🍷', '🧊', '🍅', '🥚', '🫐', '🍋', '🧄']
-const COLORS = [
-  'bg-red-100 text-red-700',
-  'bg-blue-100 text-blue-700',
-  'bg-green-100 text-green-700',
-  'bg-yellow-100 text-yellow-700',
-  'bg-purple-100 text-purple-700',
-  'bg-orange-100 text-orange-700',
-  'bg-amber-100 text-amber-700',
-  'bg-cyan-100 text-cyan-700',
-  'bg-pink-100 text-pink-700',
-  'bg-indigo-100 text-indigo-700',
-]
 
 export default function Categories() {
   const { categories, inventory, addCategory, updateCategory, deleteCategory } = useStore()
   const [showAdd, setShowAdd] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
-  const [form, setForm] = useState<FormState>({ name: '', icon: '📦', color: COLORS[0] })
+  const [form, setForm] = useState<FormState>({ name: '', icon: '📦', color: '' })
 
   const openEdit = (id: string) => {
     const cat = categories.find((c) => c.id === id)
@@ -58,23 +46,20 @@ export default function Categories() {
         <label className="label">Иконка</label>
         <div className="flex flex-wrap gap-2">
           {ICONS.map((icon) => (
-            <button key={icon} type="button" onClick={() => setForm((f) => ({ ...f, icon }))}
-              className={`text-xl p-2 rounded-xl border-2 transition-all ${form.icon === icon ? 'border-primary-500 bg-primary-50' : 'border-transparent hover:border-gray-200'}`}>
+            <button
+              key={icon}
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, icon }))}
+              className="text-xl p-2 rounded-xl transition-all"
+              style={{
+                border: form.icon === icon ? '2px solid var(--gold)' : '2px solid transparent',
+                background: form.icon === icon ? 'rgba(200,168,75,0.1)' : 'rgba(255,255,255,0.03)',
+                cursor: 'pointer',
+              }}
+            >
               {icon}
             </button>
           ))}
-        </div>
-      </div>
-      <div>
-        <label className="label">Цвет метки</label>
-        <div className="flex flex-wrap gap-2">
-          {COLORS.map((color) => {
-            const bg = color.split(' ')[0]
-            return (
-              <button key={color} type="button" onClick={() => setForm((f) => ({ ...f, color }))}
-                className={`w-8 h-8 rounded-full border-4 transition-all ${bg} ${form.color === color ? 'border-primary-500 scale-110' : 'border-transparent'}`} />
-            )
-          })}
         </div>
       </div>
       <div className="flex gap-3 pt-2">
@@ -88,8 +73,8 @@ export default function Categories() {
     <div className="p-4 lg:p-6 space-y-5">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Категории</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{categories.length} категорий</p>
+          <h1 style={{ color: 'var(--white)' }}>Категории</h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{categories.length} категорий</p>
         </div>
         <button onClick={() => setShowAdd(true)} className="btn-primary">
           <Plus className="w-4 h-4" />
@@ -101,14 +86,20 @@ export default function Categories() {
         {categories.map((cat) => {
           const count = inventory.filter((i) => i.categoryId === cat.id).length
           return (
-            <div key={cat.id} className={`card flex items-center gap-4 ${cat.color}`}>
+            <div key={cat.id} className="card flex items-center gap-4">
               <div className="text-3xl">{cat.icon}</div>
               <div className="flex-1">
-                <p className="font-semibold">{cat.name}</p>
-                <p className="text-xs opacity-70 mt-0.5">{count} товаров</p>
+                <p className="font-semibold" style={{ color: 'var(--white)' }}>{cat.name}</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{count} товаров</p>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => openEdit(cat.id)} className="p-1.5 hover:bg-white/50 rounded-lg transition-colors">
+                <button
+                  onClick={() => openEdit(cat.id)}
+                  className="p-1.5 rounded-lg transition-colors"
+                  style={{ color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--gold)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+                >
                   <Edit2 className="w-4 h-4" />
                 </button>
                 <button
@@ -116,7 +107,10 @@ export default function Categories() {
                     if (count > 0) { alert(`Удалите сначала ${count} товаров из этой категории`); return }
                     if (confirm(`Удалить категорию "${cat.name}"?`)) deleteCategory(cat.id)
                   }}
-                  className="p-1.5 hover:bg-white/50 rounded-lg transition-colors"
+                  className="p-1.5 rounded-lg transition-colors"
+                  style={{ color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
