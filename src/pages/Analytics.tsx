@@ -14,6 +14,7 @@ const tooltipStyle = {
   color: '#f5f5f7',
   fontSize: '0.8rem',
 }
+const tooltipLabelStyle = { color: 'rgba(255,255,255,0.5)', marginBottom: '2px' }
 
 const legendStyle = { fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }
 
@@ -89,7 +90,7 @@ export default function Analytics() {
               <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}к`} />
               <Tooltip
                 formatter={(v: number) => [formatPrice(v), 'Сумма']}
-                contentStyle={tooltipStyle}
+                contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle}
                 cursor={{ fill: 'rgba(255,255,255,0.03)' }}
               />
               <Bar dataKey="amount" fill="var(--gold)" radius={[4, 4, 0, 0]} />
@@ -117,7 +118,7 @@ export default function Analytics() {
                     <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => [formatPrice(v), 'Стоимость']} contentStyle={tooltipStyle} />
+                <Tooltip formatter={(v: number) => [formatPrice(v), 'Стоимость']} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
                 <Legend
                   iconType="circle"
                   iconSize={8}
@@ -145,7 +146,7 @@ export default function Analytics() {
                     <Cell key={idx} fill={d.color} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={tooltipStyle} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
                 <Legend
                   iconType="circle"
                   iconSize={8}
@@ -166,7 +167,7 @@ export default function Analytics() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}к`} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} width={65} />
-              <Tooltip formatter={(v: number) => [formatPrice(v), 'Стоимость']} contentStyle={tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+              <Tooltip formatter={(v: number) => [formatPrice(v), 'Стоимость']} contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
               <Bar dataKey="value" fill="var(--blue)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
