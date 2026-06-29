@@ -121,7 +121,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="px-5 py-4" style={{ borderTop: '1px solid var(--border)' }}>
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>Demo • dimkaprojects</p>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>DimkaProjects — ADM</p>
         </div>
       </aside>
 
