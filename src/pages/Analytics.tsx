@@ -1,6 +1,6 @@
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import { useStore } from '../store/useStore'
 import { formatPrice } from '../utils/format'
@@ -14,6 +14,8 @@ const tooltipStyle = {
   color: '#f5f5f7',
   fontSize: '0.8rem',
 }
+
+const legendStyle = { fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)' }
 
 export default function Analytics() {
   const { purchases, inventory, categories, suppliers, selectedVenueId } = useStore()
@@ -62,29 +64,29 @@ export default function Analytics() {
 
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="kpi-card text-center">
-          <p className="label">Потрачено всего</p>
-          <p className="text-xl font-bold num" style={{ color: 'var(--white)' }}>{formatPrice(totalSpent)}</p>
-        </div>
-        <div className="kpi-card text-center">
-          <p className="label">Стоимость склада</p>
-          <p className="text-xl font-bold num" style={{ color: 'var(--green)' }}>{formatPrice(totalStock)}</p>
-        </div>
-        <div className="kpi-card text-center">
-          <p className="label">Средний заказ</p>
-          <p className="text-xl font-bold num" style={{ color: 'var(--gold)' }}>{formatPrice(avgOrder)}</p>
-        </div>
+        {[
+          { label: 'Потрачено', value: totalSpent, color: 'var(--white)' },
+          { label: 'Стоимость склада', value: totalStock, color: 'var(--green)' },
+          { label: 'Средний заказ', value: avgOrder, color: 'var(--gold)' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="kpi-card text-center" style={{ padding: '0.75rem' }}>
+            <p className="label" style={{ fontSize: '0.65rem', marginBottom: '0.35rem' }}>{label}</p>
+            <p className="font-bold num" style={{ color, fontSize: 'clamp(0.85rem, 3vw, 1.25rem)', whiteSpace: 'nowrap' }}>
+              {formatPrice(value)}
+            </p>
+          </div>
+        ))}
       </div>
 
       {/* Spending by supplier */}
       {spendBySupplier.length > 0 && (
         <div className="card">
-          <h3 className="font-semibold mb-4" style={{ color: 'var(--white)' }}>Расходы по поставщикам (₸)</h3>
-          <ResponsiveContainer width="100%" height={220}>
+          <h3 className="font-semibold mb-4" style={{ color: 'var(--white)' }}>Расходы по поставщикам</h3>
+          <ResponsiveContainer width="100%" height={200}>
             <BarChart data={spendBySupplier} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }} />
-              <YAxis tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}к`} />
+              <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}к`} />
               <Tooltip
                 formatter={(v: number) => [formatPrice(v), 'Сумма']}
                 contentStyle={tooltipStyle}
@@ -96,28 +98,31 @@ export default function Analytics() {
         </div>
       )}
 
-      {/* Two column charts */}
+      {/* Pie charts - stack on mobile, side by side on desktop */}
       <div className="grid lg:grid-cols-2 gap-4">
         {stockByCategory.length > 0 && (
           <div className="card">
-            <h3 className="font-semibold mb-4" style={{ color: 'var(--white)' }}>Запасы по категориям</h3>
-            <ResponsiveContainer width="100%" height={200}>
+            <h3 className="font-semibold mb-3" style={{ color: 'var(--white)' }}>Запасы по категориям</h3>
+            <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie
                   data={stockByCategory}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
-                  cy="50%"
-                  outerRadius={75}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  labelLine={{ stroke: 'rgba(255,255,255,0.15)' }}
+                  cy="45%"
+                  outerRadius={70}
                 >
                   {stockByCategory.map((_, idx) => (
                     <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(v: number) => [formatPrice(v), 'Стоимость']} contentStyle={tooltipStyle} />
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  formatter={(value) => <span style={legendStyle}>{value}</span>}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -125,24 +130,27 @@ export default function Analytics() {
 
         {statusData.length > 0 && (
           <div className="card">
-            <h3 className="font-semibold mb-4" style={{ color: 'var(--white)' }}>Статусы заказов</h3>
-            <ResponsiveContainer width="100%" height={200}>
+            <h3 className="font-semibold mb-3" style={{ color: 'var(--white)' }}>Статусы заказов</h3>
+            <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie
                   data={statusData}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
-                  cy="50%"
-                  outerRadius={75}
-                  label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={{ stroke: 'rgba(255,255,255,0.15)' }}
+                  cy="45%"
+                  outerRadius={70}
                 >
                   {statusData.map((d, idx) => (
                     <Cell key={idx} fill={d.color} />
                   ))}
                 </Pie>
                 <Tooltip contentStyle={tooltipStyle} />
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  formatter={(value) => <span style={legendStyle}>{value}</span>}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -156,8 +164,8 @@ export default function Analytics() {
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={topItems} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}к`} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} width={70} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}к`} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.4)' }} width={65} />
               <Tooltip formatter={(v: number) => [formatPrice(v), 'Стоимость']} contentStyle={tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
               <Bar dataKey="value" fill="var(--blue)" radius={[0, 4, 4, 0]} />
             </BarChart>
@@ -181,7 +189,7 @@ export default function Analytics() {
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between text-sm mb-1">
                       <span className="font-medium truncate" style={{ color: 'var(--white)' }}>{item.name}</span>
-                      <span className="flex-shrink-0 ml-2 num" style={{ color: 'var(--red)' }}>{item.quantity}/{item.minQuantity} {item.unit}</span>
+                      <span className="flex-shrink-0 ml-2 num" style={{ color: 'var(--red)', whiteSpace: 'nowrap' }}>{item.quantity}/{item.minQuantity} {item.unit}</span>
                     </div>
                     <div className="stock-bar">
                       <div className="stock-bar-fill low" style={{ width: `${Math.min(pct, 100)}%` }} />

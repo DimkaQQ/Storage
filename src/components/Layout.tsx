@@ -93,7 +93,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         <VenueSelector />
 
-        <nav className="flex-1 px-3 py-4 space-y-0.5">
+        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
