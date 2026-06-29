@@ -31,6 +31,7 @@ export default function Inventory() {
   const [editItem, setEditItem] = useState<InventoryItem | null>(null)
   const [qtyModal, setQtyModal] = useState<{ item: InventoryItem; type: 'in' | 'out' } | null>(null)
   const [qtyValue, setQtyValue] = useState('')
+  const [writeoffReason, setWriteoffReason] = useState('Использование')
 
   const venueInventory = selectedVenueId ? inventory.filter((i) => i.venueId === selectedVenueId) : inventory
 
@@ -57,6 +58,7 @@ export default function Inventory() {
     })
     setQtyModal(null)
     setQtyValue('')
+    setWriteoffReason('Использование')
   }
 
   return (
@@ -109,16 +111,16 @@ export default function Inventory() {
       </div>
 
       {/* Main layout: table + add panel */}
-      <div className="grid gap-5" style={{ gridTemplateColumns: 'minmax(0,1fr) 320px' }}>
+      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         {/* Table */}
-        <div className="card p-0 overflow-x-auto">
+        <div className="card p-0" style={{ minWidth: 0, overflowX: 'auto' }}>
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16">
               <Package className="w-10 h-10 mb-3" style={{ color: 'var(--muted)' }} />
               <p style={{ color: 'var(--muted)' }}>Ничего не найдено</p>
             </div>
           ) : (
-            <table className="data-table">
+            <table className="data-table" style={{ minWidth: 600 }}>
               <thead>
                 <tr>
                   <th>Наименование</th>
@@ -205,7 +207,7 @@ export default function Inventory() {
         {/* Right panel - sticky add form (hidden on mobile) */}
         <div className="hidden lg:block">
           <div className="card sticky top-6">
-            <h3 className="font-semibold mb-4" style={{ color: 'var(--white)', fontFamily: "'Instrument Serif', serif", fontSize: '1.1rem' }}>Добавить позицию</h3>
+            <h2 className="mb-4" style={{ color: 'var(--white)' }}>Добавить позицию</h2>
             <InventoryForm onClose={() => {}} inline />
           </div>
         </div>
@@ -224,14 +226,14 @@ export default function Inventory() {
       {/* Qty modal */}
       <Modal
         isOpen={!!qtyModal}
-        onClose={() => setQtyModal(null)}
-        title={qtyModal?.type === 'in' ? 'Приход товара' : 'Списание товара'}
+        onClose={() => { setQtyModal(null); setQtyValue(''); setWriteoffReason('Использование') }}
+        title={qtyModal?.type === 'in' ? `Приход: ${qtyModal.item.name}` : `Списание: ${qtyModal?.item.name}`}
         size="sm"
       >
         {qtyModal && (
           <div className="space-y-4">
             <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              {qtyModal.item.name} — текущий остаток: <span className="num" style={{ color: 'var(--white)' }}>{qtyModal.item.quantity} {qtyModal.item.unit}</span>
+              Текущий остаток: <span className="num font-semibold" style={{ color: 'var(--white)' }}>{qtyModal.item.quantity} {qtyModal.item.unit}</span>
             </p>
             <div>
               <label className="label">{qtyModal.type === 'in' ? 'Количество прихода' : 'Количество списания'} ({qtyModal.item.unit})</label>
@@ -246,9 +248,22 @@ export default function Inventory() {
                 onKeyDown={(e) => { if (e.key === 'Enter') handleQty() }}
               />
             </div>
+            {qtyModal.type === 'out' && (
+              <div>
+                <label className="label">Причина списания</label>
+                <select className="input" value={writeoffReason} onChange={(e) => setWriteoffReason(e.target.value)}>
+                  <option>Использование</option>
+                  <option>Порча</option>
+                  <option>Недостача</option>
+                  <option>Прочее</option>
+                </select>
+              </div>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => setQtyModal(null)} className="btn-secondary flex-1 justify-center">Отмена</button>
-              <button onClick={handleQty} className="btn-primary flex-1 justify-center">
+              <button onClick={() => { setQtyModal(null); setQtyValue(''); setWriteoffReason('Использование') }} className="btn-secondary flex-1 justify-center">Отмена</button>
+              <button onClick={handleQty} className={`flex-1 justify-center ${qtyModal.type === 'in' ? 'btn-primary' : 'btn-danger'}`}
+                style={qtyModal.type === 'out' ? { background: 'rgba(255,69,58,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,58,0.3)' } : {}}
+              >
                 {qtyModal.type === 'in' ? 'Оприходовать' : 'Списать'}
               </button>
             </div>

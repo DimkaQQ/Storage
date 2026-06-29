@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -35,11 +35,20 @@
   body {
     background: var(--bg);
     color: var(--white);
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   }
 
-  h1, h2 {
-    font-family: 'Instrument Serif', serif;
+  h1 {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.5rem;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.1rem;
   }
 
   ::-webkit-scrollbar {
@@ -64,7 +73,7 @@
 @layer components {
   /* Monospace numeric class */
   .num {
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
   }
 

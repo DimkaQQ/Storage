@@ -41,12 +41,18 @@ export type Supplier = {
 export type PurchaseStatus = 'pending' | 'ordered' | 'received' | 'cancelled'
 
 export type PurchaseItem = {
-  itemId: string
-  name: string
+  id: string
+  inventoryItemId?: string  // if linked to existing inventory item
+  name: string              // product name (custom or from inventory)
   quantity: number
   unit: string
-  price: number
+  unitPrice: number
+  categoryId?: string
+  addToInventory?: boolean  // add to inventory when purchase received
 }
+
+/** @deprecated use unitPrice */
+export type LegacyPurchaseItemPrice = { price?: number; itemId?: string }
 
 export type Purchase = {
   id: string

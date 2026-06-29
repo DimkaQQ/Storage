@@ -56,63 +56,63 @@ const defaultPurchases: Purchase[] = [
   {
     id: 'p1', supplierId: 's1', venueId: 'v1', status: 'received',
     items: [
-      { itemId: 'i1', name: 'Говядина (вырезка)', quantity: 10, unit: 'кг', price: 4200 },
-      { itemId: 'i7', name: 'Томаты', quantity: 20, unit: 'кг', price: 600 },
+      { id: 'pi1', inventoryItemId: 'i1', name: 'Говядина (вырезка)', quantity: 10, unit: 'кг', unitPrice: 4200 },
+      { id: 'pi2', inventoryItemId: 'i7', name: 'Томаты', quantity: 20, unit: 'кг', unitPrice: 600 },
     ],
     totalAmount: 54000, createdAt: '2026-06-20', expectedDate: '2026-06-22', receivedDate: '2026-06-22', notes: 'Плановая поставка'
   },
   {
     id: 'p2', supplierId: 's2', venueId: 'v1', status: 'received',
     items: [
-      { itemId: 'i4', name: 'Лосось свежий', quantity: 8, unit: 'кг', price: 6000 },
-      { itemId: 'i5', name: 'Тунец', quantity: 5, unit: 'кг', price: 4750 },
+      { id: 'pi3', inventoryItemId: 'i4', name: 'Лосось свежий', quantity: 8, unit: 'кг', unitPrice: 6000 },
+      { id: 'pi4', inventoryItemId: 'i5', name: 'Тунец', quantity: 5, unit: 'кг', unitPrice: 4750 },
     ],
     totalAmount: 71750, createdAt: '2026-06-21', expectedDate: '2026-06-23', receivedDate: '2026-06-23', notes: ''
   },
   {
     id: 'p3', supplierId: 's3', venueId: 'v2', status: 'ordered',
     items: [
-      { itemId: 'i12', name: 'Сливки 33%', quantity: 10, unit: 'л', price: 900 },
-      { itemId: 'i13', name: 'Пармезан', quantity: 3, unit: 'кг', price: 9000 },
+      { id: 'pi5', inventoryItemId: 'i12', name: 'Сливки 33%', quantity: 10, unit: 'л', unitPrice: 900 },
+      { id: 'pi6', inventoryItemId: 'i13', name: 'Пармезан', quantity: 3, unit: 'кг', unitPrice: 9000 },
     ],
     totalAmount: 36000, createdAt: '2026-06-27', expectedDate: '2026-06-30', notes: 'Срочный заказ'
   },
   {
     id: 'p4', supplierId: 's1', venueId: 'v2', status: 'pending',
     items: [
-      { itemId: 'i2', name: 'Куриное филе', quantity: 15, unit: 'кг', price: 1600 },
-      { itemId: 'i8', name: 'Картофель', quantity: 50, unit: 'кг', price: 225 },
-      { itemId: 'i11', name: 'Шпинат', quantity: 5, unit: 'кг', price: 1400 },
+      { id: 'pi7', inventoryItemId: 'i2', name: 'Куриное филе', quantity: 15, unit: 'кг', unitPrice: 1600 },
+      { id: 'pi8', inventoryItemId: 'i8', name: 'Картофель', quantity: 50, unit: 'кг', unitPrice: 225 },
+      { id: 'pi9', inventoryItemId: 'i11', name: 'Шпинат', quantity: 5, unit: 'кг', unitPrice: 1400 },
     ],
     totalAmount: 42750, createdAt: '2026-06-29', expectedDate: '2026-07-01', notes: 'Восполнение запасов'
   },
   {
     id: 'p5', supplierId: 's4', venueId: 'v3', status: 'received',
     items: [
-      { itemId: 'i15', name: 'Мука пшеничная', quantity: 30, unit: 'кг', price: 325 },
-      { itemId: 'i16', name: 'Рис басмати', quantity: 20, unit: 'кг', price: 700 },
+      { id: 'pi10', inventoryItemId: 'i15', name: 'Мука пшеничная', quantity: 30, unit: 'кг', unitPrice: 325 },
+      { id: 'pi11', inventoryItemId: 'i16', name: 'Рис басмати', quantity: 20, unit: 'кг', unitPrice: 700 },
     ],
     totalAmount: 23750, createdAt: '2026-06-18', expectedDate: '2026-06-20', receivedDate: '2026-06-20', notes: ''
   },
   {
     id: 'p6', supplierId: 's5', venueId: 'v1', status: 'ordered',
     items: [
-      { itemId: 'i19', name: 'Сок апельсиновый', quantity: 20, unit: 'л', price: 900 },
+      { id: 'pi12', inventoryItemId: 'i19', name: 'Сок апельсиновый', quantity: 20, unit: 'л', unitPrice: 900 },
     ],
     totalAmount: 18000, createdAt: '2026-06-28', expectedDate: '2026-07-02', notes: 'Доставка в понедельник'
   },
   {
     id: 'p7', supplierId: 's2', venueId: 'v3', status: 'pending',
     items: [
-      { itemId: 'i4', name: 'Лосось свежий', quantity: 6, unit: 'кг', price: 6000 },
-      { itemId: 'i6', name: 'Креветки тигровые', quantity: 4, unit: 'кг', price: 7000 },
+      { id: 'pi13', inventoryItemId: 'i4', name: 'Лосось свежий', quantity: 6, unit: 'кг', unitPrice: 6000 },
+      { id: 'pi14', inventoryItemId: 'i6', name: 'Креветки тигровые', quantity: 4, unit: 'кг', unitPrice: 7000 },
     ],
     totalAmount: 64000, createdAt: '2026-06-29', expectedDate: '2026-06-30', notes: 'Для банкета'
   },
   {
     id: 'p8', supplierId: 's4', venueId: 'v2', status: 'cancelled',
     items: [
-      { itemId: 'i17', name: 'Оливковое масло', quantity: 10, unit: 'л', price: 4250 },
+      { id: 'pi15', inventoryItemId: 'i17', name: 'Оливковое масло', quantity: 10, unit: 'л', unitPrice: 4250 },
     ],
     totalAmount: 42500, createdAt: '2026-06-15', expectedDate: '2026-06-18', notes: 'Отменён — поставщик не подтвердил'
   },
@@ -132,6 +132,7 @@ type Store = {
   addInventoryItem: (item: InventoryItem) => void
   updateInventoryItem: (item: InventoryItem) => void
   deleteInventoryItem: (id: string) => void
+  adjustQuantity: (itemId: string, delta: number) => void
   addSupplier: (supplier: Supplier) => void
   updateSupplier: (supplier: Supplier) => void
   deleteSupplier: (id: string) => void
@@ -159,6 +160,13 @@ export const useStore = create<Store>()(
       addInventoryItem: (item) => set((s) => ({ inventory: [...s.inventory, item] })),
       updateInventoryItem: (item) => set((s) => ({ inventory: s.inventory.map((i) => i.id === item.id ? item : i) })),
       deleteInventoryItem: (id) => set((s) => ({ inventory: s.inventory.filter((i) => i.id !== id) })),
+      adjustQuantity: (itemId, delta) => set((s) => ({
+        inventory: s.inventory.map((i) =>
+          i.id === itemId
+            ? { ...i, quantity: Math.max(0, i.quantity + delta), lastUpdated: new Date().toISOString().slice(0, 10) }
+            : i
+        )
+      })),
       addSupplier: (supplier) => set((s) => ({ suppliers: [...s.suppliers, supplier] })),
       updateSupplier: (supplier) => set((s) => ({ suppliers: s.suppliers.map((s2) => s2.id === supplier.id ? supplier : s2) })),
       deleteSupplier: (id) => set((s) => ({ suppliers: s.suppliers.filter((s2) => s2.id !== id) })),

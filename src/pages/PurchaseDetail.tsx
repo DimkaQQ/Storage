@@ -128,7 +128,7 @@ export default function PurchaseDetail() {
         </div>
         <div>
           {purchase.items.map((item, idx) => {
-            const invItem = inventory.find((i) => i.id === item.itemId)
+            const invItem = inventory.find((i) => i.id === item.inventoryItemId)
             return (
               <div
                 key={idx}
@@ -146,11 +146,11 @@ export default function PurchaseDetail() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate" style={{ color: 'var(--white)' }}>{item.name}</p>
                   <p className="text-xs num" style={{ color: 'var(--muted)' }}>
-                    {item.quantity} {item.unit} × {formatPrice(item.price)}
+                    {item.quantity} {item.unit} × {formatPrice(item.unitPrice)}
                   </p>
                 </div>
                 <p className="text-sm font-semibold flex-shrink-0 num" style={{ color: 'var(--white)' }}>
-                  {formatPrice(item.quantity * item.price)}
+                  {formatPrice(item.quantity * item.unitPrice)}
                 </p>
               </div>
             )
