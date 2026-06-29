@@ -72,7 +72,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
       {/* Desktop sidebar */}
       <aside
-        className="hidden lg:flex flex-col w-64 min-h-screen fixed left-0 top-0 z-30"
+        className="hidden lg:flex flex-col w-64 h-screen fixed left-0 top-0 z-30 overflow-hidden"
         style={{
           background: 'rgba(10,10,10,0.85)',
           backdropFilter: 'blur(20px)',
