@@ -24,12 +24,16 @@ function DarkTooltip({ active, payload, label, formatter }: {
       padding: '8px 12px',
       fontSize: '0.8rem',
     }}>
-      {label && <p style={{ color: 'rgba(255,255,255,0.45)', marginBottom: '4px' }}>{label}</p>}
-      {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color && p.color !== 'rgba(255,255,255,0.3)' ? p.color : '#f5f5f7' }}>
-          {formatter ? formatter(p.value) : p.value}
-        </p>
-      ))}
+      {payload.map((p, i) => {
+        const name = label || p.name
+        const color = p.color && p.color !== 'rgba(255,255,255,0.3)' ? p.color : '#f5f5f7'
+        return (
+          <div key={i}>
+            {name && <p style={{ color: 'rgba(255,255,255,0.45)', marginBottom: '2px' }}>{name}</p>}
+            <p style={{ color }}>{formatter ? formatter(p.value) : p.value}</p>
+          </div>
+        )
+      })}
     </div>
   )
 }
