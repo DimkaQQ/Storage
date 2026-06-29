@@ -1,0 +1,7 @@
+services:
+  warehouse:
+    build: .
+    container_name: restaurant-warehouse
+    restart: unless-stopped
+    ports:
+      - "3000:80"
