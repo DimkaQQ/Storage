@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ROWS, RESTAURANTS, PERIOD, CITY, CATEGORY } from './lib/data'
-import { IGauge, IScale, IStore, ILayers, IAlert, ISpark } from './components/icons'
+import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp } from './components/icons'
+import HelpModal from './components/HelpModal'
 import Dashboard from './pages/Dashboard'
 import PriceCheck from './pages/PriceCheck'
 import Restaurants from './pages/Restaurants'
@@ -21,6 +22,7 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
 export default function App() {
   const [page, setPage] = useState<PageId>('dashboard')
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
+  const [help, setHelp] = useState(false)
 
   const rows = useMemo(
     () => (scope.size === 0 ? ROWS : ROWS.filter((r) => scope.has(r.restaurant))),
@@ -86,11 +88,21 @@ export default function App() {
                   <span className="text-slate-300">{CATEGORY}</span>
                 </p>
               </div>
-              <ScopePicker
-                options={RESTAURANTS.map((r) => r.name)}
-                selected={scope}
-                onChange={setScope}
-              />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setHelp(true)}
+                  className="btn border border-ink-600 bg-ink-800/80 text-slate-300 hover:border-brand-500/50 hover:text-white"
+                  title="Как читать этот отчёт"
+                >
+                  <IHelp width={16} height={16} className="text-brand-300" />
+                  Справка
+                </button>
+                <ScopePicker
+                  options={RESTAURANTS.map((r) => r.name)}
+                  selected={scope}
+                  onChange={setScope}
+                />
+              </div>
             </div>
           </header>
 
@@ -108,6 +120,8 @@ export default function App() {
             Проверка закупочных цен · план (матрица) против факта (iiko) · {PERIOD}
           </footer>
         </div>
+
+        {help && <HelpModal onClose={() => setHelp(false)} />}
       </div>
 
       {/* Desktop-only guard */}
