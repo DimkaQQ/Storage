@@ -22,7 +22,7 @@ export default function Anomalies({ rows }: { rows: Row[] }) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-3 gap-4">
-        <div className="card p-5">
+        <div className="card card-hover animate-fade-up p-5" style={{ animationDelay: '0ms' }}>
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-lg bg-warn/10 text-warn"><IScale width={18} height={18} /></span>
             <div>
@@ -32,7 +32,7 @@ export default function Anomalies({ rows }: { rows: Row[] }) {
           </div>
           <p className="mt-3 text-xs text-slate-500">Закуплено на <span className="font-semibold text-slate-300">{moneyShort(noMatrixSpend)}</span> — цены не с чем сравнить. Требуется занести в план-матрицу.</p>
         </div>
-        <div className="card p-5">
+        <div className="card card-hover animate-fade-up p-5" style={{ animationDelay: '70ms' }}>
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-lg bg-purple-400/10 text-purple-300"><IAlert width={18} height={18} /></span>
             <div>
@@ -42,7 +42,7 @@ export default function Anomalies({ rows }: { rows: Row[] }) {
           </div>
           <p className="mt-3 text-xs text-slate-500">Факт отличается от плана более чем в 3 раза — вероятно, разные единицы измерения (шт/кг). Исключены из расчёта эффекта.</p>
         </div>
-        <div className="card p-5">
+        <div className="card card-hover animate-fade-up p-5" style={{ animationDelay: '140ms' }}>
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-500/10 text-brand-300"><IScale width={18} height={18} /></span>
             <div>
@@ -55,6 +55,7 @@ export default function Anomalies({ rows }: { rows: Row[] }) {
       </div>
 
       <Section
+        delay={200}
         title="Позиции для ручной проверки"
         subtitle="Согласно ТЗ: сигнализируем о позициях, которых нет в матрице, и о нестыковках единиц измерения"
         right={
@@ -79,7 +80,7 @@ export default function Anomalies({ rows }: { rows: Row[] }) {
             </thead>
             <tbody>
               {list.map((r) => (
-                <tr key={r.id} className="hover:bg-ink-800/40">
+                <tr key={r.id} className="row-hover hover:bg-ink-800/40">
                   <td className="td font-medium text-slate-100">{r.product}<div className="text-[11px] font-normal text-slate-500">{r.pack || '—'}</div></td>
                   <td className="td text-slate-400">{r.supplier || '—'}</td>
                   <td className="td text-slate-400">{r.restaurant}</td>

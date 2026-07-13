@@ -49,18 +49,18 @@ export default function App() {
                 <button
                   key={n.id}
                   onClick={() => setPage(n.id)}
-                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
-                    active ? 'bg-brand-500/15 text-white' : 'text-slate-400 hover:bg-ink-800/70 hover:text-slate-200'
+                  className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-200 ${
+                    active ? 'bg-brand-500/15 text-white' : 'text-slate-400 hover:translate-x-0.5 hover:bg-ink-800/70 hover:text-slate-200'
                   }`}
                 >
-                  <span className={active ? 'text-brand-300' : 'text-slate-500 group-hover:text-slate-300'}>
+                  <span className={`transition-transform duration-200 group-hover:scale-110 ${active ? 'text-brand-300' : 'text-slate-500 group-hover:text-slate-300'}`}>
                     <n.icon />
                   </span>
                   <span className="flex-1">
                     <span className="block text-sm font-medium">{n.label}</span>
                     <span className="block text-[11px] text-slate-500">{n.hint}</span>
                   </span>
-                  {active && <span className="h-6 w-1 rounded-full bg-brand-400" />}
+                  <span className={`absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-brand-400 transition-all duration-300 ${active ? 'opacity-100' : 'opacity-0'}`} />
                 </button>
               )
             })}
@@ -95,11 +95,13 @@ export default function App() {
           </header>
 
           <main className="px-8 py-6">
-            {page === 'dashboard' && <Dashboard rows={rows} onNav={(p) => setPage(p as PageId)} />}
-            {page === 'pricecheck' && <PriceCheck rows={rows} />}
-            {page === 'restaurants' && <Restaurants rows={rows} scope={scope} onScope={setScope} onNav={() => setPage('pricecheck')} />}
-            {page === 'abc' && <ABC rows={rows} />}
-            {page === 'anomalies' && <Anomalies rows={rows} />}
+            <div key={page} className="animate-fade-in">
+              {page === 'dashboard' && <Dashboard rows={rows} onNav={(p) => setPage(p as PageId)} />}
+              {page === 'pricecheck' && <PriceCheck rows={rows} />}
+              {page === 'restaurants' && <Restaurants rows={rows} scope={scope} onScope={setScope} onNav={() => setPage('pricecheck')} />}
+              {page === 'abc' && <ABC rows={rows} />}
+              {page === 'anomalies' && <Anomalies rows={rows} />}
+            </div>
           </main>
 
           <footer className="px-8 pb-8 pt-2 text-center text-[11px] text-slate-600">

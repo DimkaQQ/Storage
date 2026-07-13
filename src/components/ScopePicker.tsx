@@ -42,7 +42,7 @@ export default function ScopePicker({
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-xl border border-ink-700 bg-ink-850 shadow-card">
+        <div className="animate-scale-in absolute right-0 z-30 mt-2 w-72 origin-top-right overflow-hidden rounded-xl border border-ink-700 bg-ink-850 shadow-card">
           <div className="flex items-center justify-between border-b border-ink-700/60 px-3 py-2">
             <span className="text-xs font-semibold text-slate-400">Выбор точек</span>
             {selected.size > 0 && (

@@ -3,9 +3,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell,
   PieChart, Pie,
 } from 'recharts'
-import { Row, summarize, byRestaurant, money, moneyShort, fmt, pct, STATUS_META, Status } from '../lib/data'
+import { Row, summarize, byRestaurant, money, moneyShort, fmt, fmt1, pct, STATUS_META, Status } from '../lib/data'
 import StatCard from '../components/StatCard'
-import { Section } from '../components/ui'
+import { Section, AnimatedNumber } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
 import { IScale, IStore, IAlert, IArrowDown, IArrowUp, IGauge, ICheck } from '../components/icons'
 
@@ -38,28 +38,29 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
     <div className="space-y-6">
       {/* KPI row */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Сумма закупок" value={moneyShort(s.spend)} sub={`${fmt(s.positions)} позиций проверено`} accent="brand" icon={<IStore width={16} height={16} />} />
+        <StatCard delay={0} label="Сумма закупок" value={<AnimatedNumber value={s.spend} format={moneyShort} />} sub={`${fmt(s.positions)} позиций проверено`} accent="brand" icon={<IStore width={16} height={16} />} />
         <StatCard
+          delay={60}
           label="Чистый эффект мониторинга"
-          value={<span className={s.netEffect >= 0 ? 'text-good' : 'text-bad'}>{moneyShort(s.netEffect)}</span>}
+          value={<span className={s.netEffect >= 0 ? 'text-good' : 'text-bad'}><AnimatedNumber value={s.netEffect} format={moneyShort} /></span>}
           sub={s.netEffect >= 0 ? 'экономия против плана' : 'перерасход против плана'}
           accent={netAccent}
           icon={<IGauge width={16} height={16} />}
         />
-        <StatCard label="Переплаты" value={<span className="text-bad">{moneyShort(s.overpaySum)}</span>} sub={`${s.overpayCount} позиций дороже плана`} accent="bad" icon={<IArrowUp width={16} height={16} />} />
-        <StatCard label="Экономия" value={<span className="text-good">{moneyShort(s.savingSum)}</span>} sub={`${s.savingCount} позиций дешевле плана`} accent="good" icon={<IArrowDown width={16} height={16} />} />
+        <StatCard delay={120} label="Переплаты" value={<span className="text-bad"><AnimatedNumber value={s.overpaySum} format={moneyShort} /></span>} sub={`${s.overpayCount} позиций дороже плана`} accent="bad" icon={<IArrowUp width={16} height={16} />} />
+        <StatCard delay={180} label="Экономия" value={<span className="text-good"><AnimatedNumber value={s.savingSum} format={moneyShort} /></span>} sub={`${s.savingCount} позиций дешевле плана`} accent="good" icon={<IArrowDown width={16} height={16} />} />
       </div>
 
       <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Совпадение с матрицей" value={pct(s.matchRate).replace('+', '')} sub={`${fmt(s.matched)} из ${fmt(s.positions)} позиций найдено`} accent="brand" icon={<ICheck width={16} height={16} />} />
-        <StatCard label="Нет в матрице" value={fmt(s.noMatrixCount)} sub="позиции вне план-матрицы" accent="warn" icon={<IScale width={16} height={16} />} />
-        <StatCard label="Аномалии" value={fmt(s.anomalyCount)} sub="расхождение ед. изм. — проверить" accent="warn" icon={<IAlert width={16} height={16} />} />
-        <StatCard label="Средний перерасход" value={s.overpayCount ? moneyShort(s.overpaySum / s.overpayCount) : '—'} sub="на одну переплату" accent="slate" icon={<IArrowUp width={16} height={16} />} />
+        <StatCard delay={220} label="Совпадение с матрицей" value={<AnimatedNumber value={s.matchRate * 100} format={(n) => fmt1(n) + '%'} />} sub={`${fmt(s.matched)} из ${fmt(s.positions)} позиций найдено`} accent="brand" icon={<ICheck width={16} height={16} />} />
+        <StatCard delay={260} label="Нет в матрице" value={<AnimatedNumber value={s.noMatrixCount} format={(n) => fmt(n)} />} sub="позиции вне план-матрицы" accent="warn" icon={<IScale width={16} height={16} />} />
+        <StatCard delay={300} label="Аномалии" value={<AnimatedNumber value={s.anomalyCount} format={(n) => fmt(n)} />} sub="расхождение ед. изм. — проверить" accent="warn" icon={<IAlert width={16} height={16} />} />
+        <StatCard delay={340} label="Средний перерасход" value={s.overpayCount ? moneyShort(s.overpaySum / s.overpayCount) : '—'} sub="на одну переплату" accent="slate" icon={<IArrowUp width={16} height={16} />} />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-3 gap-4">
-        <Section title="Эффект по ресторанам" subtitle="Экономия (+) и перерасход (−) против плановых цен" className="col-span-2">
+        <Section delay={380} title="Эффект по ресторанам" subtitle="Экономия (+) и перерасход (−) против плановых цен" className="col-span-2">
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={perRest} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
@@ -75,7 +76,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
           </div>
         </Section>
 
-        <Section title="Структура позиций" subtitle="Статус проверки цены">
+        <Section delay={440} title="Структура позиций" subtitle="Статус проверки цены">
           <div className="relative h-52">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -98,6 +99,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
 
       {/* Top overpays */}
       <Section
+        delay={500}
         title="Крупнейшие переплаты"
         subtitle="Позиции, где фактическая цена выше плановой — приоритет для переговоров"
         right={<button onClick={() => onNav('pricecheck')} className="btn text-brand-300 hover:text-brand-200">Все позиции →</button>}
@@ -118,8 +120,8 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                 </tr>
               </thead>
               <tbody>
-                {topOverpay.map((r) => (
-                  <tr key={r.id} className="hover:bg-ink-800/40">
+                {topOverpay.map((r, i) => (
+                  <tr key={r.id} className="row-hover animate-fade-up hover:bg-ink-800/40" style={{ animationDelay: `${560 + i * 40}ms` }}>
                     <td className="td font-medium text-slate-100">{r.product}<div className="text-[11px] font-normal text-slate-500">{r.supplier}</div></td>
                     <td className="td text-slate-400">{r.restaurant}</td>
                     <td className="td text-right tabnum text-slate-400">{money(r.plan!)}</td>

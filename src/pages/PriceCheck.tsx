@@ -66,10 +66,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     <div className="space-y-4">
       {/* mini KPIs for current filter */}
       <div className="grid grid-cols-4 gap-4">
-        <MiniStat label="Позиций в срезе" value={fmt(filtered.length)} tone="slate" />
-        <MiniStat label="Сумма закупок" value={moneyShort(s.spend)} tone="slate" />
-        <MiniStat label="Переплаты" value={moneyShort(s.overpaySum)} tone="bad" />
-        <MiniStat label="Экономия" value={moneyShort(s.savingSum)} tone="good" />
+        <MiniStat delay={0} label="Позиций в срезе" value={fmt(filtered.length)} tone="slate" />
+        <MiniStat delay={50} label="Сумма закупок" value={moneyShort(s.spend)} tone="slate" />
+        <MiniStat delay={100} label="Переплаты" value={moneyShort(s.overpaySum)} tone="bad" />
+        <MiniStat delay={150} label="Экономия" value={moneyShort(s.savingSum)} tone="good" />
       </div>
 
       {/* toolbar */}
@@ -130,7 +130,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             </thead>
             <tbody>
               {shown.map((r) => (
-                <tr key={r.id} className="hover:bg-ink-800/40">
+                <tr key={r.id} className="row-hover hover:bg-ink-800/40">
                   <td className="td">
                     <div className="font-medium text-slate-100">{r.product}</div>
                     <div className="text-[11px] text-slate-500">{r.supplier} · {r.pack || '—'}</div>
@@ -167,10 +167,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   )
 }
 
-function MiniStat({ label, value, tone }: { label: string; value: string; tone: 'slate' | 'bad' | 'good' }) {
+function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: string; tone: 'slate' | 'bad' | 'good'; delay?: number }) {
   const cls = tone === 'bad' ? 'text-bad' : tone === 'good' ? 'text-good' : 'text-white'
   return (
-    <div className="card px-4 py-3">
+    <div className="card card-hover animate-fade-up px-4 py-3" style={{ animationDelay: `${delay}ms` }}>
       <div className="text-[11px] text-slate-500">{label}</div>
       <div className={`mt-1 text-lg font-bold tabnum ${cls}`}>{value}</div>
     </div>

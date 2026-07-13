@@ -27,7 +27,7 @@ export default function Restaurants({
         right={scope.size > 0 ? <button onClick={() => onScope(new Set())} className="btn text-brand-300 hover:text-brand-200">Показать все</button> : undefined}
       >
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-          {cards.map((c) => {
+          {cards.map((c, i) => {
             const s = c.summary
             const good = s.netEffect >= 0
             const isFocus = scope.has(c.name)
@@ -36,7 +36,8 @@ export default function Restaurants({
               <button
                 key={c.name}
                 onClick={() => focus(c.name)}
-                className={`card group p-4 text-left transition-all hover:border-brand-500/50 ${isFocus ? 'ring-1 ring-brand-500/60' : ''}`}
+                style={{ animationDelay: `${i * 45}ms` }}
+                className={`card card-hover group animate-fade-up p-4 text-left ${isFocus ? 'ring-1 ring-brand-500/60' : ''}`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2.5">
@@ -61,7 +62,7 @@ export default function Restaurants({
                 </div>
 
                 <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ink-750">
-                  <div className="h-full rounded-full bg-brand-500/70" style={{ width: `${(s.spend / maxSpend) * 100}%` }} />
+                  <div className="animate-grow-x h-full rounded-full bg-gradient-to-r from-brand-500/60 to-brand-400" style={{ width: `${(s.spend / maxSpend) * 100}%` }} />
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -94,7 +95,7 @@ export default function Restaurants({
               {cards.map((c) => {
                 const s = c.summary
                 return (
-                  <tr key={c.name} className="cursor-pointer hover:bg-ink-800/40" onClick={() => focus(c.name)}>
+                  <tr key={c.name} className="row-hover cursor-pointer hover:bg-ink-800/40" onClick={() => focus(c.name)}>
                     <td className="td font-medium text-slate-100">{c.name}</td>
                     <td className="td text-right tabnum text-slate-300">{money(s.spend)}</td>
                     <td className="td text-right tabnum text-slate-400">{fmt(s.positions)}</td>

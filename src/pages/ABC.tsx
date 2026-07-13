@@ -48,10 +48,10 @@ export default function ABC({ rows }: { rows: Row[] }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-4">
-        {(['A', 'B', 'C'] as Cls[]).map((cls) => {
+        {(['A', 'B', 'C'] as Cls[]).map((cls, i) => {
           const ci = classInfo[cls]
           return (
-            <div key={cls} className="card p-5">
+            <div key={cls} className="card card-hover animate-fade-up p-5" style={{ animationDelay: `${i * 70}ms` }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="grid h-11 w-11 place-items-center rounded-xl text-lg font-bold" style={{ background: clsMeta[cls].color + '22', color: clsMeta[cls].color }}>{cls}</span>
@@ -72,14 +72,14 @@ export default function ABC({ rows }: { rows: Row[] }) {
                 </div>
               </div>
               <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-ink-750">
-                <div className="h-full" style={{ width: `${(ci.sum / totalSum) * 100}%`, background: clsMeta[cls].color }} />
+                <div className="animate-grow-x h-full rounded-full" style={{ width: `${(ci.sum / totalSum) * 100}%`, background: clsMeta[cls].color }} />
               </div>
             </div>
           )
         })}
       </div>
 
-      <Section title="Кривая Парето" subtitle="Топ-24 товара по сумме закупки и накопленная доля затрат">
+      <Section delay={220} title="Кривая Парето" subtitle="Топ-24 товара по сумме закупки и накопленная доля затрат">
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={pareto} margin={{ left: 8, right: 8, top: 8, bottom: 60 }}>
@@ -97,7 +97,7 @@ export default function ABC({ rows }: { rows: Row[] }) {
         </div>
       </Section>
 
-      <Section title="Группа A — фокус контроля цен" subtitle="Товары, формирующие 80% закупок. Здесь любое отклонение цены даёт максимальный эффект.">
+      <Section delay={300} title="Группа A — фокус контроля цен" subtitle="Товары, формирующие 80% закупок. Здесь любое отклонение цены даёт максимальный эффект.">
         <div className="overflow-hidden rounded-xl border border-ink-700/50">
           <table className="w-full">
             <thead className="bg-ink-800/50">
@@ -113,7 +113,7 @@ export default function ABC({ rows }: { rows: Row[] }) {
             </thead>
             <tbody>
               {groups.filter((g) => g.cls === 'A').slice(0, 30).map((g) => (
-                <tr key={g.product} className="hover:bg-ink-800/40">
+                <tr key={g.product} className="row-hover hover:bg-ink-800/40">
                   <td className="td text-center"><AbcBadge abc={g.cls} /></td>
                   <td className="td font-medium text-slate-100">{g.product}</td>
                   <td className="td text-right tabnum text-slate-400">{fmt1(g.qty)}</td>
