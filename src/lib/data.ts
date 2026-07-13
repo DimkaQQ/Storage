@@ -68,39 +68,69 @@ function classify(plan: number | null, unit: number): { status: Status; effect: 
   return { status, effect: diff, diffPct, diff }
 }
 
-let _seq = 0
-const allRows: Row[] = []
+/** Immutable base row parsed from the dataset (original names + matrix plan). */
+export interface BaseRow {
+  id: string
+  restaurant: string
+  brand: string
+  entity: string
+  supplier0: string
+  product0: string
+  pack: string
+  qty: number
+  sum: number
+  unit: number
+  plan0: number | null
+}
+
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
 const MIN_TURNOVER = 1000
 
+let _seq = 0
+export const BASE: BaseRow[] = []
 for (const r of data.restaurants) {
   for (const it of r.items) {
     if (it.u == null) continue
     if (it.m < MIN_TURNOVER || it.q <= 0) continue
-    const c = classify(it.pl, it.u)
-    allRows.push({
+    BASE.push({
       id: 'r' + _seq++,
-      restaurant: r.name,
-      brand: r.brand,
-      entity: r.entity,
-      supplier: it.s,
-      product: it.p,
-      pack: it.k,
-      qty: it.q,
-      sum: it.m,
-      unit: it.u,
-      plan: it.pl,
-      diff: c.diff,
-      diffPct: c.diffPct,
-      effect: c.status === 'anomaly' || c.status === 'nomatrix' ? 0 : c.effect * it.q,
-      status: c.status,
-      abc: 'C',
+      restaurant: r.name, brand: r.brand, entity: r.entity,
+      supplier0: it.s, product0: it.p, pack: it.k,
+      qty: it.q, sum: it.m, unit: it.u, plan0: it.pl,
     })
   }
 }
 
-// ABC classification by spend contribution across the whole dataset.
-assignABC(allRows)
+/**
+ * User edits layered over the immutable base data so the project can run
+ * without Excel: rename companies/products, set or correct plan prices.
+ */
+export interface Edits {
+  supplierRenames: Record<string, string>  // original supplier name -> new name
+  productRenames: Record<string, string>   // original product name -> new name
+  planOverrides: Record<string, number>    // original product name -> plan price
+}
+export const EMPTY_EDITS: Edits = { supplierRenames: {}, productRenames: {}, planOverrides: {} }
+
+/** Builds display rows by applying edits, then classifies and assigns ABC. */
+export function computeRows(base: BaseRow[], edits: Edits): Row[] {
+  const rows: Row[] = base.map((b) => {
+    const supplier = edits.supplierRenames[b.supplier0] ?? b.supplier0
+    const product = edits.productRenames[b.product0] ?? b.product0
+    const ov = edits.planOverrides[b.product0]
+    const plan = ov != null ? ov : b.plan0
+    const c = classify(plan, b.unit)
+    return {
+      id: b.id, restaurant: b.restaurant, brand: b.brand, entity: b.entity,
+      supplier, product, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
+      diff: c.diff, diffPct: c.diffPct,
+      effect: c.status === 'anomaly' || c.status === 'nomatrix' ? 0 : c.effect * b.qty,
+      status: c.status, abc: 'C',
+    }
+  })
+  assignABC(rows)
+  return rows
+}
 
 export function assignABC(rows: Row[]) {
   const sorted = [...rows].sort((a, b) => b.sum - a.sum)
@@ -113,10 +143,36 @@ export function assignABC(rows: Row[]) {
   }
 }
 
+/* ---------- reference lists for the editor ---------- */
+
+export interface SupplierAgg { name: string; count: number; sum: number }
+export interface ProductAgg { name: string; count: number; sum: number; basePlan: number | null; inMatrix: boolean }
+
+export const SUPPLIERS_BASE: SupplierAgg[] = (() => {
+  const m = new Map<string, SupplierAgg>()
+  for (const b of BASE) {
+    const g = m.get(b.supplier0) || { name: b.supplier0, count: 0, sum: 0 }
+    g.count++; g.sum += b.sum
+    m.set(b.supplier0, g)
+  }
+  return [...m.values()].sort((a, b) => b.sum - a.sum)
+})()
+
+export const PRODUCTS_BASE: ProductAgg[] = (() => {
+  const m = new Map<string, ProductAgg>()
+  for (const b of BASE) {
+    const g = m.get(b.product0) || { name: b.product0, count: 0, sum: 0, basePlan: null, inMatrix: false }
+    g.count++; g.sum += b.sum
+    if (b.plan0 != null) { g.inMatrix = true; if (g.basePlan == null) g.basePlan = b.plan0 }
+    m.set(b.product0, g)
+  }
+  return [...m.values()].sort((a, b) => b.sum - a.sum)
+})()
+
 export const PERIOD = data.periodLabel
 export const CITY = data.city
 export const CATEGORY = data.category
-export const ROWS = allRows
+export const ROWS = computeRows(BASE, EMPTY_EDITS)
 
 export const RESTAURANTS = data.restaurants.map((r) => ({
   name: r.name,
@@ -200,3 +256,11 @@ export function moneyShort(n: number) {
   return `${sign}${nf.format(Math.round(a))} ₸`
 }
 export const pct = (n: number) => (n >= 0 ? '+' : '') + nf1.format(n * 100) + '%'
+
+/** Russian plural selector: plural(n, 'правка', 'правки', 'правок'). */
+export function plural(n: number, one: string, few: string, many: string) {
+  const m10 = n % 10, m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return one
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few
+  return many
+}

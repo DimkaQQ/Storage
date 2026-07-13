@@ -1,6 +1,28 @@
 import { ReactNode } from 'react'
 import { STATUS_META, Status } from '../lib/data'
 import { useCountUp } from '../lib/hooks'
+import { IInfo } from './icons'
+
+/** A hoverable ⓘ hint. `align` keeps the bubble on-screen near table edges. */
+export function InfoTip({ text, align = 'center', className = '' }: {
+  text: ReactNode; align?: 'center' | 'left' | 'right'; className?: string
+}) {
+  const pos =
+    align === 'right' ? 'right-0' :
+    align === 'left' ? 'left-0' :
+    'left-1/2 -translate-x-1/2'
+  return (
+    <span className={`group/tip relative inline-flex align-middle ${className}`}>
+      <IInfo width={13} height={13} className="cursor-help text-slate-500 transition-colors hover:text-slate-300" />
+      <span
+        role="tooltip"
+        className={`pointer-events-none absolute top-full z-50 mt-2 hidden w-56 rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-xs font-normal normal-case leading-relaxed tracking-normal text-slate-300 shadow-xl group-hover/tip:block ${pos}`}
+      >
+        {text}
+      </span>
+    </span>
+  )
+}
 
 /** A number that counts up smoothly whenever `value` changes. */
 export function AnimatedNumber({ value, format, duration = 900 }: {

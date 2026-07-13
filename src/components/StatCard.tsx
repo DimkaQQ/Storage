@@ -1,7 +1,8 @@
 import { ReactNode } from 'react'
+import { InfoTip } from './ui'
 
 export default function StatCard({
-  label, value, sub, accent = 'brand', icon, delay = 0,
+  label, value, sub, accent = 'brand', icon, delay = 0, info, infoAlign = 'left',
 }: {
   label: string
   value: ReactNode
@@ -9,6 +10,8 @@ export default function StatCard({
   accent?: 'brand' | 'good' | 'bad' | 'warn' | 'slate'
   icon?: ReactNode
   delay?: number
+  info?: ReactNode
+  infoAlign?: 'center' | 'left' | 'right'
 }) {
   const ring: Record<string, string> = {
     brand: 'from-brand-500/20', good: 'from-good/20', bad: 'from-bad/20',
@@ -22,7 +25,10 @@ export default function StatCard({
     <div className="card card-hover animate-fade-up relative overflow-hidden p-5" style={{ animationDelay: `${delay}ms` }}>
       <div className={`pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-gradient-to-b ${ring[accent]} to-transparent blur-xl`} />
       <div className="flex items-start justify-between">
-        <span className="text-xs font-medium text-slate-500">{label}</span>
+        <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+          {label}
+          {info && <InfoTip text={info} align={infoAlign} />}
+        </span>
         {icon && <span className={`grid h-8 w-8 place-items-center rounded-lg ${ic[accent]}`}>{icon}</span>}
       </div>
       <div className="mt-3 text-2xl font-bold tabnum text-white">{value}</div>

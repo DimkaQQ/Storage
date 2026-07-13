@@ -48,24 +48,25 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
 
       {/* KPI row */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard delay={0} label="Сумма закупок" value={<AnimatedNumber value={s.spend} format={moneyShort} />} sub={`${fmt(s.positions)} позиций проверено`} accent="brand" icon={<IStore width={16} height={16} />} />
+        <StatCard delay={0} label="Сумма закупок" info="Сколько всего денег потрачено на закупки за период по выбранным точкам." value={<AnimatedNumber value={s.spend} format={moneyShort} />} sub={`${fmt(s.positions)} позиций проверено`} accent="brand" icon={<IStore width={16} height={16} />} />
         <StatCard
           delay={60}
           label="Чистый эффект мониторинга"
+          info="Экономия минус переплаты. Плюс — в сумме закупили дешевле плана, минус — дороже."
           value={<span className={s.netEffect >= 0 ? 'text-good' : 'text-bad'}><AnimatedNumber value={s.netEffect} format={moneyShort} /></span>}
           sub={s.netEffect >= 0 ? 'экономия против плана' : 'перерасход против плана'}
           accent={netAccent}
           icon={<IGauge width={16} height={16} />}
         />
-        <StatCard delay={120} label="Переплаты" value={<span className="text-bad"><AnimatedNumber value={s.overpaySum} format={moneyShort} /></span>} sub={`${s.overpayCount} позиций дороже плана`} accent="bad" icon={<IArrowUp width={16} height={16} />} />
-        <StatCard delay={180} label="Экономия" value={<span className="text-good"><AnimatedNumber value={s.savingSum} format={moneyShort} /></span>} sub={`${s.savingCount} позиций дешевле плана`} accent="good" icon={<IArrowDown width={16} height={16} />} />
+        <StatCard delay={120} label="Переплаты" info="Сумма, потерянная на позициях, купленных дороже плановой цены. Это резерв для переговоров с поставщиками." value={<span className="text-bad"><AnimatedNumber value={s.overpaySum} format={moneyShort} /></span>} sub={`${s.overpayCount} позиций дороже плана`} accent="bad" icon={<IArrowUp width={16} height={16} />} />
+        <StatCard delay={180} label="Экономия" infoAlign="right" info="Сумма, сэкономленная на позициях, купленных дешевле плановой цены." value={<span className="text-good"><AnimatedNumber value={s.savingSum} format={moneyShort} /></span>} sub={`${s.savingCount} позиций дешевле плана`} accent="good" icon={<IArrowDown width={16} height={16} />} />
       </div>
 
       <div className="grid grid-cols-4 gap-4">
-        <StatCard delay={220} label="Совпадение с матрицей" value={<AnimatedNumber value={s.matchRate * 100} format={(n) => fmt1(n) + '%'} />} sub={`${fmt(s.matched)} из ${fmt(s.positions)} позиций найдено`} accent="brand" icon={<ICheck width={16} height={16} />} />
-        <StatCard delay={260} label="Нет в матрице" value={<AnimatedNumber value={s.noMatrixCount} format={(n) => fmt(n)} />} sub="позиции вне план-матрицы" accent="warn" icon={<IScale width={16} height={16} />} />
-        <StatCard delay={300} label="Аномалии" value={<AnimatedNumber value={s.anomalyCount} format={(n) => fmt(n)} />} sub="расхождение ед. изм. — проверить" accent="warn" icon={<IAlert width={16} height={16} />} />
-        <StatCard delay={340} label="Средний перерасход" value={s.overpayCount ? moneyShort(s.overpaySum / s.overpayCount) : '—'} sub="на одну переплату" accent="slate" icon={<IArrowUp width={16} height={16} />} />
+        <StatCard delay={220} label="Совпадение с матрицей" info="Доля закупленных позиций, для которых нашлась плановая цена в матрице. Остальные — «нет в матрице»." value={<AnimatedNumber value={s.matchRate * 100} format={(n) => fmt1(n) + '%'} />} sub={`${fmt(s.matched)} из ${fmt(s.positions)} позиций найдено`} accent="brand" icon={<ICheck width={16} height={16} />} />
+        <StatCard delay={260} label="Нет в матрице" info="Товары, которых нет в плановой матрице — не с чем сравнить цену. Добавьте им план в разделе «Данные»." value={<AnimatedNumber value={s.noMatrixCount} format={(n) => fmt(n)} />} sub="позиции вне план-матрицы" accent="warn" icon={<IScale width={16} height={16} />} />
+        <StatCard delay={300} label="Аномалии" info="Цена отличается от плана в разы — скорее всего разные единицы измерения (шт/кг). Исключены из расчёта эффекта." value={<AnimatedNumber value={s.anomalyCount} format={(n) => fmt(n)} />} sub="расхождение ед. изм. — проверить" accent="warn" icon={<IAlert width={16} height={16} />} />
+        <StatCard delay={340} label="Средний перерасход" infoAlign="right" info="Средняя переплата в расчёте на одну позицию, купленную дороже плана." value={s.overpayCount ? moneyShort(s.overpaySum / s.overpayCount) : '—'} sub="на одну переплату" accent="slate" icon={<IArrowUp width={16} height={16} />} />
       </div>
 
       {/* Charts */}

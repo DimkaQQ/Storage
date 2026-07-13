@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Row, Status, STATUS_META, money, moneyShort, pct, fmt, fmt1, summarize } from '../lib/data'
-import { StatusBadge, AbcBadge } from '../components/ui'
+import { StatusBadge, AbcBadge, InfoTip } from '../components/ui'
 import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'sum' | 'plan' | 'unit' | 'diffPct' | 'effect'
@@ -119,11 +119,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               <tr>
                 <Th onClick={() => setSortKey('product')} sort={sort} k="product">Товар</Th>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant">Ресторан</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right>Закупка</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right>План</Th>
-                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right>Факт</Th>
-                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right>Δ%</Th>
-                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right>Эффект</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right tip="Общая сумма закупки этой позиции за период (сумма ÷ количество = факт. цена).">Закупка</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right tip="Плановая (целевая) цена за единицу из матрицы. «—» — товара нет в матрице.">План</Th>
+                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right tip="Фактическая цена за единицу, по которой реально закупили (из iiko).">Факт</Th>
+                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right tip="Отклонение факта от плана в процентах. Плюс — дороже плана, минус — дешевле.">Δ%</Th>
+                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
                 <th className="th text-center">ABC</th>
                 <th className="th">Статус</th>
               </tr>
@@ -177,13 +177,16 @@ function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: str
   )
 }
 
-function Th({ children, onClick, sort, k, right }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean }) {
+function Th({ children, onClick, sort, k, right, tip }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; tip?: string }) {
   const on = sort.key === k
   return (
-    <th className={`th cursor-pointer hover:text-slate-300 ${right ? 'text-right' : ''}`} onClick={onClick}>
+    <th className={`th hover:text-slate-300 ${right ? 'text-right' : ''}`}>
       <span className={`inline-flex items-center gap-1 ${right ? 'flex-row-reverse' : ''}`}>
-        {children}
-        {on ? (sort.dir === 1 ? <IArrowUp width={12} height={12} className="text-brand-300" /> : <IArrowDown width={12} height={12} className="text-brand-300" />) : <ISort width={12} height={12} className="text-slate-600" />}
+        <span className="inline-flex cursor-pointer items-center gap-1" onClick={onClick}>
+          {children}
+          {on ? (sort.dir === 1 ? <IArrowUp width={12} height={12} className="text-brand-300" /> : <IArrowDown width={12} height={12} className="text-brand-300" />) : <ISort width={12} height={12} className="text-slate-600" />}
+        </span>
+        {tip && <InfoTip text={tip} align={right ? 'right' : 'left'} />}
       </span>
     </th>
   )

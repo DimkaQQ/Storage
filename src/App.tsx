@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react'
-import { ROWS, RESTAURANTS, PERIOD, CITY, CATEGORY } from './lib/data'
-import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp } from './components/icons'
+import { RESTAURANTS, PERIOD, CITY, CATEGORY } from './lib/data'
+import { useEdits } from './lib/edits'
+import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase } from './components/icons'
 import HelpModal from './components/HelpModal'
 import Dashboard from './pages/Dashboard'
 import PriceCheck from './pages/PriceCheck'
 import Restaurants from './pages/Restaurants'
 import ABC from './pages/ABC'
 import Anomalies from './pages/Anomalies'
+import DataEditor from './pages/DataEditor'
 import ScopePicker from './components/ScopePicker'
 
-type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'abc' | 'anomalies'
+type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'abc' | 'anomalies' | 'data'
 
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string }[] = [
   { id: 'dashboard', label: 'Обзор', icon: IGauge, hint: 'Ключевые показатели' },
@@ -17,16 +19,18 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
   { id: 'restaurants', label: 'Рестораны', icon: IStore, hint: 'По точкам и консолид.' },
   { id: 'abc', label: 'ABC-анализ', icon: ILayers, hint: 'Структура закупок' },
   { id: 'anomalies', label: 'Аномалии', icon: IAlert, hint: 'Проверить вручную' },
+  { id: 'data', label: 'Данные', icon: IDatabase, hint: 'Справочники и цены' },
 ]
 
 export default function App() {
   const [page, setPage] = useState<PageId>('dashboard')
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [help, setHelp] = useState(false)
+  const { rows: allRows, editCount } = useEdits()
 
   const rows = useMemo(
-    () => (scope.size === 0 ? ROWS : ROWS.filter((r) => scope.has(r.restaurant))),
-    [scope],
+    () => (scope.size === 0 ? allRows : allRows.filter((r) => scope.has(r.restaurant))),
+    [scope, allRows],
   )
 
   return (
@@ -59,7 +63,12 @@ export default function App() {
                     <n.icon />
                   </span>
                   <span className="flex-1">
-                    <span className="block text-sm font-medium">{n.label}</span>
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      {n.label}
+                      {n.id === 'data' && editCount > 0 && (
+                        <span className="rounded-full bg-brand-500/20 px-1.5 text-[10px] font-semibold text-brand-300">{editCount}</span>
+                      )}
+                    </span>
                     <span className="block text-[11px] text-slate-500">{n.hint}</span>
                   </span>
                   <span className={`absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-brand-400 transition-all duration-300 ${active ? 'opacity-100' : 'opacity-0'}`} />
@@ -97,11 +106,13 @@ export default function App() {
                   <IHelp width={16} height={16} className="text-brand-300" />
                   Справка
                 </button>
-                <ScopePicker
-                  options={RESTAURANTS.map((r) => r.name)}
-                  selected={scope}
-                  onChange={setScope}
-                />
+                {page !== 'data' && (
+                  <ScopePicker
+                    options={RESTAURANTS.map((r) => r.name)}
+                    selected={scope}
+                    onChange={setScope}
+                  />
+                )}
               </div>
             </div>
           </header>
@@ -113,6 +124,7 @@ export default function App() {
               {page === 'restaurants' && <Restaurants rows={rows} scope={scope} onScope={setScope} onNav={() => setPage('pricecheck')} />}
               {page === 'abc' && <ABC rows={rows} />}
               {page === 'anomalies' && <Anomalies rows={rows} />}
+              {page === 'data' && <DataEditor />}
             </div>
           </main>
 

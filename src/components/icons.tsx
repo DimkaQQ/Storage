@@ -21,3 +21,8 @@ export const IDownload = (p: P) => <svg {...base(p)}><path d="M12 3v12M7 10l5 5 
 export const ISort = (p: P) => <svg {...base(p)}><path d="M8 3v18M8 3 4 7M8 3l4 4" /><path d="M16 21V3M16 21l4-4M16 21l-4-4" /></svg>
 export const ISpark = (p: P) => <svg {...base(p)}><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" /></svg>
 export const IHelp = (p: P) => <svg {...base(p)}><circle cx="12" cy="12" r="9" /><path d="M9.2 9a2.8 2.8 0 0 1 5.5.8c0 1.9-2.7 2.5-2.7 2.5" /><path d="M12 17h.01" /></svg>
+export const IInfo = (p: P) => <svg {...base(p)}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+export const IEdit = (p: P) => <svg {...base(p)}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" /></svg>
+export const IDatabase = (p: P) => <svg {...base(p)}><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></svg>
+export const IReset = (p: P) => <svg {...base(p)}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
+export const IUpload = (p: P) => <svg {...base(p)}><path d="M12 15V3M7 8l5-5 5 5" /><path d="M5 21h14" /></svg>
