@@ -1,120 +1,138 @@
-import { Package, ShoppingCart, Truck, AlertTriangle, TrendingUp } from 'lucide-react'
-import { useStore } from '../store/useStore'
+import { useMemo } from 'react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell,
+  PieChart, Pie,
+} from 'recharts'
+import { Row, summarize, byRestaurant, money, moneyShort, fmt, pct, STATUS_META, Status } from '../lib/data'
 import StatCard from '../components/StatCard'
-import LowStockAlert from '../components/LowStockAlert'
-import { Link } from 'react-router-dom'
-import Badge, { labels } from '../components/Badge'
-import type { PurchaseStatus } from '../types'
-import { formatPrice } from '../utils/format'
+import { Section } from '../components/ui'
+import { ChartTip, C, Legend } from '../components/charts'
+import { IScale, IStore, IAlert, IArrowDown, IArrowUp, IGauge, ICheck } from '../components/icons'
 
-export default function Dashboard() {
-  const { inventory, purchases, suppliers, selectedVenueId, venues } = useStore()
+export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
+  const s = useMemo(() => summarize(rows), [rows])
 
-  const filteredInventory = selectedVenueId ? inventory.filter((i) => i.venueId === selectedVenueId) : inventory
-  const filteredPurchases = selectedVenueId ? purchases.filter((p) => p.venueId === selectedVenueId) : purchases
+  const perRest = useMemo(
+    () => byRestaurant(rows).map((r) => ({ name: r.name, effect: r.summary.netEffect, spend: r.summary.spend }))
+      .sort((a, b) => a.effect - b.effect),
+    [rows],
+  )
 
-  const selectedVenue = venues.find((v) => v.id === selectedVenueId)
-  const lowStockCount = filteredInventory.filter((i) => i.quantity <= i.minQuantity).length
-  const totalValue = filteredInventory.reduce((sum, i) => sum + i.quantity * i.price, 0)
-  const pendingOrders = filteredPurchases.filter((p) => p.status === 'pending' || p.status === 'ordered')
-  const recentPurchases = [...filteredPurchases].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5)
+  const statusData = useMemo(() => {
+    const order: Status[] = ['saving', 'ok', 'overpay', 'nomatrix', 'anomaly']
+    const counts = new Map<Status, number>()
+    for (const r of rows) counts.set(r.status, (counts.get(r.status) || 0) + 1)
+    const colors: Record<Status, string> = { saving: C.good, ok: '#64748b', overpay: C.bad, nomatrix: C.warn, anomaly: C.purple }
+    return order.map((st) => ({ st, name: STATUS_META[st].label, value: counts.get(st) || 0, color: colors[st] }))
+      .filter((d) => d.value > 0)
+  }, [rows])
+
+  const topOverpay = useMemo(
+    () => rows.filter((r) => r.status === 'overpay').sort((a, b) => a.effect - b.effect).slice(0, 8),
+    [rows],
+  )
+
+  const netAccent = s.netEffect >= 0 ? 'good' : 'bad'
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>
-          {selectedVenue ? selectedVenue.name : 'Все точки продаж'}
-        </p>
-        <h1 className="text-3xl" style={{ color: 'var(--white)' }}>Склад Ресторана</h1>
-        <div className="flex items-center gap-2 mt-3">
-          {selectedVenue && (
-            <span className="badge badge-ordered">{selectedVenue.address}</span>
-          )}
-          {lowStockCount > 0 && (
-            <span className="badge badge-low flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              {lowStockCount} позиций мало
-            </span>
-          )}
-        </div>
+    <div className="space-y-6">
+      {/* KPI row */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatCard label="Сумма закупок" value={moneyShort(s.spend)} sub={`${fmt(s.positions)} позиций проверено`} accent="brand" icon={<IStore width={16} height={16} />} />
+        <StatCard
+          label="Чистый эффект мониторинга"
+          value={<span className={s.netEffect >= 0 ? 'text-good' : 'text-bad'}>{moneyShort(s.netEffect)}</span>}
+          sub={s.netEffect >= 0 ? 'экономия против плана' : 'перерасход против плана'}
+          accent={netAccent}
+          icon={<IGauge width={16} height={16} />}
+        />
+        <StatCard label="Переплаты" value={<span className="text-bad">{moneyShort(s.overpaySum)}</span>} sub={`${s.overpayCount} позиций дороже плана`} accent="bad" icon={<IArrowUp width={16} height={16} />} />
+        <StatCard label="Экономия" value={<span className="text-good">{moneyShort(s.savingSum)}</span>} sub={`${s.savingCount} позиций дешевле плана`} accent="good" icon={<IArrowDown width={16} height={16} />} />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard title="Позиций на складе" value={filteredInventory.length} subtitle="товаров учтено" icon={Package} />
-        <StatCard title="Стоимость склада" value={formatPrice(totalValue)} subtitle="текущий запас" icon={TrendingUp} />
-        <StatCard title="Активных заказов" value={pendingOrders.length} subtitle="в ожидании" icon={ShoppingCart} />
-        <StatCard title="Поставщиков" value={suppliers.length} subtitle="контрагентов" icon={Truck} />
+      <div className="grid grid-cols-4 gap-4">
+        <StatCard label="Совпадение с матрицей" value={pct(s.matchRate).replace('+', '')} sub={`${fmt(s.matched)} из ${fmt(s.positions)} позиций найдено`} accent="brand" icon={<ICheck width={16} height={16} />} />
+        <StatCard label="Нет в матрице" value={fmt(s.noMatrixCount)} sub="позиции вне план-матрицы" accent="warn" icon={<IScale width={16} height={16} />} />
+        <StatCard label="Аномалии" value={fmt(s.anomalyCount)} sub="расхождение ед. изм. — проверить" accent="warn" icon={<IAlert width={16} height={16} />} />
+        <StatCard label="Средний перерасход" value={s.overpayCount ? moneyShort(s.overpaySum / s.overpayCount) : '—'} sub="на одну переплату" accent="slate" icon={<IArrowUp width={16} height={16} />} />
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4">
-        {/* Low stock */}
-        <LowStockAlert />
-
-        {/* Recent purchases */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold" style={{ color: 'var(--white)' }}>Последние закупки</h3>
-            <Link to="/purchases" className="text-xs hover:underline" style={{ color: 'var(--gold)' }}>Все →</Link>
+      {/* Charts */}
+      <div className="grid grid-cols-3 gap-4">
+        <Section title="Эффект по ресторанам" subtitle="Экономия (+) и перерасход (−) против плановых цен" className="col-span-2">
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={perRest} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                <CartesianGrid horizontal={false} stroke={C.grid} />
+                <XAxis type="number" tickFormatter={(v) => moneyShort(v)} tick={{ fill: C.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={150} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} content={<ChartTip />} />
+                <Bar dataKey="effect" name="Эффект" radius={[0, 4, 4, 0]} barSize={16}>
+                  {perRest.map((d, i) => <Cell key={i} fill={d.effect >= 0 ? C.good : C.bad} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-          <div className="space-y-3">
-            {recentPurchases.map((p) => {
-              const supplier = suppliers.find((s) => s.id === p.supplierId)
-              const venue = venues.find((v) => v.id === p.venueId)
-              return (
-                <Link
-                  key={p.id}
-                  to={`/purchases/${p.id}`}
-                  className="flex items-center justify-between rounded-lg px-2 py-2 -mx-2 transition-colors"
-                  style={{ color: 'inherit' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <div>
-                    <p className="text-sm font-medium" style={{ color: 'var(--white)' }}>{supplier?.name}</p>
-                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
-                      {p.items.length} позиц. • {p.createdAt.slice(0, 10)}
-                      {venue && !selectedVenueId && <span> • {venue.name}</span>}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold num" style={{ color: 'var(--white)' }}>{formatPrice(p.totalAmount)}</p>
-                    <Badge variant={p.status}>{labels[p.status as PurchaseStatus] ?? p.status}</Badge>
-                  </div>
-                </Link>
-              )
-            })}
-            {recentPurchases.length === 0 && (
-              <p className="text-sm text-center py-4" style={{ color: 'var(--muted)' }}>Нет закупок</p>
-            )}
+        </Section>
+
+        <Section title="Структура позиций" subtitle="Статус проверки цены">
+          <div className="relative h-52">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={54} outerRadius={80} paddingAngle={2} stroke="none">
+                  {statusData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                </Pie>
+                <Tooltip content={<ChartTip money={false} />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-2xl font-bold text-white tabnum">{fmt(s.positions)}</span>
+              <span className="text-[11px] text-slate-500">позиций</span>
+            </div>
           </div>
-        </div>
+          <div className="mt-2">
+            <Legend items={statusData.map((d) => ({ label: d.name, color: d.color, value: fmt(d.value) }))} />
+          </div>
+        </Section>
       </div>
 
-      {/* Quick actions */}
-      <div>
-        <h3 className="text-sm font-medium mb-3 uppercase tracking-wider" style={{ color: 'var(--muted)' }}>Быстрый доступ</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            { to: '/inventory', label: 'Склад', desc: 'Управление запасами', icon: Package },
-            { to: '/purchases', label: 'Закупки', desc: 'Создать заказ', icon: ShoppingCart },
-            { to: '/suppliers', label: 'Поставщики', desc: 'Контакты', icon: Truck },
-            { to: '/analytics', label: 'Аналитика', desc: 'Графики и отчёты', icon: TrendingUp },
-          ].map(({ to, label, desc, icon: Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className="kpi-card card-lift block"
-              style={{ textDecoration: 'none' }}
-            >
-              <Icon className="w-5 h-5 mb-2" style={{ color: 'var(--gold)' }} />
-              <p className="font-semibold text-sm" style={{ color: 'var(--white)' }}>{label}</p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{desc}</p>
-            </Link>
-          ))}
-        </div>
-      </div>
+      {/* Top overpays */}
+      <Section
+        title="Крупнейшие переплаты"
+        subtitle="Позиции, где фактическая цена выше плановой — приоритет для переговоров"
+        right={<button onClick={() => onNav('pricecheck')} className="btn text-brand-300 hover:text-brand-200">Все позиции →</button>}
+      >
+        {topOverpay.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-500">Переплат в выбранном срезе не найдено 🎉</div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-ink-700/50">
+            <table className="w-full">
+              <thead className="bg-ink-800/50">
+                <tr>
+                  <th className="th">Товар</th>
+                  <th className="th">Ресторан</th>
+                  <th className="th text-right">План</th>
+                  <th className="th text-right">Факт</th>
+                  <th className="th text-right">Δ</th>
+                  <th className="th text-right">Перерасход</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topOverpay.map((r) => (
+                  <tr key={r.id} className="hover:bg-ink-800/40">
+                    <td className="td font-medium text-slate-100">{r.product}<div className="text-[11px] font-normal text-slate-500">{r.supplier}</div></td>
+                    <td className="td text-slate-400">{r.restaurant}</td>
+                    <td className="td text-right tabnum text-slate-400">{money(r.plan!)}</td>
+                    <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
+                    <td className="td text-right tabnum font-semibold text-bad">{pct(r.diffPct!)}</td>
+                    <td className="td text-right tabnum font-semibold text-bad">{moneyShort(r.effect)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
     </div>
   )
 }

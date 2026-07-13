@@ -1,34 +1,31 @@
-import type { LucideIcon } from 'lucide-react'
+import { ReactNode } from 'react'
 
-type Props = {
-  title: string
-  value: string | number
-  subtitle?: string
-  icon: LucideIcon
-  color?: string
-  trend?: { value: number; label: string }
-  danger?: boolean
-}
-
-export default function StatCard({ title, value, subtitle, icon: Icon, danger, trend }: Props) {
+export default function StatCard({
+  label, value, sub, accent = 'brand', icon,
+}: {
+  label: string
+  value: ReactNode
+  sub?: ReactNode
+  accent?: 'brand' | 'good' | 'bad' | 'warn' | 'slate'
+  icon?: ReactNode
+}) {
+  const ring: Record<string, string> = {
+    brand: 'from-brand-500/20', good: 'from-good/20', bad: 'from-bad/20',
+    warn: 'from-warn/20', slate: 'from-slate-500/10',
+  }
+  const ic: Record<string, string> = {
+    brand: 'text-brand-300 bg-brand-500/10', good: 'text-good bg-good/10',
+    bad: 'text-bad bg-bad/10', warn: 'text-warn bg-warn/10', slate: 'text-slate-300 bg-ink-750',
+  }
   return (
-    <div className="kpi-card">
-      <div className="flex items-start justify-between mb-2">
-        <p className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{title}</p>
-        <Icon className="w-4 h-4 flex-shrink-0" style={{ color: danger ? '#ef4444' : 'var(--gold)' }} />
+    <div className="card relative overflow-hidden p-5">
+      <div className={`pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-gradient-to-b ${ring[accent]} to-transparent blur-xl`} />
+      <div className="flex items-start justify-between">
+        <span className="text-xs font-medium text-slate-500">{label}</span>
+        {icon && <span className={`grid h-8 w-8 place-items-center rounded-lg ${ic[accent]}`}>{icon}</span>}
       </div>
-      <p
-        className="text-2xl font-bold"
-        style={{ color: danger ? '#ef4444' : 'var(--white)', fontFamily: "'Instrument Serif', serif" }}
-      >
-        {value}
-      </p>
-      {subtitle && <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{subtitle}</p>}
-      {trend && (
-        <p className="text-xs mt-1 font-medium" style={{ color: trend.value >= 0 ? '#22c55e' : '#ef4444' }}>
-          {trend.value >= 0 ? '↑' : '↓'} {Math.abs(trend.value)}% {trend.label}
-        </p>
-      )}
+      <div className="mt-3 text-2xl font-bold tabnum text-white">{value}</div>
+      {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
     </div>
   )
 }
