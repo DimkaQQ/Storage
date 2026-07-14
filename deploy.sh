@@ -15,6 +15,6 @@ docker compose up -d --build
 
 echo "→ Готово. Локальная проверка:"
 sleep 2
-curl -fsS -o /dev/null -w "  http://127.0.0.1:8080  →  HTTP %{http_code}\n" http://127.0.0.1:8080 || true
+curl -fsS -o /dev/null -w "  http://127.0.0.1:3000  →  HTTP %{http_code}\n" http://127.0.0.1:3000 || true
 echo "  Контейнер:"
 docker compose ps

@@ -5,5 +5,6 @@ services:
     container_name: pricecheck
     restart: unless-stopped
     ports:
-      # host:container — меняйте левое число, если 8080 занят
-      - "8080:80"
+      # Тот же порт 3000, на который уже проксирует nginx (sklad.dimkaprojects.xyz).
+      # Слушаем только localhost — наружу порт не открыт, доступ идёт через nginx+HTTPS.
+      - "127.0.0.1:3000:80"
