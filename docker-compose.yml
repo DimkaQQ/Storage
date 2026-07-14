@@ -1,10 +1,28 @@
 services:
+  api:
+    build: ./server
+    image: pricecheck-api:latest
+    container_name: pricecheck-api
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Almaty
+      - PORT=8090
+    volumes:
+      # данные, настройки iiko и плановые цены переживают пересборку
+      - pricecheck-data:/app/data
+    expose:
+      - "8090"
+
   web:
     build: .
     image: pricecheck:latest
     container_name: pricecheck
     restart: unless-stopped
+    depends_on:
+      - api
     ports:
-      # Тот же порт 3000, на который уже проксирует nginx (sklad.dimkaprojects.xyz).
-      # Слушаем только localhost — наружу порт не открыт, доступ идёт через nginx+HTTPS.
+      # Тот же порт 3000, на который проксирует nginx (sklad.dimkaprojects.xyz).
       - "127.0.0.1:3000:80"
+
+volumes:
+  pricecheck-data:

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { SUPPLIERS_BASE, PRODUCTS_BASE, money, moneyShort, fmt, plural } from '../lib/data'
+import { money, moneyShort, fmt, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText, EditablePlan } from '../components/EditableCell'
@@ -8,7 +8,7 @@ import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, ICheck } from '
 type Tab = 'suppliers' | 'products'
 
 export default function DataEditor() {
-  const { edits, editCount, renameSupplier, renameProduct, setPlan, reset, replaceAll } = useEdits()
+  const { edits, editCount, renameSupplier, renameProduct, setPlan, reset, replaceAll, suppliers: suppliersBase, products: productsBase } = useEdits()
   const [tab, setTab] = useState<Tab>('products')
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
@@ -18,15 +18,15 @@ export default function DataEditor() {
 
   const suppliers = useMemo(() => {
     const list = needle
-      ? SUPPLIERS_BASE.filter((s) => s.name.toLowerCase().includes(needle) || (edits.supplierRenames[s.name] ?? '').toLowerCase().includes(needle))
-      : SUPPLIERS_BASE
+      ? suppliersBase.filter((s) => s.name.toLowerCase().includes(needle) || (edits.supplierRenames[s.name] ?? '').toLowerCase().includes(needle))
+      : suppliersBase
     return list
   }, [needle, edits.supplierRenames])
 
   const products = useMemo(() => {
     const list = needle
-      ? PRODUCTS_BASE.filter((p) => p.name.toLowerCase().includes(needle) || (edits.productRenames[p.name] ?? '').toLowerCase().includes(needle))
-      : PRODUCTS_BASE
+      ? productsBase.filter((p) => p.name.toLowerCase().includes(needle) || (edits.productRenames[p.name] ?? '').toLowerCase().includes(needle))
+      : productsBase
     return list
   }, [needle, edits.productRenames])
 
@@ -90,8 +90,8 @@ export default function DataEditor() {
         {/* tabs + search */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
-            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(PRODUCTS_BASE.length)})</button>
-            <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(SUPPLIERS_BASE.length)})</button>
+            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productsBase.length)})</button>
+            <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
           </div>
           <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
@@ -128,7 +128,7 @@ export default function DataEditor() {
             </thead>
             <tbody>
               {tab === 'suppliers'
-                ? (shown as typeof SUPPLIERS_BASE).map((s) => {
+                ? (shown as typeof suppliersBase).map((s) => {
                     const changed = !!edits.supplierRenames[s.name]
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
@@ -140,7 +140,7 @@ export default function DataEditor() {
                       </tr>
                     )
                   })
-                : (shown as typeof PRODUCTS_BASE).map((p) => {
+                : (shown as typeof productsBase).map((p) => {
                     const renamed = !!edits.productRenames[p.name]
                     const planOv = edits.planOverrides[p.name]
                     const changed = renamed || planOv != null

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { Row, byRestaurant, moneyShort, money, fmt, pct, RESTAURANTS } from '../lib/data'
+import { Row, byRestaurant, moneyShort, money, fmt, pct } from '../lib/data'
+import { useEdits } from '../lib/edits'
 import { Section } from '../components/ui'
 import { IStore, IArrowUp, IArrowDown, IChevron } from '../components/icons'
 
@@ -11,6 +12,7 @@ export default function Restaurants({
   onScope: (s: Set<string>) => void
   onNav: () => void
 }) {
+  const { restaurants } = useEdits()
   const cards = useMemo(
     () => byRestaurant(rows).sort((a, b) => a.summary.netEffect - b.summary.netEffect),
     [rows],
@@ -31,7 +33,7 @@ export default function Restaurants({
             const s = c.summary
             const good = s.netEffect >= 0
             const isFocus = scope.has(c.name)
-            const rest = RESTAURANTS.find((r) => r.name === c.name)
+            const rest = restaurants.find((r) => r.name === c.name)
             return (
               <button
                 key={c.name}

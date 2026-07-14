@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
-import { BASE, Edits, EMPTY_EDITS, Row, computeRows } from './data'
+import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, computeRows, parseDataset } from './data'
+import { fetchDataset, fetchStatus, triggerSync, SyncStatus } from './api'
 
 const KEY = 'pricecheck-edits-v1'
 
@@ -23,6 +24,20 @@ interface Ctx {
   edits: Edits
   rows: Row[]
   editCount: number
+  // dataset (bundled fallback → replaced by backend data when available)
+  period: string
+  city: string
+  category: string
+  restaurants: VenueMeta[]
+  suppliers: SupplierAgg[]
+  products: ProductAgg[]
+  // backend sync
+  backendOnline: boolean
+  status: SyncStatus | null
+  syncing: boolean
+  refresh: () => Promise<void>
+  reloadStatus: () => Promise<void>
+  // edits
   renameSupplier: (original: string, name: string) => void
   renameProduct: (original: string, name: string) => void
   setPlan: (originalProduct: string, plan: number | null) => void
@@ -35,12 +50,34 @@ const EditsContext = createContext<Ctx | null>(null)
 
 export function EditsProvider({ children }: { children: ReactNode }) {
   const [edits, setEdits] = useState<Edits>(load)
+  const [parsed, setParsed] = useState<Parsed>(BUNDLED)
+  const [status, setStatus] = useState<SyncStatus | null>(null)
+  const [backendOnline, setBackendOnline] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
   }, [edits])
 
-  const rows = useMemo(() => computeRows(BASE, edits), [edits])
+  const loadData = useCallback(async () => {
+    const data = await fetchDataset()
+    if (data && data.restaurants) { setParsed(parseDataset(data)); setBackendOnline(true) }
+  }, [])
+  const reloadStatus = useCallback(async () => {
+    const st = await fetchStatus()
+    if (st) { setStatus(st); setBackendOnline(true) }
+  }, [])
+
+  // On mount: pull the live dataset + status from the backend (if present).
+  useEffect(() => { loadData(); reloadStatus() }, [loadData, reloadStatus])
+
+  const refresh = useCallback(async () => {
+    setSyncing(true)
+    try { await triggerSync(); await loadData(); await reloadStatus() }
+    finally { setSyncing(false) }
+  }, [loadData, reloadStatus])
+
+  const rows = useMemo(() => computeRows(parsed.base, edits), [parsed, edits])
 
   // Set a map entry, or delete it when the value clears / equals the original.
   const setMap = useCallback((field: 'supplierRenames' | 'productRenames') =>
@@ -89,7 +126,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.planOverrides).length +
     Object.keys(edits.excludedProducts).length
 
-  const value: Ctx = { edits, rows, editCount, renameSupplier, renameProduct, setPlan, setExcluded, reset, replaceAll }
+  const value: Ctx = {
+    edits, rows, editCount,
+    period: parsed.period, city: parsed.city, category: parsed.category,
+    restaurants: parsed.restaurants, suppliers: parsed.suppliers, products: parsed.products,
+    backendOnline, status, syncing, refresh, reloadStatus,
+    renameSupplier, renameProduct, setPlan, setExcluded, reset, replaceAll,
+  }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }
 

@@ -57,8 +57,6 @@ const REVIEW_BAND = 0.5
 // we treat it as a data anomaly to review, not a real price delta.
 const ANOMALY_RATIO = 3
 
-const data = raw as unknown as RawDataset
-
 function classify(plan: number | null, unit: number): { status: Status; effect: number; diff: number | null; diffPct: number | null } {
   if (plan == null || plan <= 0) return { status: 'nomatrix', effect: 0, diff: null, diffPct: null }
   const ratio = unit / plan
@@ -91,21 +89,6 @@ export interface BaseRow {
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
 const MIN_TURNOVER = 1000
-
-let _seq = 0
-export const BASE: BaseRow[] = []
-for (const r of data.restaurants) {
-  for (const it of r.items) {
-    if (it.u == null) continue
-    if (it.m < MIN_TURNOVER || it.q <= 0) continue
-    BASE.push({
-      id: 'r' + _seq++,
-      restaurant: r.name, brand: r.brand, entity: r.entity,
-      supplier0: it.s, product0: it.p, pack: it.k,
-      qty: it.q, sum: it.m, unit: it.u, plan0: it.pl,
-    })
-  }
-}
 
 /**
  * User edits layered over the immutable base data so the project can run
@@ -155,39 +138,58 @@ export function assignABC(rows: Row[]) {
 
 export interface SupplierAgg { name: string; count: number; sum: number }
 export interface ProductAgg { name: string; count: number; sum: number; basePlan: number | null; inMatrix: boolean }
+export interface VenueMeta { name: string; entity: string; brand: string; city: string }
 
-export const SUPPLIERS_BASE: SupplierAgg[] = (() => {
-  const m = new Map<string, SupplierAgg>()
-  for (const b of BASE) {
-    const g = m.get(b.supplier0) || { name: b.supplier0, count: 0, sum: 0 }
-    g.count++; g.sum += b.sum
-    m.set(b.supplier0, g)
+/** Everything derived from a dataset — parsed once, either from the bundle or the API. */
+export interface Parsed {
+  base: BaseRow[]
+  suppliers: SupplierAgg[]
+  products: ProductAgg[]
+  restaurants: VenueMeta[]
+  period: string
+  city: string
+  category: string
+}
+
+/** Parses a raw dataset (bundled seed or fresh from the backend) into app structures. */
+export function parseDataset(data: RawDataset): Parsed {
+  let seq = 0
+  const base: BaseRow[] = []
+  for (const r of data.restaurants || []) {
+    for (const it of r.items || []) {
+      if (it.u == null) continue
+      if (it.m < MIN_TURNOVER || it.q <= 0) continue
+      base.push({
+        id: 'r' + seq++,
+        restaurant: r.name, brand: r.brand, entity: r.entity,
+        supplier0: it.s, product0: it.p, pack: it.k,
+        qty: it.q, sum: it.m, unit: it.u, plan0: it.pl,
+      })
+    }
   }
-  return [...m.values()].sort((a, b) => b.sum - a.sum)
-})()
-
-export const PRODUCTS_BASE: ProductAgg[] = (() => {
-  const m = new Map<string, ProductAgg>()
-  for (const b of BASE) {
-    const g = m.get(b.product0) || { name: b.product0, count: 0, sum: 0, basePlan: null, inMatrix: false }
-    g.count++; g.sum += b.sum
-    if (b.plan0 != null) { g.inMatrix = true; if (g.basePlan == null) g.basePlan = b.plan0 }
-    m.set(b.product0, g)
+  const sm = new Map<string, SupplierAgg>()
+  const pm = new Map<string, ProductAgg>()
+  for (const b of base) {
+    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, sum: 0 }
+    s.count++; s.sum += b.sum; sm.set(b.supplier0, s)
+    const p = pm.get(b.product0) || { name: b.product0, count: 0, sum: 0, basePlan: null, inMatrix: false }
+    p.count++; p.sum += b.sum
+    if (b.plan0 != null) { p.inMatrix = true; if (p.basePlan == null) p.basePlan = b.plan0 }
+    pm.set(b.product0, p)
   }
-  return [...m.values()].sort((a, b) => b.sum - a.sum)
-})()
+  return {
+    base,
+    suppliers: [...sm.values()].sort((a, b) => b.sum - a.sum),
+    products: [...pm.values()].sort((a, b) => b.sum - a.sum),
+    restaurants: (data.restaurants || []).map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city })),
+    period: data.periodLabel,
+    city: data.city,
+    category: data.category,
+  }
+}
 
-export const PERIOD = data.periodLabel
-export const CITY = data.city
-export const CATEGORY = data.category
-export const ROWS = computeRows(BASE, EMPTY_EDITS)
-
-export const RESTAURANTS = data.restaurants.map((r) => ({
-  name: r.name,
-  entity: r.entity,
-  brand: r.brand,
-  city: r.city,
-}))
+/** Bundled snapshot — used until the backend responds (or if it's offline). */
+export const BUNDLED = parseDataset(raw as unknown as RawDataset)
 
 export const STATUS_META: Record<Status, { label: string; color: string; dot: string }> = {
   overpay: { label: 'Переплата', color: 'text-bad', dot: 'bg-bad' },

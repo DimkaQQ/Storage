@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { RESTAURANTS, PERIOD, CITY, CATEGORY, summarize } from './lib/data'
+import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
-import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase } from './components/icons'
+import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync } from './components/icons'
 import HelpModal from './components/HelpModal'
 import Dashboard from './pages/Dashboard'
 import PriceCheck from './pages/PriceCheck'
@@ -9,9 +9,10 @@ import Restaurants from './pages/Restaurants'
 import ABC from './pages/ABC'
 import Reconcile from './pages/Reconcile'
 import DataEditor from './pages/DataEditor'
+import IikoSettings from './pages/IikoSettings'
 import ScopePicker from './components/ScopePicker'
 
-type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'abc' | 'reconcile' | 'data'
+type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'abc' | 'reconcile' | 'data' | 'iiko'
 
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string }[] = [
   { id: 'dashboard', label: 'Обзор', icon: IGauge, hint: 'Ключевые показатели' },
@@ -20,13 +21,14 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
   { id: 'abc', label: 'ABC-анализ', icon: ILayers, hint: 'Структура закупок' },
   { id: 'reconcile', label: 'Сверка', icon: IAlert, hint: 'Несостыковки и правки' },
   { id: 'data', label: 'Данные', icon: IDatabase, hint: 'Справочники и цены' },
+  { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko' },
 ]
 
 export default function App() {
   const [page, setPage] = useState<PageId>('dashboard')
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [help, setHelp] = useState(false)
-  const { rows: allRows, editCount } = useEdits()
+  const { rows: allRows, editCount, period, city, category, restaurants } = useEdits()
 
   const rows = useMemo(
     () => (scope.size === 0 ? allRows : allRows.filter((r) => scope.has(r.restaurant))),
@@ -85,7 +87,7 @@ export default function App() {
             <div className="flex items-center justify-between">
               <span>Данные iiko × Матрица</span>
             </div>
-            <div className="mt-1 text-slate-600">{RESTAURANTS.length} точек · {CATEGORY}</div>
+            <div className="mt-1 text-slate-600">{restaurants.length} точек · {category}</div>
           </div>
         </aside>
 
@@ -96,9 +98,9 @@ export default function App() {
               <div>
                 <h1 className="text-lg font-bold text-white">{NAV.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-slate-500">
-                  Период: <span className="text-slate-300">{PERIOD}</span> · Город:{' '}
-                  <span className="text-slate-300">{CITY}</span> · Категория:{' '}
-                  <span className="text-slate-300">{CATEGORY}</span>
+                  Период: <span className="text-slate-300">{period}</span> · Город:{' '}
+                  <span className="text-slate-300">{city}</span> · Категория:{' '}
+                  <span className="text-slate-300">{category}</span>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -110,9 +112,9 @@ export default function App() {
                   <IHelp width={16} height={16} className="text-brand-300" />
                   Справка
                 </button>
-                {page !== 'data' && (
+                {page !== 'data' && page !== 'iiko' && (
                   <ScopePicker
-                    options={RESTAURANTS.map((r) => r.name)}
+                    options={restaurants.map((r) => r.name)}
                     selected={scope}
                     onChange={setScope}
                   />
@@ -129,11 +131,12 @@ export default function App() {
               {page === 'abc' && <ABC rows={rows} />}
               {page === 'reconcile' && <Reconcile rows={rows} />}
               {page === 'data' && <DataEditor />}
+              {page === 'iiko' && <IikoSettings />}
             </div>
           </main>
 
           <footer className="px-8 pb-8 pt-2 text-center text-[11px] text-slate-600">
-            Проверка закупочных цен · план (матрица) против факта (iiko) · {PERIOD}
+            Проверка закупочных цен · план (матрица) против факта (iiko) · {period}
           </footer>
         </div>
 

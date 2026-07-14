@@ -1,0 +1,14 @@
+{
+  "name": "pricecheck-api",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Backend for the price-check dashboard: pulls purchase facts from iiko, keeps the plan matrix, serves the dataset.",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3"
+  }
+}
