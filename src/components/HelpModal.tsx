@@ -39,14 +39,14 @@ export default function HelpModal({ onClose }: { onClose: () => void }) {
         {/* header */}
         <div className="flex items-center justify-between border-b border-ink-700/60 px-6 py-4">
           <div className="flex items-center gap-3">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand-500 text-white"><ISpark width={16} height={16} /></span>
+            <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand-500 text-white"><ISpark width={22} height={22} /></span>
             <div>
-              <h2 className="text-sm font-bold text-white">Как читать этот отчёт</h2>
-              <p className="text-[11px] text-slate-500">Короткая инструкция — за 1 минуту</p>
+              <h2 className="text-base font-bold text-white">Как читать этот отчёт</h2>
+              <p className="text-xs text-slate-500">Короткая инструкция — за 1 минуту</p>
             </div>
           </div>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-ink-800 hover:text-white">
-            <IClose width={16} height={16} />
+          <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-slate-400 hover:bg-ink-800 hover:text-white">
+            <IClose width={18} height={18} />
           </button>
         </div>
 
@@ -61,36 +61,36 @@ export default function HelpModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Что означают цвета и статусы</h3>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <h3 className="mb-2.5 text-[13px] font-semibold uppercase tracking-wider text-slate-400">Что означают цвета и статусы</h3>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {STATUSES.map((s) => (
-                <div key={s.label} className="flex items-start gap-2.5 rounded-lg bg-ink-900/50 px-3 py-2">
-                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
-                  <div><span className="text-sm font-medium text-slate-100">{s.label}</span><span className="text-sm text-slate-400"> — {s.text}</span></div>
+                <div key={s.label} className="flex items-start gap-3 rounded-xl bg-ink-900/50 px-3.5 py-3">
+                  <span className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full ${s.dot}`} />
+                  <div className="text-sm leading-relaxed"><span className="font-semibold text-slate-100">{s.label}</span><span className="text-slate-400"> — {s.text}</span></div>
                 </div>
               ))}
             </div>
           </div>
 
           <div>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Основные термины</h3>
-            <dl className="space-y-2">
+            <h3 className="mb-2.5 text-[13px] font-semibold uppercase tracking-wider text-slate-400">Основные термины</h3>
+            <dl className="space-y-2.5">
               {TERMS.map((t) => (
-                <div key={t.term} className="rounded-lg bg-ink-900/50 px-3 py-2">
+                <div key={t.term} className="rounded-xl bg-ink-900/50 px-3.5 py-3">
                   <dt className="text-sm font-semibold text-slate-100">{t.term}</dt>
-                  <dd className="text-sm text-slate-400">{t.def}</dd>
+                  <dd className="mt-0.5 text-sm leading-relaxed text-slate-400">{t.def}</dd>
                 </div>
               ))}
             </dl>
           </div>
 
           <div>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Разделы приложения</h3>
-            <div className="space-y-2">
+            <h3 className="mb-2.5 text-[13px] font-semibold uppercase tracking-wider text-slate-400">Разделы приложения</h3>
+            <div className="space-y-2.5">
               {SECTIONS.map((s) => (
-                <div key={s.name} className="flex items-start gap-3 rounded-lg bg-ink-900/50 px-3 py-2">
-                  <span className="mt-0.5 text-brand-300"><s.icon width={16} height={16} /></span>
-                  <div><span className="text-sm font-medium text-slate-100">{s.name}</span><span className="text-sm text-slate-400"> — {s.text}</span></div>
+                <div key={s.name} className="flex items-start gap-3 rounded-xl bg-ink-900/50 px-3.5 py-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-500/12 text-brand-300"><s.icon width={20} height={20} /></span>
+                  <div className="pt-0.5 text-sm leading-relaxed"><span className="font-semibold text-slate-100">{s.name}</span><span className="text-slate-400"> — {s.text}</span></div>
                 </div>
               ))}
             </div>

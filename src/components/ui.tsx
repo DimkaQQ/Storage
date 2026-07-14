@@ -1,25 +1,61 @@
-import { ReactNode } from 'react'
+import { ReactNode, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { STATUS_META, Status } from '../lib/data'
 import { useCountUp } from '../lib/hooks'
 import { IInfo } from './icons'
 
-/** A hoverable ⓘ hint. `align` keeps the bubble on-screen near table edges. */
-export function InfoTip({ text, align = 'center', className = '' }: {
+const TIP_WIDTH = 244
+
+/**
+ * A hoverable ⓘ hint rendered in a portal (above everything), so it is never
+ * clipped by a card/table with overflow, and is centred on the icon and
+ * clamped to the viewport. `align` is accepted for back-compat but ignored.
+ */
+export function InfoTip({ text, className = '' }: {
   text: ReactNode; align?: 'center' | 'left' | 'right'; className?: string
 }) {
-  const pos =
-    align === 'right' ? 'right-0' :
-    align === 'left' ? 'left-0' :
-    'left-1/2 -translate-x-1/2'
+  const ref = useRef<HTMLSpanElement>(null)
+  const [tip, setTip] = useState<{ left: number; top: number; below: boolean } | null>(null)
+
+  const open = () => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const m = 10
+    const left = Math.max(m + TIP_WIDTH / 2, Math.min(window.innerWidth - m - TIP_WIDTH / 2, r.left + r.width / 2))
+    const below = r.bottom + 100 < window.innerHeight
+    const top = below ? r.bottom + 8 : r.top - 8
+    setTip({ left, top, below })
+  }
+  const close = () => setTip(null)
+
   return (
-    <span className={`group/tip relative inline-flex align-middle ${className}`}>
-      <IInfo width={13} height={13} className="cursor-help text-slate-500 transition-colors hover:text-slate-300" />
-      <span
-        role="tooltip"
-        className={`pointer-events-none absolute top-full z-50 mt-2 hidden w-56 rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-xs font-normal normal-case leading-relaxed tracking-normal text-slate-300 shadow-xl group-hover/tip:block ${pos}`}
-      >
-        {text}
-      </span>
+    <span
+      ref={ref}
+      className={`inline-flex cursor-help align-middle ${className}`}
+      onMouseEnter={open}
+      onMouseLeave={close}
+      onFocus={open}
+      onBlur={close}
+      tabIndex={0}
+    >
+      <IInfo width={14} height={14} className="text-slate-500 transition-colors hover:text-slate-300" />
+      {tip && createPortal(
+        <div
+          role="tooltip"
+          style={{
+            position: 'fixed',
+            left: tip.left,
+            top: tip.top,
+            width: TIP_WIDTH,
+            transform: `translateX(-50%) ${tip.below ? '' : 'translateY(-100%)'}`,
+          }}
+          className="pointer-events-none z-[100] rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-xs font-normal normal-case leading-relaxed tracking-normal text-slate-200 shadow-xl"
+        >
+          {text}
+        </div>,
+        document.body,
+      )}
     </span>
   )
 }
