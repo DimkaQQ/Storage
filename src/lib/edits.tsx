@@ -12,6 +12,7 @@ function load(): Edits {
       supplierRenames: p.supplierRenames ?? {},
       productRenames: p.productRenames ?? {},
       planOverrides: p.planOverrides ?? {},
+      excludedProducts: p.excludedProducts ?? {},
     }
   } catch {
     return EMPTY_EDITS
@@ -25,6 +26,7 @@ interface Ctx {
   renameSupplier: (original: string, name: string) => void
   renameProduct: (original: string, name: string) => void
   setPlan: (originalProduct: string, plan: number | null) => void
+  setExcluded: (originalProduct: string, excluded: boolean) => void
   reset: () => void
   replaceAll: (e: Edits) => void
 }
@@ -64,19 +66,30 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const setExcluded = useCallback((originalProduct: string, excluded: boolean) => {
+    setEdits((e) => {
+      const next = { ...e.excludedProducts }
+      if (excluded) next[originalProduct] = true
+      else delete next[originalProduct]
+      return { ...e, excludedProducts: next }
+    })
+  }, [])
+
   const reset = useCallback(() => setEdits(EMPTY_EDITS), [])
   const replaceAll = useCallback((e: Edits) => setEdits({
     supplierRenames: e.supplierRenames ?? {},
     productRenames: e.productRenames ?? {},
     planOverrides: e.planOverrides ?? {},
+    excludedProducts: e.excludedProducts ?? {},
   }), [])
 
   const editCount =
     Object.keys(edits.supplierRenames).length +
     Object.keys(edits.productRenames).length +
-    Object.keys(edits.planOverrides).length
+    Object.keys(edits.planOverrides).length +
+    Object.keys(edits.excludedProducts).length
 
-  const value: Ctx = { edits, rows, editCount, renameSupplier, renameProduct, setPlan, reset, replaceAll }
+  const value: Ctx = { edits, rows, editCount, renameSupplier, renameProduct, setPlan, setExcluded, reset, replaceAll }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }
 

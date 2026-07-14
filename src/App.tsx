@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { RESTAURANTS, PERIOD, CITY, CATEGORY } from './lib/data'
+import { RESTAURANTS, PERIOD, CITY, CATEGORY, summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase } from './components/icons'
 import HelpModal from './components/HelpModal'
@@ -7,18 +7,18 @@ import Dashboard from './pages/Dashboard'
 import PriceCheck from './pages/PriceCheck'
 import Restaurants from './pages/Restaurants'
 import ABC from './pages/ABC'
-import Anomalies from './pages/Anomalies'
+import Reconcile from './pages/Reconcile'
 import DataEditor from './pages/DataEditor'
 import ScopePicker from './components/ScopePicker'
 
-type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'abc' | 'anomalies' | 'data'
+type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'abc' | 'reconcile' | 'data'
 
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string }[] = [
   { id: 'dashboard', label: 'Обзор', icon: IGauge, hint: 'Ключевые показатели' },
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
   { id: 'restaurants', label: 'Рестораны', icon: IStore, hint: 'По точкам и консолид.' },
   { id: 'abc', label: 'ABC-анализ', icon: ILayers, hint: 'Структура закупок' },
-  { id: 'anomalies', label: 'Аномалии', icon: IAlert, hint: 'Проверить вручную' },
+  { id: 'reconcile', label: 'Сверка', icon: IAlert, hint: 'Несостыковки и правки' },
   { id: 'data', label: 'Данные', icon: IDatabase, hint: 'Справочники и цены' },
 ]
 
@@ -32,6 +32,7 @@ export default function App() {
     () => (scope.size === 0 ? allRows : allRows.filter((r) => scope.has(r.restaurant))),
     [scope, allRows],
   )
+  const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
   return (
     <>
@@ -67,6 +68,9 @@ export default function App() {
                       {n.label}
                       {n.id === 'data' && editCount > 0 && (
                         <span className="rounded-full bg-brand-500/20 px-1.5 text-[10px] font-semibold text-brand-300">{editCount}</span>
+                      )}
+                      {n.id === 'reconcile' && openIssues > 0 && (
+                        <span className="rounded-full bg-warn/20 px-1.5 text-[10px] font-semibold text-warn">{openIssues}</span>
                       )}
                     </span>
                     <span className="block text-[11px] text-slate-500">{n.hint}</span>
@@ -123,7 +127,7 @@ export default function App() {
               {page === 'pricecheck' && <PriceCheck rows={rows} />}
               {page === 'restaurants' && <Restaurants rows={rows} scope={scope} onScope={setScope} onNav={() => setPage('pricecheck')} />}
               {page === 'abc' && <ABC rows={rows} />}
-              {page === 'anomalies' && <Anomalies rows={rows} />}
+              {page === 'reconcile' && <Reconcile rows={rows} />}
               {page === 'data' && <DataEditor />}
             </div>
           </main>

@@ -26,7 +26,7 @@ interface RawDataset {
   restaurants: RawRestaurant[]
 }
 
-export type Status = 'overpay' | 'saving' | 'ok' | 'nomatrix' | 'anomaly'
+export type Status = 'overpay' | 'saving' | 'ok' | 'nomatrix' | 'anomaly' | 'review' | 'excluded'
 
 export interface Row {
   id: string
@@ -35,6 +35,7 @@ export interface Row {
   entity: string
   supplier: string
   product: string
+  product0: string   // original product name (edit key)
   pack: string
   qty: number
   sum: number
@@ -49,6 +50,9 @@ export interface Row {
 
 // A position is "in norm" when actual is within this band of the plan.
 const OK_BAND = 0.02
+// Deviations larger than this (but still same unit base) are more likely a
+// plan/fact naming mismatch than a real price change → "Проверить" (review).
+const REVIEW_BAND = 0.5
 // Beyond this ratio the plan/fact unit bases almost certainly differ (kg vs pcs);
 // we treat it as a data anomaly to review, not a real price delta.
 const ANOMALY_RATIO = 3
@@ -62,6 +66,8 @@ function classify(plan: number | null, unit: number): { status: Status; effect: 
   const diffPct = (unit - plan) / plan
   if (ratio > ANOMALY_RATIO || ratio < 1 / ANOMALY_RATIO)
     return { status: 'anomaly', effect: 0, diff, diffPct }
+  if (Math.abs(diffPct) > REVIEW_BAND)
+    return { status: 'review', effect: 0, diff, diffPct }
   let status: Status = 'ok'
   if (diffPct > OK_BAND) status = 'overpay'
   else if (diffPct < -OK_BAND) status = 'saving'
@@ -109,8 +115,9 @@ export interface Edits {
   supplierRenames: Record<string, string>  // original supplier name -> new name
   productRenames: Record<string, string>   // original product name -> new name
   planOverrides: Record<string, number>    // original product name -> plan price
+  excludedProducts: Record<string, true>   // original product name -> исключён из сравнения
 }
-export const EMPTY_EDITS: Edits = { supplierRenames: {}, productRenames: {}, planOverrides: {} }
+export const EMPTY_EDITS: Edits = { supplierRenames: {}, productRenames: {}, planOverrides: {}, excludedProducts: {} }
 
 /** Builds display rows by applying edits, then classifies and assigns ABC. */
 export function computeRows(base: BaseRow[], edits: Edits): Row[] {
@@ -120,12 +127,13 @@ export function computeRows(base: BaseRow[], edits: Edits): Row[] {
     const ov = edits.planOverrides[b.product0]
     const plan = ov != null ? ov : b.plan0
     const c = classify(plan, b.unit)
+    const excluded = edits.excludedProducts[b.product0] === true
+    const status: Status = excluded ? 'excluded' : c.status
+    const effect = status === 'overpay' || status === 'saving' ? c.effect * b.qty : 0
     return {
       id: b.id, restaurant: b.restaurant, brand: b.brand, entity: b.entity,
-      supplier, product, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
-      diff: c.diff, diffPct: c.diffPct,
-      effect: c.status === 'anomaly' || c.status === 'nomatrix' ? 0 : c.effect * b.qty,
-      status: c.status, abc: 'C',
+      supplier, product, product0: b.product0, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
+      diff: c.diff, diffPct: c.diffPct, effect, status, abc: 'C',
     }
   })
   assignABC(rows)
@@ -185,8 +193,10 @@ export const STATUS_META: Record<Status, { label: string; color: string; dot: st
   overpay: { label: 'Переплата', color: 'text-bad', dot: 'bg-bad' },
   saving: { label: 'Экономия', color: 'text-good', dot: 'bg-good' },
   ok: { label: 'В норме', color: 'text-slate-300', dot: 'bg-slate-400' },
+  review: { label: 'Проверить', color: 'text-sky-300', dot: 'bg-sky-400' },
   nomatrix: { label: 'Нет в матрице', color: 'text-warn', dot: 'bg-warn' },
   anomaly: { label: 'Аномалия', color: 'text-purple-300', dot: 'bg-purple-400' },
+  excluded: { label: 'Разные товары', color: 'text-slate-500', dot: 'bg-slate-600' },
 }
 
 /* ---------- aggregation helpers ---------- */
@@ -201,33 +211,42 @@ export interface Summary {
   netEffect: number
   overpayCount: number
   savingCount: number
+  reviewCount: number
   anomalyCount: number
   noMatrixCount: number
+  excludedCount: number
+  openIssues: number   // всё, что требует ручной сверки
 }
 
 export function summarize(rows: Row[]): Summary {
   let spend = 0, overpaySum = 0, savingSum = 0, matched = 0
-  let overpayCount = 0, savingCount = 0, anomalyCount = 0, noMatrixCount = 0
+  let overpayCount = 0, savingCount = 0, reviewCount = 0, anomalyCount = 0, noMatrixCount = 0, excludedCount = 0
   for (const r of rows) {
     spend += r.sum
-    if (r.status !== 'nomatrix') matched++
+    if (r.status !== 'nomatrix' && r.status !== 'excluded') matched++
     if (r.status === 'overpay') { overpaySum += r.effect; overpayCount++ }
     else if (r.status === 'saving') { savingSum += r.effect; savingCount++ }
+    else if (r.status === 'review') reviewCount++
     else if (r.status === 'anomaly') anomalyCount++
     else if (r.status === 'nomatrix') noMatrixCount++
+    else if (r.status === 'excluded') excludedCount++
   }
+  const comparable = rows.filter((r) => r.status !== 'excluded').length
   return {
     spend,
     positions: rows.length,
     matched,
-    matchRate: rows.length ? matched / rows.length : 0,
+    matchRate: comparable ? matched / comparable : 0,
     overpaySum,
     savingSum,
     netEffect: savingSum + overpaySum,
     overpayCount,
     savingCount,
+    reviewCount,
     anomalyCount,
     noMatrixCount,
+    excludedCount,
+    openIssues: reviewCount + anomalyCount + noMatrixCount,
   }
 }
 

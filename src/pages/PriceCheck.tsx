@@ -9,8 +9,10 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'overpay', label: 'Переплата' },
   { id: 'saving', label: 'Экономия' },
   { id: 'ok', label: 'В норме' },
+  { id: 'review', label: 'Проверить' },
   { id: 'nomatrix', label: 'Нет в матрице' },
   { id: 'anomaly', label: 'Аномалия' },
+  { id: 'excluded', label: 'Разные товары' },
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
