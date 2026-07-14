@@ -1,0 +1,9 @@
+services:
+  web:
+    build: .
+    image: pricecheck:latest
+    container_name: pricecheck
+    restart: unless-stopped
+    ports:
+      # host:container — меняйте левое число, если 8080 занят
+      - "8080:80"
