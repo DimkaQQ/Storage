@@ -3,13 +3,14 @@ import { Row, money, moneyShort, fmt, fmt1, pct, summarize } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditablePlan } from '../components/EditableCell'
-import { IAlert, IScale, ICheck, IReset } from '../components/icons'
+import { IAlert, IScale, ICheck, IReset, ILink, IClose, ISearch } from '../components/icons'
 
 type Tab = 'review' | 'nomatrix' | 'anomaly' | 'resolved'
 
 export default function Reconcile({ rows }: { rows: Row[] }) {
-  const { edits, setPlan, setExcluded } = useEdits()
+  const { edits, setPlan, setExcluded, products } = useEdits()
   const [tab, setTab] = useState<Tab>('review')
+  const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
   const s = useMemo(() => summarize(rows), [rows])
 
   const review = useMemo(() => rows.filter((r) => r.status === 'review').sort((a, b) => b.sum - a.sum), [rows])
@@ -74,19 +75,77 @@ export default function Reconcile({ rows }: { rows: Row[] }) {
             planOverrides={edits.planOverrides}
             onPlan={setPlan}
             onExclude={(p) => setExcluded(p, true)}
+            onMatch={(product0, product) => setMatchFor({ product0, product })}
           />
         )}
       </Section>
+
+      {matchFor && (
+        <MatchModal
+          target={matchFor}
+          products={products}
+          onClose={() => setMatchFor(null)}
+          onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
+        />
+      )}
     </div>
   )
 }
 
-function IssueTable({ rows, kind, planOverrides, onPlan, onExclude }: {
+/** Constructor: сопоставить закупленную позицию с плановым товаром из матрицы. */
+function MatchModal({ target, products, onClose, onPick }: {
+  target: { product0: string; product: string }
+  products: { name: string; basePlan: number | null; inMatrix: boolean; sum: number }[]
+  onClose: () => void
+  onPick: (plan: number) => void
+}) {
+  const [q, setQ] = useState('')
+  const withPlan = useMemo(
+    () => products.filter((p) => p.basePlan != null && p.name !== target.product0),
+    [products, target.product0],
+  )
+  const needle = q.trim().toLowerCase()
+  const list = (needle ? withPlan.filter((p) => p.name.toLowerCase().includes(needle)) : withPlan).slice(0, 60)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      <div className="animate-fade-in absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="animate-scale-in relative flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-ink-700 bg-ink-850 shadow-card">
+        <div className="border-b border-ink-700/60 px-5 py-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white">Сопоставить с товаром из матрицы</h3>
+            <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-ink-800 hover:text-white"><IClose width={16} height={16} /></button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Закупка: <span className="text-slate-300">{target.product}</span>. Выберите плановый товар — его цена станет плановой для этой позиции.
+          </p>
+          <div className="relative mt-3">
+            <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск планового товара…"
+              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none" />
+          </div>
+        </div>
+        <div className="overflow-y-auto">
+          {list.map((p) => (
+            <button key={p.name} onClick={() => onPick(p.basePlan!)} className="flex w-full items-center justify-between border-b border-ink-700/40 px-5 py-2.5 text-left hover:bg-ink-800/60">
+              <span className="text-sm text-slate-200">{p.name}</span>
+              <span className="tabnum text-sm font-semibold text-brand-300">{money(p.basePlan!)}</span>
+            </button>
+          ))}
+          {list.length === 0 && <div className="py-10 text-center text-sm text-slate-500">Ничего не найдено.</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
   rows: Row[]
   kind: 'review' | 'nomatrix' | 'anomaly'
   planOverrides: Record<string, number>
   onPlan: (product0: string, v: number | null) => void
   onExclude: (product0: string) => void
+  onMatch: (product0: string, product: string) => void
 }) {
   const [limit, setLimit] = useState(50)
   if (rows.length === 0)
@@ -129,14 +188,23 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude }: {
                 <td className="td text-right tabnum font-semibold">
                   {r.diffPct != null ? <span className={kind === 'anomaly' ? 'text-purple-300' : 'text-sky-300'}>{pct(r.diffPct)}</span> : <span className="text-slate-600">—</span>}
                 </td>
-                <td className="td text-center">
-                  <button
-                    onClick={() => onExclude(r.product0)}
-                    className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-500 hover:text-white"
-                    title="Отметить как разные товары под одним названием — исключить из сравнения"
-                  >
-                    Разные товары
-                  </button>
+                <td className="td">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <button
+                      onClick={() => onMatch(r.product0, r.product)}
+                      className="btn border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
+                      title="Сопоставить с плановым товаром из матрицы (для обобщённых названий iiko)"
+                    >
+                      <ILink width={13} height={13} /> Сопоставить
+                    </button>
+                    <button
+                      onClick={() => onExclude(r.product0)}
+                      className="btn border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-500 hover:text-white"
+                      title="Отметить как разные товары под одним названием — исключить из сравнения"
+                    >
+                      Разные товары
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
