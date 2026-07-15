@@ -27,14 +27,25 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
 export default function App() {
   const [page, setPage] = useState<PageId>('dashboard')
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
+  const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
   const [help, setHelp] = useState(false)
-  const { rows: allRows, editCount, period, city, category, restaurants } = useEdits()
+  const { rows: allRows, editCount, period, category, restaurants } = useEdits()
 
-  const rows = useMemo(
-    () => (scope.size === 0 ? allRows : allRows.filter((r) => scope.has(r.restaurant))),
-    [scope, allRows],
+  const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city))].sort(), [restaurants])
+  const venuesInCity = useMemo(
+    () => (cityFilter ? restaurants.filter((r) => r.city === cityFilter) : restaurants),
+    [restaurants, cityFilter],
   )
+
+  const rows = useMemo(() => {
+    let r = allRows
+    if (cityFilter) r = r.filter((x) => x.city === cityFilter)
+    if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
+    return r
+  }, [allRows, cityFilter, scope])
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
+
+  const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
 
   return (
     <>
@@ -99,11 +110,19 @@ export default function App() {
                 <h1 className="text-lg font-bold text-white">{NAV.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-slate-500">
                   Период: <span className="text-slate-300">{period}</span> · Город:{' '}
-                  <span className="text-slate-300">{city}</span> · Категория:{' '}
+                  <span className="text-slate-300">{cityFilter ?? 'все'}</span> · Категория:{' '}
                   <span className="text-slate-300">{category}</span>
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                {page !== 'data' && page !== 'iiko' && cities.length > 1 && (
+                  <div className="flex items-center rounded-lg border border-ink-600 bg-ink-800/80 p-0.5">
+                    <CityBtn label="Все" active={cityFilter === null} onClick={() => pickCity(null)} />
+                    {cities.map((c) => (
+                      <CityBtn key={c} label={c} active={cityFilter === c} onClick={() => pickCity(c)} />
+                    ))}
+                  </div>
+                )}
                 <button
                   onClick={() => setHelp(true)}
                   className="btn border border-ink-600 bg-ink-800/80 text-slate-300 hover:border-brand-500/50 hover:text-white"
@@ -114,7 +133,7 @@ export default function App() {
                 </button>
                 {page !== 'data' && page !== 'iiko' && (
                   <ScopePicker
-                    options={restaurants.map((r) => r.name)}
+                    options={venuesInCity.map((r) => r.name)}
                     selected={scope}
                     onChange={setScope}
                   />
@@ -157,5 +176,16 @@ export default function App() {
         </div>
       </div>
     </>
+  )
+}
+
+function CityBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'bg-brand-500 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+    >
+      {label}
+    </button>
   )
 }
