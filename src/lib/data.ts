@@ -255,10 +255,16 @@ export function summarize(rows: Row[]): Summary {
 }
 
 export function byRestaurant(rows: Row[]) {
+  return groupBy(rows, (r) => r.restaurant)
+}
+
+/** Groups rows by an arbitrary key and summarizes each group. */
+export function groupBy(rows: Row[], key: (r: Row) => string) {
   const map = new Map<string, Row[]>()
   for (const r of rows) {
-    if (!map.has(r.restaurant)) map.set(r.restaurant, [])
-    map.get(r.restaurant)!.push(r)
+    const k = key(r) || '—'
+    if (!map.has(k)) map.set(k, [])
+    map.get(k)!.push(r)
   }
   return [...map.entries()].map(([name, rs]) => ({ name, rows: rs, summary: summarize(rs) }))
 }

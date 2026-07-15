@@ -1,23 +1,25 @@
 import { useMemo, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
-import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync } from './components/icons'
+import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync, IChart } from './components/icons'
 import HelpModal from './components/HelpModal'
 import Dashboard from './pages/Dashboard'
 import PriceCheck from './pages/PriceCheck'
 import Restaurants from './pages/Restaurants'
+import Analytics from './pages/Analytics'
 import ABC from './pages/ABC'
 import Reconcile from './pages/Reconcile'
 import DataEditor from './pages/DataEditor'
 import IikoSettings from './pages/IikoSettings'
 import ScopePicker from './components/ScopePicker'
 
-type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'abc' | 'reconcile' | 'data' | 'iiko'
+type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'analytics' | 'abc' | 'reconcile' | 'data' | 'iiko'
 
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string }[] = [
   { id: 'dashboard', label: 'Обзор', icon: IGauge, hint: 'Ключевые показатели' },
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
   { id: 'restaurants', label: 'Рестораны', icon: IStore, hint: 'По точкам и консолид.' },
+  { id: 'analytics', label: 'Аналитика', icon: IChart, hint: 'Города, бренды, поставщики' },
   { id: 'abc', label: 'ABC-анализ', icon: ILayers, hint: 'Структура закупок' },
   { id: 'reconcile', label: 'Сверка', icon: IAlert, hint: 'Несостыковки и правки' },
   { id: 'data', label: 'Данные', icon: IDatabase, hint: 'Справочники и цены' },
@@ -147,6 +149,7 @@ export default function App() {
               {page === 'dashboard' && <Dashboard rows={rows} onNav={(p) => setPage(p as PageId)} />}
               {page === 'pricecheck' && <PriceCheck rows={rows} />}
               {page === 'restaurants' && <Restaurants rows={rows} scope={scope} onScope={setScope} onNav={() => setPage('pricecheck')} />}
+              {page === 'analytics' && <Analytics rows={rows} />}
               {page === 'abc' && <ABC rows={rows} />}
               {page === 'reconcile' && <Reconcile rows={rows} />}
               {page === 'data' && <DataEditor />}
