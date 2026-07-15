@@ -4,22 +4,25 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Neutrals + accent are CSS-variable-driven so the whole app can be
+        // re-themed at runtime (see :root themes in index.css).
         ink: {
-          950: '#080b14',
-          900: '#0b101c',
-          850: '#0f1524',
-          800: '#141b2e',
-          750: '#1a2338',
-          700: '#232f4a',
-          600: '#33415f',
+          950: 'rgb(var(--ink-950) / <alpha-value>)',
+          900: 'rgb(var(--ink-900) / <alpha-value>)',
+          850: 'rgb(var(--ink-850) / <alpha-value>)',
+          800: 'rgb(var(--ink-800) / <alpha-value>)',
+          750: 'rgb(var(--ink-750) / <alpha-value>)',
+          700: 'rgb(var(--ink-700) / <alpha-value>)',
+          600: 'rgb(var(--ink-600) / <alpha-value>)',
         },
         brand: {
-          50: '#eef4ff',
-          300: '#7ea8ff',
-          400: '#5b8bff',
-          500: '#3d6bff',
-          600: '#2b52e6',
+          50: 'rgb(var(--brand-50) / <alpha-value>)',
+          300: 'rgb(var(--brand-300) / <alpha-value>)',
+          400: 'rgb(var(--brand-400) / <alpha-value>)',
+          500: 'rgb(var(--brand-500) / <alpha-value>)',
+          600: 'rgb(var(--brand-600) / <alpha-value>)',
         },
+        // Semantic colors stay fixed across themes (meaning must not change).
         good: '#2fd2a5',
         bad: '#ff5d73',
         warn: '#ffb547',

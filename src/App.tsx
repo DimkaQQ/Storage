@@ -4,6 +4,7 @@ import { useEdits } from './lib/edits'
 import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync, IChart } from './components/icons'
 import HelpModal from './components/HelpModal'
 import ScopePicker from './components/ScopePicker'
+import ThemePicker from './components/ThemePicker'
 
 // Pages are code-split: only the open page's code is downloaded.
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -57,7 +58,7 @@ export default function App() {
         {/* Sidebar */}
         <aside className="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-ink-700/50 bg-ink-900">
           <div className="flex items-center gap-3 px-5 py-5">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-500 shadow-[0_8px_24px_-6px_rgba(61,107,255,0.7)]">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-500 shadow-[0_8px_24px_-6px_rgb(var(--brand-500)/0.55)]">
               <ISpark className="text-white" />
             </div>
             <div>
@@ -127,6 +128,7 @@ export default function App() {
                     ))}
                   </div>
                 )}
+                <ThemePicker />
                 <button
                   onClick={() => setHelp(true)}
                   className="btn border border-ink-600 bg-ink-800/80 text-slate-300 hover:border-brand-500/50 hover:text-white"

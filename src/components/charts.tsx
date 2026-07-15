@@ -1,9 +1,17 @@
 import { ReactNode } from 'react'
 import { moneyShort } from '../lib/data'
 
+// Reads a themed accent from the CSS variable so charts follow the palette.
+function cssBrand(): string {
+  if (typeof window === 'undefined') return '#5b8bff'
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--brand-400').trim()
+  return v ? `rgb(${v})` : '#5b8bff'
+}
+
 // Palette — one coherent system (see dataviz guidance).
+// `brand` is a getter so it always reflects the active theme at render time.
 export const C = {
-  brand: '#5b8bff',
+  get brand() { return cssBrand() },
   good: '#2fd2a5',
   bad: '#ff5d73',
   warn: '#ffb547',
