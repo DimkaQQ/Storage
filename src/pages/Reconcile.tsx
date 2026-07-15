@@ -154,7 +154,7 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
   const shown = rows.slice(0, limit)
   return (
     <>
-      <div className="max-h-[calc(100vh-430px)] overflow-auto rounded-xl border border-ink-700/50">
+      <div className="rounded-xl border border-ink-700/50">
         <table className="w-full">
           <thead className="sticky top-0 z-10 bg-ink-850">
             <tr>

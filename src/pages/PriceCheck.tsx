@@ -115,7 +115,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
 
       {/* table */}
       <div className="card overflow-hidden p-0">
-        <div className="max-h-[calc(100vh-360px)] overflow-auto">
+        <div>
           <table className="w-full">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>

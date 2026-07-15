@@ -104,7 +104,7 @@ export default function DataEditor() {
           </div>
         </div>
 
-        <div className="max-h-[calc(100vh-380px)] overflow-auto rounded-xl border border-ink-700/50">
+        <div className="rounded-xl border border-ink-700/50">
           <table className="w-full">
             <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
