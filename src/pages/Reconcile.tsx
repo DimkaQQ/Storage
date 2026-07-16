@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Row, money, moneyShort, fmt, fmt1, pct, summarize } from '../lib/data'
 import { useEdits } from '../lib/edits'
+import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip } from '../components/ui'
 import { EditablePlan } from '../components/EditableCell'
-import { IAlert, IScale, ICheck, IReset, ILink, IClose, ISearch } from '../components/icons'
+import { IAlert, IScale, ICheck, IReset, ILink, IClose, ISearch, ISpark } from '../components/icons'
 
 type Tab = 'review' | 'nomatrix' | 'anomaly' | 'resolved'
 
@@ -104,8 +105,21 @@ function MatchModal({ target, products, onClose, onPick }: {
     () => products.filter((p) => p.basePlan != null && p.name !== target.product0),
     [products, target.product0],
   )
-  const needle = q.trim().toLowerCase()
-  const list = (needle ? withPlan.filter((p) => p.name.toLowerCase().includes(needle)) : withPlan).slice(0, 60)
+
+  // Пока пользователь не начал печатать — подсказываем похожие названия
+  // (нечёткое сопоставление на клиенте, без ИИ). Как только он вводит текст —
+  // переключаемся на обычный поиск по подстроке.
+  const needle = q.trim()
+  const suggested = useMemo(
+    () => (needle ? [] : rankSimilar(target.product, withPlan, (p) => p.name).slice(0, 8)),
+    [needle, withPlan, target.product],
+  )
+  const suggestedNames = new Set(suggested.map((s) => s.item.name))
+  const searched = useMemo(
+    () => (needle ? withPlan.filter((p) => p.name.toLowerCase().includes(needle.toLowerCase())) : withPlan.filter((p) => !suggestedNames.has(p.name))),
+    [needle, withPlan, suggestedNames],
+  )
+  const list = searched.slice(0, 60)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
@@ -126,13 +140,30 @@ function MatchModal({ target, products, onClose, onPick }: {
           </div>
         </div>
         <div className="overflow-y-auto">
+          {suggested.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 bg-ink-900/40 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <ISpark width={12} height={12} className="text-brand-300" /> Похоже на это
+              </div>
+              {suggested.map(({ item: p, score }) => (
+                <button key={p.name} onClick={() => onPick(p.basePlan!)} className="flex w-full items-center justify-between gap-3 border-b border-ink-700/40 bg-brand-500/[0.04] px-5 py-2.5 text-left hover:bg-ink-800/60">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm text-slate-200">{p.name}</span>
+                    {score > 0.6 && <span className="chip shrink-0 border-good/30 bg-good/10 text-[10px] text-good">похоже</span>}
+                  </span>
+                  <span className="shrink-0 tabnum text-sm font-semibold text-brand-300">{money(p.basePlan!)}</span>
+                </button>
+              ))}
+              <div className="bg-ink-900/40 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Все товары</div>
+            </div>
+          )}
           {list.map((p) => (
             <button key={p.name} onClick={() => onPick(p.basePlan!)} className="flex w-full items-center justify-between border-b border-ink-700/40 px-5 py-2.5 text-left hover:bg-ink-800/60">
               <span className="text-sm text-slate-200">{p.name}</span>
               <span className="tabnum text-sm font-semibold text-brand-300">{money(p.basePlan!)}</span>
             </button>
           ))}
-          {list.length === 0 && <div className="py-10 text-center text-sm text-slate-500">Ничего не найдено.</div>}
+          {list.length === 0 && suggested.length === 0 && <div className="py-10 text-center text-sm text-slate-500">Ничего не найдено.</div>}
         </div>
       </div>
     </div>
