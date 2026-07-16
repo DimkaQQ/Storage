@@ -8,6 +8,8 @@ const SEED = join(__dirname, '..', 'seed', 'dataset.json')
 
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
 
+const MATCHING_SEED = join(__dirname, '..', 'seed', 'matching.json')
+
 const paths = {
   settings: join(DATA_DIR, 'settings.json'),
   status: join(DATA_DIR, 'status.json'),
@@ -73,3 +75,12 @@ export const getPlan = () => read(paths.plan, {})
 export const savePlan = (p) => write(paths.plan, p)
 export const getVenues = () => read(paths.venues, [])
 export const getSeed = () => read(SEED, { restaurants: [] })
+
+/**
+ * Supplier-alias + (supplier, product) plan-price tables extracted from the
+ * client's own working matrix (справочник + Сырье F Алматы). Used to match
+ * fresh iiko purchases as precisely as their spreadsheet does: by normalized
+ * supplier + exact product name first, falling back to product name alone.
+ */
+const EMPTY_MATCHING = { supplierAlias: {}, planPairs: {}, planByProduct: {} }
+export const getMatching = () => read(MATCHING_SEED, EMPTY_MATCHING)

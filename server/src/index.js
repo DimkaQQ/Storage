@@ -2,7 +2,7 @@ import express from 'express'
 import cron from 'node-cron'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
-  getDataset, saveDataset, getPlan, getVenues,
+  getDataset, saveDataset, getPlan, getVenues, getMatching,
 } from './store.js'
 import { fetchFacts, testConnection } from './iiko.js'
 import { buildDataset } from './dataset.js'
@@ -28,7 +28,7 @@ async function runSync(trigger) {
   try {
     const facts = await fetchFacts(settings)
     if (!facts.length) throw new Error('Провайдер вернул пустой список закупок')
-    const dataset = buildDataset(facts, getPlan(), getVenues())
+    const dataset = buildDataset(facts, getPlan(), getVenues(), getMatching())
     saveDataset(dataset)
     const status = {
       lastSync: new Date().toISOString(),

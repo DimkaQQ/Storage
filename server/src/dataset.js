@@ -2,8 +2,28 @@ import { norm } from './store.js'
 
 const MIN_TURNOVER = 0 // фильтр оборота применяется на фронте (правило ТЗ)
 
+/**
+ * Resolves the plan price for a purchased line the way the client's own
+ * matrix does: normalize the supplier via справочник, then look up
+ * (supplier, product) as a pair first — that's what makes their matrix
+ * precise when the same product name is sold by several suppliers at
+ * different prices. Falls back to product-name-only, then to the
+ * app-managed manual plan overrides (edited in "Данные"/"Сверка").
+ */
+function resolvePlan(fact, matching, manualPlan) {
+  const product = norm(fact.product)
+  const supplierRaw = norm(fact.supplier)
+  const supplierCanon = norm(matching.supplierAlias[supplierRaw] ?? fact.supplier)
+  const pairKey = `${supplierCanon}::${product}`
+  if (matching.planPairs[pairKey] != null) return matching.planPairs[pairKey]
+  if (matching.planByProduct[product] != null) return matching.planByProduct[product]
+  if (manualPlan[product] != null) return manualPlan[product]
+  return null
+}
+
 /** Joins raw purchase facts with the app-managed plan matrix into the dataset shape. */
-export function buildDataset(facts, plan, venues) {
+export function buildDataset(facts, manualPlan, venues, matching) {
+  const m = matching || { supplierAlias: {}, planPairs: {}, planByProduct: {} }
   const meta = new Map(venues.map((v) => [v.name, v]))
   const byVenue = new Map()
   for (const f of facts) {
@@ -13,13 +33,13 @@ export function buildDataset(facts, plan, venues) {
     byVenue.get(f.restaurant).push(f)
   }
   const restaurants = [...byVenue.entries()].map(([name, list]) => {
-    const m = meta.get(name) || {}
+    const meta_ = meta.get(name) || {}
     return {
       name,
-      entity: m.entity || '',
-      brand: m.brand || name,
-      city: m.city || 'Алматы',
-      category: m.category || 'Кухня',
+      entity: meta_.entity || '',
+      brand: meta_.brand || name,
+      city: meta_.city || 'Алматы',
+      category: meta_.category || 'Кухня',
       items: list.map((f) => ({
         s: f.supplier || '',
         p: f.product,
@@ -27,7 +47,7 @@ export function buildDataset(facts, plan, venues) {
         q: Math.round(f.qty * 1000) / 1000,
         m: Math.round(f.sum * 100) / 100,
         u: f.qty > 0 ? Math.round((f.sum / f.qty) * 100) / 100 : null,
-        pl: plan[norm(f.product)] ?? null,
+        pl: resolvePlan(f, m, manualPlan),
       })),
     }
   })

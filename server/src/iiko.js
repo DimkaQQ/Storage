@@ -63,14 +63,25 @@ async function iikoServerFacts(settings, period) {
     if (!res.ok) throw new Error(`Отчёт iikoServer недоступен (HTTP ${res.status})`)
     const data = await res.json()
     // --- маппинг колонок отчёта -> факты ---
-    return (data.data || []).map((row) => ({
-      restaurant: row['Store'],
-      supplier: row['Supplier.Name'],
-      product: row['Product.Name'],
-      pack: row['Product.MeasureUnit'] || '',
-      qty: Number(row['Amount']) || 0,
-      sum: Number(row['Sum.Incoming']) || 0,
-    })).filter((f) => f.product && f.qty > 0)
+    // Forward-fill защищает от пустых Товар/Поставщик в сгруппированных
+    // строках отчёта — та же проблема, что клиент решает в своих формулах
+    // через IF(R="",Y_prev,R). OLAP обычно отдаёт заполненные строки, но
+    // это дёшево и не помешает на реальных выгрузках.
+    let lastProduct = '', lastSupplier = ''
+    return (data.data || []).map((row) => {
+      const product = row['Product.Name'] || lastProduct
+      const supplier = row['Supplier.Name'] || lastSupplier
+      lastProduct = product
+      lastSupplier = supplier
+      return {
+        restaurant: row['Store'],
+        supplier,
+        product,
+        pack: row['Product.MeasureUnit'] || '',
+        qty: Number(row['Amount']) || 0,
+        sum: Number(row['Sum.Incoming']) || 0,
+      }
+    }).filter((f) => f.product && f.qty > 0)
   } finally {
     await iikoServerLogout(base, token)
   }
