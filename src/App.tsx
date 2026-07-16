@@ -115,7 +115,7 @@ export default function App() {
                 <h1 className="text-lg font-bold text-white">{NAV.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-slate-500">
                   Период: <span className="text-slate-300">{period}</span> · Город:{' '}
-                  <span className="text-slate-300">{cityFilter ?? 'все'}</span> · Категория:{' '}
+                  <span className="text-slate-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span> · Категория:{' '}
                   <span className="text-slate-300">{category}</span>
                 </p>
               </div>
