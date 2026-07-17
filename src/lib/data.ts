@@ -155,7 +155,7 @@ export function assignABC(rows: Row[]) {
 /* ---------- reference lists for the editor ---------- */
 
 export interface SupplierAgg { name: string; count: number; sum: number }
-export interface ProductAgg { name: string; count: number; sum: number; basePlan: number | null; inMatrix: boolean }
+export interface ProductAgg { name: string; count: number; sum: number; basePlan: number | null; inMatrix: boolean; planKind: MatchKind; restaurantCount: number }
 export interface VenueMeta { name: string; entity: string; brand: string; city: string }
 
 /** Everything derived from a dataset — parsed once, either from the bundle or the API. */
@@ -188,14 +188,19 @@ export function parseDataset(data: RawDataset): Parsed {
   }
   const sm = new Map<string, SupplierAgg>()
   const pm = new Map<string, ProductAgg>()
+  const prm = new Map<string, Set<string>>()
   for (const b of base) {
     const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, sum: 0 }
     s.count++; s.sum += b.sum; sm.set(b.supplier0, s)
-    const p = pm.get(b.product0) || { name: b.product0, count: 0, sum: 0, basePlan: null, inMatrix: false }
+    const p = pm.get(b.product0) || { name: b.product0, count: 0, sum: 0, basePlan: null, inMatrix: false, planKind: null, restaurantCount: 0 }
     p.count++; p.sum += b.sum
-    if (b.plan0 != null) { p.inMatrix = true; if (p.basePlan == null) p.basePlan = b.plan0 }
+    if (b.plan0 != null) { p.inMatrix = true; if (p.basePlan == null) { p.basePlan = b.plan0; p.planKind = b.planKind0 } }
     pm.set(b.product0, p)
+    const rset = prm.get(b.product0) || new Set<string>()
+    rset.add(b.restaurant)
+    prm.set(b.product0, rset)
   }
+  for (const p of pm.values()) p.restaurantCount = prm.get(p.name)?.size ?? 0
   return {
     base,
     suppliers: [...sm.values()].sort((a, b) => b.sum - a.sum),

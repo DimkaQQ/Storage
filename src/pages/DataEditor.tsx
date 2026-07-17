@@ -1,20 +1,24 @@
 import { useMemo, useRef, useState } from 'react'
-import { money, moneyShort, fmt, plural, byRestaurant } from '../lib/data'
+import { money, moneyShort, fmt, plural, byRestaurant, MATCH_KIND_META, MatchKind } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText, EditablePlan } from '../components/EditableCell'
-import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, ICheck, IPin } from '../components/icons'
+import MatchModal from '../components/MatchModal'
+import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, IPin, ILink } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
+type ProductFilter = 'all' | 'none' | 'product' | 'manual' | 'excluded'
 
 export default function DataEditor() {
   const {
-    edits, editCount, renameSupplier, renameProduct, setPlan, setVenue, reset, replaceAll,
+    edits, editCount, renameSupplier, renameProduct, setPlan, setExcluded, setVenue, reset, replaceAll,
     suppliers: suppliersBase, products: productsBase, restaurants, rows,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('products')
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
+  const [pFilter, setPFilter] = useState<ProductFilter>('all')
+  const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const needle = q.trim().toLowerCase()
@@ -26,12 +30,34 @@ export default function DataEditor() {
     return list
   }, [needle, edits.supplierRenames])
 
+  // Итоговый статус позиции: чем сопоставлен план (пара/только товар),
+  // задан ли он вручную, или отмечена как «разные товары».
+  const productStatus = (name: string): MatchKind | 'excluded' => {
+    if (edits.excludedProducts[name]) return 'excluded'
+    if (edits.planOverrides[name] != null) return 'manual'
+    const p = productsBase.find((x) => x.name === name)
+    return p?.planKind ?? null
+  }
+
   const products = useMemo(() => {
-    const list = needle
+    let list = needle
       ? productsBase.filter((p) => p.name.toLowerCase().includes(needle) || (edits.productRenames[p.name] ?? '').toLowerCase().includes(needle))
       : productsBase
+    if (pFilter !== 'all') list = list.filter((p) => productStatus(p.name) === (pFilter === 'none' ? null : pFilter))
     return list
-  }, [needle, edits.productRenames])
+  }, [needle, edits.productRenames, edits.planOverrides, edits.excludedProducts, pFilter, productsBase])
+
+  const productCounts = useMemo(() => {
+    const c: Record<ProductFilter, number> = { all: productsBase.length, none: 0, product: 0, manual: 0, excluded: 0 }
+    for (const p of productsBase) {
+      const st = productStatus(p.name)
+      if (st === null) c.none++
+      else if (st === 'product') c.product++
+      else if (st === 'manual') c.manual++
+      else if (st === 'excluded') c.excluded++
+    }
+    return c
+  }, [productsBase, edits.planOverrides, edits.excludedProducts])
 
   const venueSpend = useMemo(() => {
     const m = new Map<string, number>()
@@ -125,6 +151,26 @@ export default function DataEditor() {
           </p>
         )}
 
+        {tab === 'products' && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {([
+              ['all', `Все (${fmt(productCounts.all)})`],
+              ['none', `Нет в матрице (${fmt(productCounts.none)})`],
+              ['product', `Низкая уверенность (${fmt(productCounts.product)})`],
+              ['manual', `Заданы вручную (${fmt(productCounts.manual)})`],
+              ['excluded', `Разные товары (${fmt(productCounts.excluded)})`],
+            ] as [ProductFilter, string][]).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => { setPFilter(id); setLimit(60) }}
+                className={`chip transition-colors ${pFilter === id ? 'border-brand-400 bg-brand-500/10 text-brand-300' : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="rounded-xl border border-ink-700/50">
           <table className="w-full">
             <thead className="sticky top-0 z-10 bg-ink-850">
@@ -142,8 +188,10 @@ export default function DataEditor() {
                   <th className="th">Исходное название (iiko)</th>
                   <th className="th">Отображаемое имя</th>
                   <th className="th text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
-                  <th className="th text-center">Матрица</th>
+                  <th className="th">Статус <InfoTip text="Как найден план: по паре поставщик+товар (надёжно), только по товару (стоит проверить), вручную, или позиция отмечена как «разные товары»." /></th>
+                  <th className="th text-right">Ресторанов</th>
                   <th className="th text-right">Закупка</th>
+                  <th className="th text-center">Действие</th>
                 </tr>
               ) : (
                 <tr>
@@ -174,21 +222,48 @@ export default function DataEditor() {
                 ? (shown as typeof productsBase).map((p) => {
                     const renamed = !!edits.productRenames[p.name]
                     const planOv = edits.planOverrides[p.name]
-                    const changed = renamed || planOv != null
+                    const excluded = edits.excludedProducts[p.name] === true
+                    const changed = renamed || planOv != null || excluded
                     const planVal = planOv != null ? String(planOv) : p.basePlan != null ? String(p.basePlan) : ''
-                    const hasPlan = planOv != null || p.inMatrix
+                    const st = productStatus(p.name)
+                    const displayName = edits.productRenames[p.name] ?? p.name
                     return (
                       <tr key={p.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
                         <td className="td text-slate-400">{p.name}</td>
-                        <td className="td"><EditableText value={edits.productRenames[p.name] ?? p.name} onCommit={(v) => renameProduct(p.name, v)} /></td>
+                        <td className="td"><EditableText value={displayName} onCommit={(v) => renameProduct(p.name, v)} /></td>
                         <td className="td text-right"><EditablePlan value={planVal} placeholder="нет" onCommit={(v) => setPlan(p.name, v)} highlighted={planOv != null} /></td>
-                        <td className="td text-center">
-                          {hasPlan
-                            ? <span className="inline-flex items-center gap-1 text-good"><ICheck width={14} height={14} /></span>
-                            : <span className="text-warn" title="нет плановой цены">—</span>}
+                        <td className="td">
+                          {st === 'excluded'
+                            ? <span className="chip border-transparent bg-ink-750 text-[11px] text-slate-400">разные товары</span>
+                            : <span className={`text-xs ${MATCH_KIND_META[st ?? 'none'].color}`} title={MATCH_KIND_META[st ?? 'none'].hint}>{MATCH_KIND_META[st ?? 'none'].label}</span>}
                         </td>
+                        <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
                         <td className="td text-right tabnum text-slate-300">{moneyShort(p.sum)}</td>
+                        <td className="td">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => setMatchFor({ product0: p.name, product: displayName })}
+                              className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
+                              title="Сопоставить с плановым товаром из матрицы вручную"
+                            >
+                              <ILink width={12} height={12} /> Сопоставить
+                            </button>
+                            {excluded ? (
+                              <button
+                                onClick={() => setExcluded(p.name, false)}
+                                className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:text-white"
+                                title="Вернуть в сравнение"
+                              ><IReset width={12} height={12} /></button>
+                            ) : (
+                              <button
+                                onClick={() => setExcluded(p.name, true)}
+                                className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-400 hover:border-slate-500 hover:text-white"
+                                title="Отметить как разные товары под одним названием — исключить из сравнения"
+                              >разные</button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     )
                   })
@@ -216,6 +291,15 @@ export default function DataEditor() {
           </div>
         )}
       </Section>
+
+      {matchFor && (
+        <MatchModal
+          target={matchFor}
+          products={productsBase}
+          onClose={() => setMatchFor(null)}
+          onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
+        />
+      )}
     </div>
   )
 }
