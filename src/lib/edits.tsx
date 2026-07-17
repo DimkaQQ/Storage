@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
-import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, computeRows, parseDataset } from './data'
+import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides } from './data'
 import { fetchDataset, fetchStatus, triggerSync, SyncStatus } from './api'
 
 const KEY = 'pricecheck-edits-v1'
@@ -14,6 +14,7 @@ function load(): Edits {
       productRenames: p.productRenames ?? {},
       planOverrides: p.planOverrides ?? {},
       excludedProducts: p.excludedProducts ?? {},
+      venueOverrides: p.venueOverrides ?? {},
     }
   } catch {
     return EMPTY_EDITS
@@ -42,6 +43,7 @@ interface Ctx {
   renameProduct: (original: string, name: string) => void
   setPlan: (originalProduct: string, plan: number | null) => void
   setExcluded: (originalProduct: string, excluded: boolean) => void
+  setVenue: (restaurant: string, patch: VenuePatch) => void
   reset: () => void
   replaceAll: (e: Edits) => void
 }
@@ -112,26 +114,47 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
+    setEdits((e) => {
+      const next = { ...e.venueOverrides }
+      const merged = { ...next[restaurant], ...patch }
+      const cleaned: VenuePatch = {}
+      if (merged.city) cleaned.city = merged.city
+      if (merged.brand) cleaned.brand = merged.brand
+      if (merged.entity) cleaned.entity = merged.entity
+      if (Object.keys(cleaned).length === 0) delete next[restaurant]
+      else next[restaurant] = cleaned
+      return { ...e, venueOverrides: next }
+    })
+  }, [])
+
   const reset = useCallback(() => setEdits(EMPTY_EDITS), [])
   const replaceAll = useCallback((e: Edits) => setEdits({
     supplierRenames: e.supplierRenames ?? {},
     productRenames: e.productRenames ?? {},
     planOverrides: e.planOverrides ?? {},
     excludedProducts: e.excludedProducts ?? {},
+    venueOverrides: e.venueOverrides ?? {},
   }), [])
 
   const editCount =
     Object.keys(edits.supplierRenames).length +
     Object.keys(edits.productRenames).length +
     Object.keys(edits.planOverrides).length +
-    Object.keys(edits.excludedProducts).length
+    Object.keys(edits.excludedProducts).length +
+    Object.keys(edits.venueOverrides).length
+
+  const restaurants = useMemo(
+    () => applyVenueOverrides(parsed.restaurants, edits.venueOverrides),
+    [parsed.restaurants, edits.venueOverrides],
+  )
 
   const value: Ctx = {
     edits, rows, editCount,
     period: parsed.period, city: parsed.city, category: parsed.category,
-    restaurants: parsed.restaurants, suppliers: parsed.suppliers, products: parsed.products,
+    restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
-    renameSupplier, renameProduct, setPlan, setExcluded, reset, replaceAll,
+    renameSupplier, renameProduct, setPlan, setExcluded, setVenue, reset, replaceAll,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }

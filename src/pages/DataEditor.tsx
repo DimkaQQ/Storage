@@ -1,14 +1,17 @@
 import { useMemo, useRef, useState } from 'react'
-import { money, moneyShort, fmt, plural } from '../lib/data'
+import { money, moneyShort, fmt, plural, byRestaurant } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText, EditablePlan } from '../components/EditableCell'
-import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, ICheck } from '../components/icons'
+import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, ICheck, IPin } from '../components/icons'
 
-type Tab = 'suppliers' | 'products'
+type Tab = 'suppliers' | 'products' | 'venues'
 
 export default function DataEditor() {
-  const { edits, editCount, renameSupplier, renameProduct, setPlan, reset, replaceAll, suppliers: suppliersBase, products: productsBase } = useEdits()
+  const {
+    edits, editCount, renameSupplier, renameProduct, setPlan, setVenue, reset, replaceAll,
+    suppliers: suppliersBase, products: productsBase, restaurants, rows,
+  } = useEdits()
   const [tab, setTab] = useState<Tab>('products')
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
@@ -30,8 +33,18 @@ export default function DataEditor() {
     return list
   }, [needle, edits.productRenames])
 
-  const shown = tab === 'suppliers' ? suppliers.slice(0, limit) : products.slice(0, limit)
-  const total = tab === 'suppliers' ? suppliers.length : products.length
+  const venueSpend = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const g of byRestaurant(rows)) m.set(g.name, g.summary.spend)
+    return m
+  }, [rows])
+  const venues = useMemo(
+    () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
+    [needle, restaurants],
+  )
+
+  const shown = tab === 'suppliers' ? suppliers.slice(0, limit) : tab === 'products' ? products.slice(0, limit) : venues.slice(0, limit)
+  const total = tab === 'suppliers' ? suppliers.length : tab === 'products' ? products.length : venues.length
 
   const exportEdits = () => {
     const blob = new Blob([JSON.stringify(edits, null, 2)], { type: 'application/json' })
@@ -92,17 +105,25 @@ export default function DataEditor() {
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
             <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productsBase.length)})</button>
             <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
+            <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
           </div>
           <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
             <input
               value={q}
               onChange={(e) => { setQ(e.target.value); setLimit(60) }}
-              placeholder={tab === 'products' ? 'Поиск товара…' : 'Поиск компании…'}
+              placeholder={tab === 'products' ? 'Поиск товара…' : tab === 'suppliers' ? 'Поиск компании…' : 'Поиск точки или города…'}
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
         </div>
+
+        {tab === 'venues' && (
+          <p className="mb-3 text-xs text-slate-500">
+            Если город, бренд или юрлицо определились неверно — поправьте здесь. Изменение сразу применится
+            ко всем отчётам и графикам по этой точке.
+          </p>
+        )}
 
         <div className="rounded-xl border border-ink-700/50">
           <table className="w-full">
@@ -115,13 +136,22 @@ export default function DataEditor() {
                   <th className="th text-right">Позиций</th>
                   <th className="th text-right">Закупка</th>
                 </tr>
-              ) : (
+              ) : tab === 'products' ? (
                 <tr>
                   <th className="th w-8"></th>
                   <th className="th">Исходное название (iiko)</th>
                   <th className="th">Отображаемое имя</th>
                   <th className="th text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
                   <th className="th text-center">Матрица</th>
+                  <th className="th text-right">Закупка</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th className="th w-8"></th>
+                  <th className="th">Точка</th>
+                  <th className="th">Город</th>
+                  <th className="th">Бренд</th>
+                  <th className="th">Юрлицо</th>
                   <th className="th text-right">Закупка</th>
                 </tr>
               )}
@@ -140,7 +170,8 @@ export default function DataEditor() {
                       </tr>
                     )
                   })
-                : (shown as typeof productsBase).map((p) => {
+                : tab === 'products'
+                ? (shown as typeof productsBase).map((p) => {
                     const renamed = !!edits.productRenames[p.name]
                     const planOv = edits.planOverrides[p.name]
                     const changed = renamed || planOv != null
@@ -158,6 +189,19 @@ export default function DataEditor() {
                             : <span className="text-warn" title="нет плановой цены">—</span>}
                         </td>
                         <td className="td text-right tabnum text-slate-300">{moneyShort(p.sum)}</td>
+                      </tr>
+                    )
+                  })
+                : (shown as typeof venues).map((r) => {
+                    const changed = !!edits.venueOverrides[r.name]
+                    return (
+                      <tr key={r.name} className="row-hover hover:bg-ink-800/40">
+                        <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
+                        <td className="td text-slate-100"><span className="inline-flex items-center gap-2"><IPin width={14} height={14} className="text-slate-600" />{r.name}</span></td>
+                        <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[160px]" /></td>
+                        <td className="td"><EditableText value={r.brand} onCommit={(v) => setVenue(r.name, { brand: v })} className="max-w-[180px]" /></td>
+                        <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[200px]" /></td>
+                        <td className="td text-right tabnum text-slate-300">{moneyShort(venueSpend.get(r.name) ?? 0)}</td>
                       </tr>
                     )
                   })}

@@ -1,5 +1,8 @@
 import raw from '../data/dataset.json'
 
+/** How confidently the plan price was matched to this purchased line. */
+export type MatchKind = 'pair' | 'product' | 'manual' | null
+
 /** Raw purchase fact as extracted from the iiko report + matrix join. */
 interface RawItem {
   s: string  // supplier (as in iiko)
@@ -9,6 +12,7 @@ interface RawItem {
   m: number  // total sum, тг
   u: number | null // actual unit price = m/q
   pl: number | null // planned price per unit from the matrix (null = not in matrix)
+  pk?: 'pair' | 'product' | null // as-shipped match confidence (see MatchKind)
 }
 interface RawRestaurant {
   name: string
@@ -47,6 +51,7 @@ export interface Row {
   effect: number           // (plan - unit) * qty; + = saving, - = overpay; 0 for anomaly/nomatrix
   status: Status
   abc: 'A' | 'B' | 'C'     // by contribution to total spend (set later)
+  matchKind: MatchKind     // how the plan price was found — for the trust indicator
 }
 
 // A position is "in norm" when actual is within this band of the plan.
@@ -87,38 +92,49 @@ export interface BaseRow {
   sum: number
   unit: number
   plan0: number | null
+  planKind0: MatchKind
 }
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
 const MIN_TURNOVER = 1000
 
+/** Manual corrections to a venue's meta — for when auto-derived data is wrong. */
+export interface VenuePatch { city?: string; brand?: string; entity?: string }
+
 /**
  * User edits layered over the immutable base data so the project can run
- * without Excel: rename companies/products, set or correct plan prices.
+ * without Excel: rename companies/products, set or correct plan prices,
+ * fix a venue's city/brand/entity, exclude false-positive comparisons.
  */
 export interface Edits {
   supplierRenames: Record<string, string>  // original supplier name -> new name
   productRenames: Record<string, string>   // original product name -> new name
   planOverrides: Record<string, number>    // original product name -> plan price
   excludedProducts: Record<string, true>   // original product name -> исключён из сравнения
+  venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо
 }
-export const EMPTY_EDITS: Edits = { supplierRenames: {}, productRenames: {}, planOverrides: {}, excludedProducts: {} }
+export const EMPTY_EDITS: Edits = {
+  supplierRenames: {}, productRenames: {}, planOverrides: {}, excludedProducts: {}, venueOverrides: {},
+}
 
 /** Builds display rows by applying edits, then classifies and assigns ABC. */
 export function computeRows(base: BaseRow[], edits: Edits): Row[] {
   const rows: Row[] = base.map((b) => {
     const supplier = edits.supplierRenames[b.supplier0] ?? b.supplier0
     const product = edits.productRenames[b.product0] ?? b.product0
+    const venue = edits.venueOverrides[b.restaurant]
     const ov = edits.planOverrides[b.product0]
     const plan = ov != null ? ov : b.plan0
+    const matchKind: MatchKind = ov != null ? 'manual' : b.planKind0
     const c = classify(plan, b.unit)
     const excluded = edits.excludedProducts[b.product0] === true
     const status: Status = excluded ? 'excluded' : c.status
     const effect = status === 'overpay' || status === 'saving' ? c.effect * b.qty : 0
     return {
-      id: b.id, restaurant: b.restaurant, brand: b.brand, city: b.city, entity: b.entity,
+      id: b.id, restaurant: b.restaurant,
+      brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity,
       supplier, product, product0: b.product0, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
-      diff: c.diff, diffPct: c.diffPct, effect, status, abc: 'C',
+      diff: c.diff, diffPct: c.diffPct, effect, status, abc: 'C', matchKind,
     }
   })
   assignABC(rows)
@@ -166,6 +182,7 @@ export function parseDataset(data: RawDataset): Parsed {
         restaurant: r.name, brand: r.brand, city: r.city || 'Алматы', entity: r.entity,
         supplier0: it.s, product0: it.p, pack: it.k,
         qty: it.q, sum: it.m, unit: it.u, plan0: it.pl,
+        planKind0: it.pl != null ? (it.pk ?? 'product') : null,
       })
     }
   }
@@ -192,6 +209,21 @@ export function parseDataset(data: RawDataset): Parsed {
 
 /** Bundled snapshot — used until the backend responds (or if it's offline). */
 export const BUNDLED = parseDataset(raw as unknown as RawDataset)
+
+export const MATCH_KIND_META: Record<NonNullable<MatchKind> | 'none', { label: string; hint: string; color: string }> = {
+  pair: { label: 'поставщик+товар', hint: 'Точное совпадение по поставщику и названию товара — как в рабочей матрице.', color: 'text-good' },
+  product: { label: 'только товар', hint: 'Совпадение только по названию товара, без учёта поставщика — цена может относиться к другому поставщику. Стоит проверить.', color: 'text-warn' },
+  manual: { label: 'вручную', hint: 'Плановая цена задана или подтверждена вручную.', color: 'text-brand-300' },
+  none: { label: 'нет плана', hint: 'Плановая цена не найдена.', color: 'text-slate-500' },
+}
+
+/** Restaurant list with any manual venue corrections applied. */
+export function applyVenueOverrides(restaurants: VenueMeta[], overrides: Record<string, VenuePatch>): VenueMeta[] {
+  return restaurants.map((r) => {
+    const o = overrides[r.name]
+    return o ? { ...r, city: o.city ?? r.city, brand: o.brand ?? r.brand, entity: o.entity ?? r.entity } : r
+  })
+}
 
 export const STATUS_META: Record<Status, { label: string; color: string; dot: string }> = {
   overpay: { label: 'Переплата', color: 'text-bad', dot: 'bg-bad' },

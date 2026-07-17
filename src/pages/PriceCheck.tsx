@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Row, Status, STATUS_META, money, moneyShort, pct, fmt, fmt1, summarize } from '../lib/data'
+import { Row, Status, STATUS_META, MATCH_KIND_META, money, moneyShort, pct, fmt, fmt1, summarize } from '../lib/data'
+import { useEdits } from '../lib/edits'
 import { StatusBadge, AbcBadge, InfoTip } from '../components/ui'
-import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/icons'
+import MatchModal from '../components/MatchModal'
+import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, ILink } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'sum' | 'plan' | 'unit' | 'diffPct' | 'effect'
 
@@ -16,10 +18,12 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
+  const { setPlan, products } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'sum', dir: -1 })
   const [limit, setLimit] = useState(60)
+  const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -128,10 +132,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
                 <th className="th text-center">ABC</th>
                 <th className="th">Статус</th>
+                <th className="th text-center">Действие</th>
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => (
+              {shown.map((r) => {
+                const mk = MATCH_KIND_META[r.matchKind ?? 'none']
+                return (
                 <tr key={r.id} className="row-hover hover:bg-ink-800/40">
                   <td className="td">
                     <div className="font-medium text-slate-100">{r.product}</div>
@@ -139,7 +146,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   </td>
                   <td className="td text-slate-400">{r.restaurant}</td>
                   <td className="td text-right tabnum text-slate-300">{money(r.sum)}<div className="text-[11px] text-slate-600">{fmt1(r.qty)} ед.</div></td>
-                  <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
+                  <td className="td text-right tabnum text-slate-400">
+                    {r.plan != null ? money(r.plan) : '—'}
+                    {r.plan != null && <div className={`text-[10px] ${mk.color}`} title={mk.hint}>{mk.label}</div>}
+                  </td>
                   <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
                   <td className="td text-right tabnum font-semibold">
                     {r.diffPct != null ? <span className={r.status === 'overpay' ? 'text-bad' : r.status === 'saving' ? 'text-good' : 'text-slate-400'}>{pct(r.diffPct)}</span> : <span className="text-slate-600">—</span>}
@@ -151,8 +161,18 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   </td>
                   <td className="td text-center"><AbcBadge abc={r.abc} /></td>
                   <td className="td"><StatusBadge status={r.status} /></td>
+                  <td className="td text-center">
+                    <button
+                      onClick={() => setMatchFor({ product0: r.product0, product: r.product })}
+                      className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
+                      title="Сопоставить с плановым товаром из матрицы вручную"
+                    >
+                      <ILink width={13} height={13} /> Сопоставить
+                    </button>
+                  </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
           {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено по заданным фильтрам.</div>}
@@ -165,6 +185,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           </div>
         )}
       </div>
+
+      {matchFor && (
+        <MatchModal
+          target={matchFor}
+          products={products}
+          onClose={() => setMatchFor(null)}
+          onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
+        />
+      )}
     </div>
   )
 }

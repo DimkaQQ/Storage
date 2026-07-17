@@ -15,10 +15,10 @@ function resolvePlan(fact, matching, manualPlan) {
   const supplierRaw = norm(fact.supplier)
   const supplierCanon = norm(matching.supplierAlias[supplierRaw] ?? fact.supplier)
   const pairKey = `${supplierCanon}::${product}`
-  if (matching.planPairs[pairKey] != null) return matching.planPairs[pairKey]
-  if (matching.planByProduct[product] != null) return matching.planByProduct[product]
-  if (manualPlan[product] != null) return manualPlan[product]
-  return null
+  if (matching.planPairs[pairKey] != null) return { plan: matching.planPairs[pairKey], kind: 'pair' }
+  if (matching.planByProduct[product] != null) return { plan: matching.planByProduct[product], kind: 'product' }
+  if (manualPlan[product] != null) return { plan: manualPlan[product], kind: 'manual' }
+  return { plan: null, kind: null }
 }
 
 /** Joins raw purchase facts with the app-managed plan matrix into the dataset shape. */
@@ -40,15 +40,19 @@ export function buildDataset(facts, manualPlan, venues, matching) {
       brand: meta_.brand || name,
       city: meta_.city || 'Алматы',
       category: meta_.category || 'Кухня',
-      items: list.map((f) => ({
-        s: f.supplier || '',
-        p: f.product,
-        k: f.pack || '',
-        q: Math.round(f.qty * 1000) / 1000,
-        m: Math.round(f.sum * 100) / 100,
-        u: f.qty > 0 ? Math.round((f.sum / f.qty) * 100) / 100 : null,
-        pl: resolvePlan(f, m, manualPlan),
-      })),
+      items: list.map((f) => {
+        const { plan, kind } = resolvePlan(f, m, manualPlan)
+        return {
+          s: f.supplier || '',
+          p: f.product,
+          k: f.pack || '',
+          q: Math.round(f.qty * 1000) / 1000,
+          m: Math.round(f.sum * 100) / 100,
+          u: f.qty > 0 ? Math.round((f.sum / f.qty) * 100) / 100 : null,
+          pl: plan,
+          pk: kind,
+        }
+      }),
     }
   })
   const now = new Date()
