@@ -33,10 +33,12 @@ export default function App() {
   const [page, setPage] = useState<PageId>('dashboard')
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
+  const [categoryFilter, setCategoryFilter] = useState<string | null>('Кухня') // null = all categories
   const [help, setHelp] = useState(false)
-  const { rows: allRows, editCount, period, category, restaurants } = useEdits()
+  const { rows: allRows, editCount, period, restaurants } = useEdits()
 
   const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city))].sort(), [restaurants])
+  const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
   const venuesInCity = useMemo(
     () => (cityFilter ? restaurants.filter((r) => r.city === cityFilter) : restaurants),
     [restaurants, cityFilter],
@@ -44,11 +46,16 @@ export default function App() {
 
   const rows = useMemo(() => {
     let r = allRows
+    if (categoryFilter) r = r.filter((x) => x.category === categoryFilter)
     if (cityFilter) r = r.filter((x) => x.city === cityFilter)
     if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
     return r
-  }, [allRows, cityFilter, scope])
-  const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
+  }, [allRows, categoryFilter, cityFilter, scope])
+  const categoryRows = useMemo(
+    () => (categoryFilter ? allRows.filter((x) => x.category === categoryFilter) : allRows),
+    [allRows, categoryFilter],
+  )
+  const openIssues = useMemo(() => summarize(categoryRows).openIssues, [categoryRows])
 
   const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
 
@@ -103,7 +110,7 @@ export default function App() {
             <div className="flex items-center justify-between">
               <span>Данные iiko × Матрица</span>
             </div>
-            <div className="mt-1 text-slate-600">{restaurants.length} точек · {category}</div>
+            <div className="mt-1 text-slate-600">{restaurants.length} точек · {categoryFilter ?? 'все категории'}</div>
           </div>
         </aside>
 
@@ -116,10 +123,18 @@ export default function App() {
                 <p className="text-xs text-slate-500">
                   Период: <span className="text-slate-300">{period}</span> · Город:{' '}
                   <span className="text-slate-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span> · Категория:{' '}
-                  <span className="text-slate-300">{category}</span>
+                  <span className="text-slate-300">{categoryFilter ?? 'все'}</span>
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                {page !== 'data' && page !== 'iiko' && categories.length > 1 && (
+                  <div className="flex items-center rounded-lg border border-ink-600 bg-ink-800/80 p-0.5" title="Категория закупок">
+                    <CityBtn label="Все" active={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
+                    {categories.map((c) => (
+                      <CityBtn key={c} label={c} active={categoryFilter === c} onClick={() => setCategoryFilter(c)} />
+                    ))}
+                  </div>
+                )}
                 {page !== 'data' && page !== 'iiko' && cities.length > 1 && (
                   <div className="flex items-center rounded-lg border border-ink-600 bg-ink-800/80 p-0.5">
                     <CityBtn label="Все" active={cityFilter === null} onClick={() => pickCity(null)} />

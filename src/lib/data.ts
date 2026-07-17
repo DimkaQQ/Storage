@@ -14,6 +14,7 @@ interface RawItem {
   pl: number | null // planned price per unit from the matrix (null = not in matrix)
   pk?: 'pair' | 'product' | null // as-shipped match confidence (see MatchKind)
   sn?: boolean // supplier not found in the client's справочник (alias dictionary) — likely a genuinely new company
+  c?: string // purchase category (Кухня/Бар/Алкоголь/Безалкоголь/ERO); falls back to the restaurant's category
 }
 interface RawRestaurant {
   name: string
@@ -39,6 +40,7 @@ export interface Row {
   brand: string
   city: string
   entity: string
+  category: string
   supplier: string
   product: string
   product0: string   // original product name (edit key)
@@ -86,6 +88,7 @@ export interface BaseRow {
   brand: string
   city: string
   entity: string
+  category: string
   supplier0: string
   product0: string
   pack: string
@@ -171,7 +174,7 @@ export function computeRows(base: BaseRow[], edits: Edits): Row[] {
     const effect = status === 'overpay' || status === 'saving' ? c.effect * b.qty : 0
     return {
       id: b.id, restaurant: b.restaurant,
-      brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity,
+      brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: b.category,
       supplier, product, product0: b.product0, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
       diff: c.diff, diffPct: c.diffPct, effect, status, abc: 'C', matchKind,
     }
@@ -218,7 +221,7 @@ export function parseDataset(data: RawDataset): Parsed {
       if (it.m < MIN_TURNOVER || it.q <= 0) continue
       base.push({
         id: 'r' + seq++,
-        restaurant: r.name, brand: r.brand, city: r.city || 'Алматы', entity: r.entity,
+        restaurant: r.name, brand: r.brand, city: r.city || 'Алматы', entity: r.entity, category: it.c ?? r.category,
         supplier0: it.s, product0: it.p, pack: it.k,
         qty: it.q, sum: it.m, unit: it.u, plan0: it.pl,
         planKind0: it.pl != null ? (it.pk ?? 'product') : null,
