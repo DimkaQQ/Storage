@@ -51,6 +51,8 @@ export function buildDataset(facts, manualPlan, venues, matching) {
           u: f.qty > 0 ? Math.round((f.sum / f.qty) * 100) / 100 : null,
           pl: plan,
           pk: kind,
+          // справочник не знает эту компанию — вероятно, новый поставщик
+          sn: m.supplierAlias[norm(f.supplier)] == null,
         }
       }),
     }

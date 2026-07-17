@@ -13,6 +13,7 @@ interface RawItem {
   u: number | null // actual unit price = m/q
   pl: number | null // planned price per unit from the matrix (null = not in matrix)
   pk?: 'pair' | 'product' | null // as-shipped match confidence (see MatchKind)
+  sn?: boolean // supplier not found in the client's справочник (alias dictionary) — likely a genuinely new company
 }
 interface RawRestaurant {
   name: string
@@ -93,6 +94,7 @@ export interface BaseRow {
   unit: number
   plan0: number | null
   planKind0: MatchKind
+  supplierNew: boolean
 }
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
@@ -112,9 +114,46 @@ export interface Edits {
   planOverrides: Record<string, number>    // original product name -> plan price
   excludedProducts: Record<string, true>   // original product name -> исключён из сравнения
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо
+  newSuppliers: Record<string, true>       // компании, добавленные вручную (ещё нет закупок в iiko)
+  newProducts: Record<string, true>        // товары, добавленные вручную (план задаётся через planOverrides)
+  newVenues: Record<string, true>          // точки, добавленные вручную (мета — через venueOverrides)
 }
 export const EMPTY_EDITS: Edits = {
   supplierRenames: {}, productRenames: {}, planOverrides: {}, excludedProducts: {}, venueOverrides: {},
+  newSuppliers: {}, newProducts: {}, newVenues: {},
+}
+
+/** Appends manually-added companies that have no purchase history yet. */
+export function withNewSuppliers(suppliers: SupplierAgg[], edits: Edits): SupplierAgg[] {
+  const existing = new Set(suppliers.map((s) => s.name))
+  const added = Object.keys(edits.newSuppliers)
+    .filter((name) => !existing.has(name))
+    .map((name): SupplierAgg => ({ name, count: 0, sum: 0, isNew: false }))
+  return added.length ? [...suppliers, ...added] : suppliers
+}
+
+/** Appends manually-added products (e.g. to pre-set a plan price before the first purchase). */
+export function withNewProducts(products: ProductAgg[], edits: Edits): ProductAgg[] {
+  const existing = new Set(products.map((p) => p.name))
+  const added = Object.keys(edits.newProducts)
+    .filter((name) => !existing.has(name))
+    .map((name): ProductAgg => {
+      const plan = edits.planOverrides[name] ?? null
+      return { name, count: 0, sum: 0, basePlan: plan, inMatrix: plan != null, planKind: plan != null ? 'manual' : null, restaurantCount: 0 }
+    })
+  return added.length ? [...products, ...added] : products
+}
+
+/** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
+export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta[] {
+  const existing = new Set(restaurants.map((r) => r.name))
+  const added = Object.keys(edits.newVenues)
+    .filter((name) => !existing.has(name))
+    .map((name): VenueMeta => {
+      const patch = edits.venueOverrides[name] || {}
+      return { name, city: patch.city ?? '', brand: patch.brand ?? name, entity: patch.entity ?? '' }
+    })
+  return added.length ? [...restaurants, ...added] : restaurants
 }
 
 /** Builds display rows by applying edits, then classifies and assigns ABC. */
@@ -154,7 +193,7 @@ export function assignABC(rows: Row[]) {
 
 /* ---------- reference lists for the editor ---------- */
 
-export interface SupplierAgg { name: string; count: number; sum: number }
+export interface SupplierAgg { name: string; count: number; sum: number; isNew: boolean }
 export interface ProductAgg { name: string; count: number; sum: number; basePlan: number | null; inMatrix: boolean; planKind: MatchKind; restaurantCount: number }
 export interface VenueMeta { name: string; entity: string; brand: string; city: string }
 
@@ -183,6 +222,7 @@ export function parseDataset(data: RawDataset): Parsed {
         supplier0: it.s, product0: it.p, pack: it.k,
         qty: it.q, sum: it.m, unit: it.u, plan0: it.pl,
         planKind0: it.pl != null ? (it.pk ?? 'product') : null,
+        supplierNew: it.sn === true,
       })
     }
   }
@@ -190,7 +230,7 @@ export function parseDataset(data: RawDataset): Parsed {
   const pm = new Map<string, ProductAgg>()
   const prm = new Map<string, Set<string>>()
   for (const b of base) {
-    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, sum: 0 }
+    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, sum: 0, isNew: b.supplierNew }
     s.count++; s.sum += b.sum; sm.set(b.supplier0, s)
     const p = pm.get(b.product0) || { name: b.product0, count: 0, sum: 0, basePlan: null, inMatrix: false, planKind: null, restaurantCount: 0 }
     p.count++; p.sum += b.sum

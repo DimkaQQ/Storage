@@ -4,31 +4,56 @@ import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText, EditablePlan } from '../components/EditableCell'
 import MatchModal from '../components/MatchModal'
-import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, IPin, ILink } from '../components/icons'
+import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, IPin, ILink, IPlus, ITrash, ICheck } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
 type ProductFilter = 'all' | 'none' | 'product' | 'manual' | 'excluded'
+type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
     edits, editCount, renameSupplier, renameProduct, setPlan, setExcluded, setVenue, reset, replaceAll,
+    addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
     suppliers: suppliersBase, products: productsBase, restaurants, rows,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('products')
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
   const [pFilter, setPFilter] = useState<ProductFilter>('all')
+  const [sFilter, setSFilter] = useState<SupplierFilter>('all')
   const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newPlan, setNewPlan] = useState('')
+  const [newCity, setNewCity] = useState('')
+  const [newBrand, setNewBrand] = useState('')
+  const [newEntity, setNewEntity] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const needle = q.trim().toLowerCase()
 
+  const supplierCounts = useMemo(() => ({
+    all: suppliersBase.length,
+    new: suppliersBase.filter((s) => s.isNew).length,
+  }), [suppliersBase])
+
   const suppliers = useMemo(() => {
-    const list = needle
+    let list = needle
       ? suppliersBase.filter((s) => s.name.toLowerCase().includes(needle) || (edits.supplierRenames[s.name] ?? '').toLowerCase().includes(needle))
       : suppliersBase
+    if (sFilter === 'new') list = list.filter((s) => s.isNew)
     return list
-  }, [needle, edits.supplierRenames])
+  }, [needle, edits.supplierRenames, sFilter, suppliersBase])
+
+  const resetAddForm = () => { setNewName(''); setNewPlan(''); setNewCity(''); setNewBrand(''); setNewEntity(''); setAddOpen(false) }
+  const submitAdd = () => {
+    const name = newName.trim()
+    if (!name) return
+    if (tab === 'suppliers') addSupplier(name)
+    else if (tab === 'products') addProduct(name, newPlan.trim() ? parseFloat(newPlan.replace(',', '.')) : null)
+    else addVenue(name, { city: newCity.trim() || undefined, brand: newBrand.trim() || undefined, entity: newEntity.trim() || undefined })
+    resetAddForm()
+  }
 
   // Итоговый статус позиции: чем сопоставлен план (пара/только товар),
   // задан ли он вручную, или отмечена как «разные товары».
@@ -142,7 +167,53 @@ export default function DataEditor() {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
+          <button
+            onClick={() => setAddOpen((v) => !v)}
+            className={`btn border px-3 py-2 text-xs ${addOpen ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+          >
+            <IPlus width={14} height={14} /> {tab === 'products' ? 'Добавить товар' : tab === 'suppliers' ? 'Добавить компанию' : 'Добавить точку'}
+          </button>
         </div>
+
+        {addOpen && (
+          <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
+            <div className="min-w-[200px] flex-1">
+              <label className="mb-1 block text-[11px] text-slate-500">{tab === 'products' ? 'Название товара' : tab === 'suppliers' ? 'Название компании' : 'Название точки'}</label>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+            </div>
+            {tab === 'products' && (
+              <div className="w-32">
+                <label className="mb-1 block text-[11px] text-slate-500">План, ₸ (необязательно)</label>
+                <input value={newPlan} onChange={(e) => setNewPlan(e.target.value)} inputMode="decimal"
+                  className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-right text-sm tabnum text-slate-100 focus:border-brand-500 focus:outline-none" />
+              </div>
+            )}
+            {tab === 'venues' && (
+              <>
+                <div className="w-36">
+                  <label className="mb-1 block text-[11px] text-slate-500">Город</label>
+                  <input value={newCity} onChange={(e) => setNewCity(e.target.value)}
+                    className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                </div>
+                <div className="w-40">
+                  <label className="mb-1 block text-[11px] text-slate-500">Бренд</label>
+                  <input value={newBrand} onChange={(e) => setNewBrand(e.target.value)}
+                    className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                </div>
+                <div className="w-44">
+                  <label className="mb-1 block text-[11px] text-slate-500">Юрлицо</label>
+                  <input value={newEntity} onChange={(e) => setNewEntity(e.target.value)}
+                    className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                </div>
+              </>
+            )}
+            <button onClick={submitAdd} disabled={!newName.trim()} className="btn border border-brand-500/50 bg-brand-500/15 px-3 py-1.5 text-xs text-brand-200 hover:bg-brand-500/25 disabled:opacity-40">
+              <ICheck width={14} height={14} /> Добавить
+            </button>
+            <button onClick={resetAddForm} className="btn px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300">Отмена</button>
+          </div>
+        )}
 
         {tab === 'venues' && (
           <p className="mb-3 text-xs text-slate-500">
@@ -171,6 +242,23 @@ export default function DataEditor() {
           </div>
         )}
 
+        {tab === 'suppliers' && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {([
+              ['all', `Все (${fmt(supplierCounts.all)})`],
+              ['new', `Новые, нет в справочнике (${fmt(supplierCounts.new)})`],
+            ] as [SupplierFilter, string][]).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => { setSFilter(id); setLimit(60) }}
+                className={`chip transition-colors ${sFilter === id ? 'border-brand-400 bg-brand-500/10 text-brand-300' : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="rounded-xl border border-ink-700/50">
           <table className="w-full">
             <thead className="sticky top-0 z-10 bg-ink-850">
@@ -179,8 +267,10 @@ export default function DataEditor() {
                   <th className="th w-8"></th>
                   <th className="th">Исходное название (iiko)</th>
                   <th className="th">Отображаемое имя</th>
+                  <th className="th">Статус <InfoTip text="«Новый» — компании нет в справочнике-алиасов клиента, поэтому её позиции пока сопоставляются только по названию товара, без учёта поставщика." /></th>
                   <th className="th text-right">Позиций</th>
                   <th className="th text-right">Закупка</th>
+                  <th className="th text-center">Действие</th>
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
@@ -201,6 +291,7 @@ export default function DataEditor() {
                   <th className="th">Бренд</th>
                   <th className="th">Юрлицо</th>
                   <th className="th text-right">Закупка</th>
+                  <th className="th text-center">Действие</th>
                 </tr>
               )}
             </thead>
@@ -208,13 +299,28 @@ export default function DataEditor() {
               {tab === 'suppliers'
                 ? (shown as typeof suppliersBase).map((s) => {
                     const changed = !!edits.supplierRenames[s.name]
+                    const manual = edits.newSuppliers[s.name] === true
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
                         <td className="td text-slate-400"><span className="inline-flex items-center gap-2"><IStore width={14} height={14} className="text-slate-600" />{s.name}</span></td>
                         <td className="td"><EditableText value={edits.supplierRenames[s.name] ?? s.name} onCommit={(v) => renameSupplier(s.name, v)} /></td>
+                        <td className="td">
+                          {manual
+                            ? <span className="chip border-transparent bg-brand-500/10 text-[11px] text-brand-300">добавлена вручную</span>
+                            : s.isNew
+                            ? <span className="chip border-transparent bg-warn/10 text-[11px] text-warn">новая, нет в справочнике</span>
+                            : null}
+                        </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
                         <td className="td text-right tabnum text-slate-300">{money(s.sum)}</td>
+                        <td className="td text-center">
+                          {manual && (
+                            <button onClick={() => removeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Удалить добавленную вручную компанию">
+                              <ITrash width={13} height={13} />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     )
                   })
@@ -227,6 +333,7 @@ export default function DataEditor() {
                     const planVal = planOv != null ? String(planOv) : p.basePlan != null ? String(p.basePlan) : ''
                     const st = productStatus(p.name)
                     const displayName = edits.productRenames[p.name] ?? p.name
+                    const manual = edits.newProducts[p.name] === true
                     return (
                       <tr key={p.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
@@ -262,6 +369,11 @@ export default function DataEditor() {
                                 title="Отметить как разные товары под одним названием — исключить из сравнения"
                               >разные</button>
                             )}
+                            {manual && (
+                              <button onClick={() => removeProduct(p.name)} className="btn px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Удалить добавленный вручную товар">
+                                <ITrash width={12} height={12} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -269,14 +381,27 @@ export default function DataEditor() {
                   })
                 : (shown as typeof venues).map((r) => {
                     const changed = !!edits.venueOverrides[r.name]
+                    const manual = edits.newVenues[r.name] === true
                     return (
                       <tr key={r.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
-                        <td className="td text-slate-100"><span className="inline-flex items-center gap-2"><IPin width={14} height={14} className="text-slate-600" />{r.name}</span></td>
+                        <td className="td text-slate-100">
+                          <span className="inline-flex items-center gap-2">
+                            <IPin width={14} height={14} className="text-slate-600" />{r.name}
+                            {manual && <span className="chip border-transparent bg-brand-500/10 text-[10px] text-brand-300">вручную</span>}
+                          </span>
+                        </td>
                         <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[160px]" /></td>
                         <td className="td"><EditableText value={r.brand} onCommit={(v) => setVenue(r.name, { brand: v })} className="max-w-[180px]" /></td>
                         <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[200px]" /></td>
                         <td className="td text-right tabnum text-slate-300">{moneyShort(venueSpend.get(r.name) ?? 0)}</td>
+                        <td className="td text-center">
+                          {manual && (
+                            <button onClick={() => removeVenue(r.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Удалить добавленную вручную точку">
+                              <ITrash width={13} height={13} />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     )
                   })}

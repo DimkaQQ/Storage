@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
-import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides } from './data'
+import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewSuppliers, withNewProducts, withNewVenues } from './data'
 import { fetchDataset, fetchStatus, triggerSync, SyncStatus } from './api'
 
 const KEY = 'pricecheck-edits-v1'
@@ -15,6 +15,9 @@ function load(): Edits {
       planOverrides: p.planOverrides ?? {},
       excludedProducts: p.excludedProducts ?? {},
       venueOverrides: p.venueOverrides ?? {},
+      newSuppliers: p.newSuppliers ?? {},
+      newProducts: p.newProducts ?? {},
+      newVenues: p.newVenues ?? {},
     }
   } catch {
     return EMPTY_EDITS
@@ -44,6 +47,12 @@ interface Ctx {
   setPlan: (originalProduct: string, plan: number | null) => void
   setExcluded: (originalProduct: string, excluded: boolean) => void
   setVenue: (restaurant: string, patch: VenuePatch) => void
+  addSupplier: (name: string) => void
+  addProduct: (name: string, plan?: number | null) => void
+  addVenue: (name: string, patch?: VenuePatch) => void
+  removeSupplier: (name: string) => void
+  removeProduct: (name: string) => void
+  removeVenue: (name: string) => void
   reset: () => void
   replaceAll: (e: Edits) => void
 }
@@ -128,6 +137,49 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  // Ручное добавление справочных позиций, у которых ещё нет закупок в iiko —
+  // например, чтобы заранее задать план для новой точки/товара/поставщика.
+  const addSupplier = useCallback((name: string) => {
+    const v = name.trim()
+    if (!v) return
+    setEdits((e) => (e.newSuppliers[v] ? e : { ...e, newSuppliers: { ...e.newSuppliers, [v]: true } }))
+  }, [])
+  const addProduct = useCallback((name: string, plan?: number | null) => {
+    const v = name.trim()
+    if (!v) return
+    setEdits((e) => {
+      const newProducts = e.newProducts[v] ? e.newProducts : { ...e.newProducts, [v]: true as const }
+      const planOverrides = plan != null && isFinite(plan) && plan > 0 ? { ...e.planOverrides, [v]: plan } : e.planOverrides
+      return { ...e, newProducts, planOverrides }
+    })
+  }, [])
+  const addVenue = useCallback((name: string, patch?: VenuePatch) => {
+    const v = name.trim()
+    if (!v) return
+    setEdits((e) => {
+      const newVenues = e.newVenues[v] ? e.newVenues : { ...e.newVenues, [v]: true as const }
+      const venueOverrides = patch ? { ...e.venueOverrides, [v]: { ...e.venueOverrides[v], ...patch } } : e.venueOverrides
+      return { ...e, newVenues, venueOverrides }
+    })
+  }, [])
+  const removeSupplier = useCallback((name: string) => {
+    setEdits((e) => { const n = { ...e.newSuppliers }; delete n[name]; return { ...e, newSuppliers: n } })
+  }, [])
+  const removeProduct = useCallback((name: string) => {
+    setEdits((e) => {
+      const n = { ...e.newProducts }; delete n[name]
+      const po = { ...e.planOverrides }; delete po[name]
+      return { ...e, newProducts: n, planOverrides: po }
+    })
+  }, [])
+  const removeVenue = useCallback((name: string) => {
+    setEdits((e) => {
+      const n = { ...e.newVenues }; delete n[name]
+      const vo = { ...e.venueOverrides }; delete vo[name]
+      return { ...e, newVenues: n, venueOverrides: vo }
+    })
+  }, [])
+
   const reset = useCallback(() => setEdits(EMPTY_EDITS), [])
   const replaceAll = useCallback((e: Edits) => setEdits({
     supplierRenames: e.supplierRenames ?? {},
@@ -135,6 +187,9 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     planOverrides: e.planOverrides ?? {},
     excludedProducts: e.excludedProducts ?? {},
     venueOverrides: e.venueOverrides ?? {},
+    newSuppliers: e.newSuppliers ?? {},
+    newProducts: e.newProducts ?? {},
+    newVenues: e.newVenues ?? {},
   }), [])
 
   const editCount =
@@ -142,19 +197,26 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.productRenames).length +
     Object.keys(edits.planOverrides).length +
     Object.keys(edits.excludedProducts).length +
-    Object.keys(edits.venueOverrides).length
+    Object.keys(edits.venueOverrides).length +
+    Object.keys(edits.newSuppliers).length +
+    Object.keys(edits.newProducts).length +
+    Object.keys(edits.newVenues).length
 
   const restaurants = useMemo(
-    () => applyVenueOverrides(parsed.restaurants, edits.venueOverrides),
-    [parsed.restaurants, edits.venueOverrides],
+    () => withNewVenues(applyVenueOverrides(parsed.restaurants, edits.venueOverrides), edits),
+    [parsed.restaurants, edits],
   )
+  const suppliers = useMemo(() => withNewSuppliers(parsed.suppliers, edits), [parsed.suppliers, edits])
+  const products = useMemo(() => withNewProducts(parsed.products, edits), [parsed.products, edits])
 
   const value: Ctx = {
     edits, rows, editCount,
     period: parsed.period, city: parsed.city, category: parsed.category,
-    restaurants, suppliers: parsed.suppliers, products: parsed.products,
+    restaurants, suppliers, products,
     backendOnline, status, syncing, refresh, reloadStatus,
-    renameSupplier, renameProduct, setPlan, setExcluded, setVenue, reset, replaceAll,
+    renameSupplier, renameProduct, setPlan, setExcluded, setVenue,
+    addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
+    reset, replaceAll,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }
