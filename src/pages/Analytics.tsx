@@ -2,12 +2,25 @@ import { useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend as RLegend,
 } from 'recharts'
-import { Row, groupBy, moneyShort, fmt, pct } from '../lib/data'
-import { Section } from '../components/ui'
+import { Row, groupBy, summarize, moneyShort, fmt, pct } from '../lib/data'
+import { Section, InfoTip } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
 import { IPin } from '../components/icons'
 
 export default function Analytics({ rows }: { rows: Row[] }) {
+  // Демо-сравнение периодов: пока выгружен только один месяц, поэтому
+  // «предыдущий период» и «тот же месяц год назад» — оценочные ряды,
+  // построенные от текущей суммы закупок. Как только появятся реальные
+  // выгрузки за другие периоды — заменить на них 1-в-1 (структура уже готова).
+  const periodCompare = useMemo(() => {
+    const spend = summarize(rows).spend
+    return [
+      { name: 'Текущий месяц', Закупка: spend, demo: false },
+      { name: 'Предыдущий месяц', Закупка: Math.round(spend * 0.93), demo: true },
+      { name: 'Тот же месяц, год назад', Закупка: Math.round(spend * 0.81), demo: true },
+    ]
+  }, [rows])
+
   const cities = useMemo(() => groupBy(rows, (r) => r.city).sort((a, b) => b.summary.spend - a.summary.spend), [rows])
   const brands = useMemo(
     () => groupBy(rows, (r) => r.brand).map((g) => ({ name: g.name, effect: g.summary.netEffect, spend: g.summary.spend }))
@@ -27,6 +40,36 @@ export default function Analytics({ rows }: { rows: Row[] }) {
 
   return (
     <div className="space-y-6">
+      {/* Period comparison (demo) */}
+      <Section
+        delay={0}
+        title="Сравнение периодов"
+        subtitle="Месяц к месяцу и год к году — как в ТЗ (три отчёта, три сравнения)"
+        right={
+          <span className="chip border-brand-500/30 bg-brand-500/10 text-[11px] text-brand-300">
+            демо <InfoTip text="Сейчас выгружен только текущий месяц. «Предыдущий месяц» и «тот же месяц год назад» — иллюстративные ряды для демонстрации макета; как только появятся реальные выгрузки за другие периоды, эти два столбца заменяются на них без изменения вёрстки." />
+          </span>
+        }
+      >
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={periodCompare} margin={{ left: 8, right: 16, top: 8, bottom: 4 }}>
+              <CartesianGrid vertical={false} stroke={C.grid} />
+              <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={(v) => moneyShort(v)} tick={{ fill: C.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} content={<ChartTip />} />
+              <Bar dataKey="Закупка" radius={[4, 4, 0, 0]} barSize={56}>
+                {periodCompare.map((d, i) => <Cell key={i} fill={d.demo ? C.axis : C.brand} fillOpacity={d.demo ? 0.45 : 1} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="mt-2 flex items-center gap-4 text-[11px] text-slate-500">
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-brand-400" /> факт</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-slate-500" /> демо-оценка</span>
+        </div>
+      </Section>
+
       {/* City comparison cards */}
       <Section
         delay={0}
