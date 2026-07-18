@@ -69,6 +69,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   }
 
   return (
+    <>
     <div className="space-y-4">
       {/* mini KPIs for current filter */}
       <div className="grid grid-cols-4 gap-4">
@@ -165,7 +166,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     <button
                       onClick={() => setMatchFor({ product0: r.product0, product: r.product })}
                       className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
-                      title="Сопоставить с плановым товаром из матрицы вручную"
+                      title="Эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
                     >
                       <ILink width={13} height={13} /> Сопоставить
                     </button>
@@ -185,16 +186,17 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           </div>
         )}
       </div>
-
-      {matchFor && (
-        <MatchModal
-          target={matchFor}
-          products={products}
-          onClose={() => setMatchFor(null)}
-          onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
-        />
-      )}
     </div>
+
+    {matchFor && (
+      <MatchModal
+        target={matchFor}
+        products={products}
+        onClose={() => setMatchFor(null)}
+        onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
+      />
+    )}
+    </>
   )
 }
 

@@ -40,6 +40,7 @@ export default function Reconcile({ rows }: { rows: Row[] }) {
   const list = tab === 'review' ? review : tab === 'nomatrix' ? nomatrix : anomaly
 
   return (
+    <>
     <div className="space-y-5">
       {/* KPIs */}
       <div className="grid grid-cols-4 gap-4">
@@ -80,16 +81,17 @@ export default function Reconcile({ rows }: { rows: Row[] }) {
           />
         )}
       </Section>
-
-      {matchFor && (
-        <MatchModal
-          target={matchFor}
-          products={products}
-          onClose={() => setMatchFor(null)}
-          onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
-        />
-      )}
     </div>
+
+    {matchFor && (
+      <MatchModal
+        target={matchFor}
+        products={products}
+        onClose={() => setMatchFor(null)}
+        onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
+      />
+    )}
+    </>
   )
 }
 
@@ -108,7 +110,7 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
   const shown = rows.slice(0, limit)
   return (
     <>
-      <div className="rounded-xl border border-ink-700/50">
+      <div className="overflow-x-auto rounded-xl border border-ink-700/50">
         <table className="w-full">
           <thead className="sticky top-0 z-10 bg-ink-850">
             <tr>
@@ -154,14 +156,14 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
                     <button
                       onClick={() => onMatch(r.product0, r.product)}
                       className="btn border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
-                      title="Сопоставить с плановым товаром из матрицы (для обобщённых названий iiko)"
+                      title="Эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
                     >
                       <ILink width={13} height={13} /> Сопоставить
                     </button>
                     <button
                       onClick={() => onExclude(r.product0)}
                       className="btn border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-500 hover:text-white"
-                      title="Отметить как разные товары под одним названием — исключить из сравнения"
+                      title="Название совпадает случайно — на самом деле это другой товар. Сравнение с планом для этой позиции отключится"
                     >
                       Разные товары
                     </button>
@@ -188,7 +190,7 @@ function ResolvedTable({ items, onUndo }: {
   if (items.length === 0)
     return <div className="py-12 text-center text-sm text-slate-500">Пока ничего не решено. Разберите позиции на других вкладках.</div>
   return (
-    <div className="overflow-hidden rounded-xl border border-ink-700/50">
+    <div className="overflow-x-auto rounded-xl border border-ink-700/50">
       <table className="w-full">
         <thead className="bg-ink-800/50">
           <tr>

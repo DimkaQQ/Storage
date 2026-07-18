@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import Portal from './Portal'
 import { IClose, IScale, IStore, ILayers, IAlert, IGauge, ISpark } from './icons'
 
 const STATUSES: { label: string; dot: string; text: string }[] = [
@@ -33,6 +34,7 @@ export default function HelpModal({ onClose }: { onClose: () => void }) {
   }, [onClose])
 
   return (
+    <Portal>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
       <div className="animate-fade-in absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={onClose} />
       <div className="animate-scale-in relative flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-ink-700 bg-ink-850 shadow-card">
@@ -99,9 +101,10 @@ export default function HelpModal({ onClose }: { onClose: () => void }) {
           <div className="rounded-xl border border-ink-700/60 bg-ink-900/40 p-4">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Что сейчас в данных</h3>
             <p className="text-sm text-slate-400">
-              Загружены данные за <b className="text-slate-200">май 2026</b>, категория <b className="text-slate-200">Кухня</b>, город <b className="text-slate-200">Алматы</b> (13 точек).
-              Сравнение периодов (месяц/квартал/год), категории «алкоголь / безалкоголь / ERO» и город Астана
-              появятся автоматически, когда будут загружены соответствующие выгрузки из iiko.
+              Реальные данные загружены за <b className="text-slate-200">май 2026</b>, категория <b className="text-slate-200">Кухня</b>,
+              города <b className="text-slate-200">Алматы и Астана</b> (13 точек). Категории «Бар / Алкоголь / Безалкоголь / ERO»
+              (переключатель вверху) и сравнение периодов на «Аналитике» пока показаны демо-данными — для реальных цифр
+              нужны соответствующие выгрузки из iiko.
             </p>
           </div>
         </div>
@@ -112,5 +115,6 @@ export default function HelpModal({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+    </Portal>
   )
 }

@@ -4,7 +4,7 @@ import {
   ComposedChart, Line,
 } from 'recharts'
 import { Row, money, moneyShort, fmt, fmt1 } from '../lib/data'
-import { Section, AbcBadge } from '../components/ui'
+import { Section, AbcBadge, InfoTip } from '../components/ui'
 import { C } from '../components/charts'
 
 type Cls = 'A' | 'B' | 'C'
@@ -79,7 +79,14 @@ export default function ABC({ rows }: { rows: Row[] }) {
         })}
       </div>
 
-      <Section delay={220} title="Кривая Парето" subtitle="Топ-24 товара по сумме закупки и накопленная доля затрат">
+      <Section
+        delay={220}
+        title="Кривая Парето"
+        subtitle="Топ-24 товара по сумме закупки и накопленная доля затрат"
+        right={
+          <InfoTip text="Синие столбики — сумма закупки по каждому товару (левая шкала), от большего к меньшему. Оранжевая линия — накопленный % от общей суммы закупок по мере добавления товаров слева направо (правая шкала, до 100%). Где линия пересекает 80% — это и есть граница группы A: товары левее неё дают 80% всех затрат, на них стоит сосредоточить контроль цен в первую очередь." />
+        }
+      >
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={pareto} margin={{ left: 8, right: 8, top: 8, bottom: 60 }}>
@@ -98,7 +105,7 @@ export default function ABC({ rows }: { rows: Row[] }) {
       </Section>
 
       <Section delay={300} title="Группа A — фокус контроля цен" subtitle="Товары, формирующие 80% закупок. Здесь любое отклонение цены даёт максимальный эффект.">
-        <div className="overflow-hidden rounded-xl border border-ink-700/50">
+        <div className="overflow-x-auto rounded-xl border border-ink-700/50">
           <table className="w-full">
             <thead className="bg-ink-800/50">
               <tr>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { fmt } from '../lib/data'
 import { rankSimilar } from '../lib/fuzzy'
+import Portal from './Portal'
 import { IClose, ISearch, ISpark } from './icons'
 
 /** «Это тот же поставщик, что и...» — объединить неопознанную компанию с уже известной. */
@@ -26,6 +27,7 @@ export default function SupplierMergeModal({ target, suppliers, onClose, onPick 
   const list = searched.slice(0, 60)
 
   return (
+    <Portal>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
       <div className="animate-fade-in absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={onClose} />
       <div className="animate-scale-in relative flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-ink-700 bg-ink-850 shadow-card">
@@ -72,5 +74,6 @@ export default function SupplierMergeModal({ target, suppliers, onClose, onPick 
         </div>
       </div>
     </div>
+    </Portal>
   )
 }

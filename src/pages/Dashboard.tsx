@@ -118,7 +118,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
         {topOverpay.length === 0 ? (
           <div className="py-8 text-center text-sm text-slate-500">Переплат в выбранном срезе не найдено 🎉</div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-ink-700/50">
+          <div className="overflow-x-auto rounded-xl border border-ink-700/50">
             <table className="w-full">
               <thead className="bg-ink-800/50">
                 <tr>

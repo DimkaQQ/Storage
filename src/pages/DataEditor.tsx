@@ -120,6 +120,7 @@ export default function DataEditor() {
   }
 
   return (
+    <>
     <div className="space-y-5">
       {/* intro + actions */}
       <div className="card flex flex-wrap items-center justify-between gap-4 p-4">
@@ -262,7 +263,7 @@ export default function DataEditor() {
           </div>
         )}
 
-        <div className="rounded-xl border border-ink-700/50">
+        <div className="overflow-x-auto rounded-xl border border-ink-700/50">
           <table className="w-full">
             <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
@@ -366,7 +367,7 @@ export default function DataEditor() {
                             <button
                               onClick={() => setMatchFor({ product0: p.name, product: displayName })}
                               className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
-                              title="Сопоставить с плановым товаром из матрицы вручную"
+                              title="Эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
                             >
                               <ILink width={12} height={12} /> Сопоставить
                             </button>
@@ -380,7 +381,7 @@ export default function DataEditor() {
                               <button
                                 onClick={() => setExcluded(p.name, true)}
                                 className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-400 hover:border-slate-500 hover:text-white"
-                                title="Отметить как разные товары под одним названием — исключить из сравнения"
+                                title="Название совпадает случайно — на самом деле это другой товар. Сравнение с планом для этой позиции отключится"
                               >разные</button>
                             )}
                             {manual && (
@@ -430,24 +431,25 @@ export default function DataEditor() {
           </div>
         )}
       </Section>
-
-      {matchFor && (
-        <MatchModal
-          target={matchFor}
-          products={productsBase}
-          onClose={() => setMatchFor(null)}
-          onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
-        />
-      )}
-
-      {mergeFor && (
-        <SupplierMergeModal
-          target={mergeFor}
-          suppliers={suppliersBase.filter((s) => !s.isNew)}
-          onClose={() => setMergeFor(null)}
-          onPick={(canonicalName) => { mergeSupplier(mergeFor.name, canonicalName); setMergeFor(null) }}
-        />
-      )}
     </div>
+
+    {matchFor && (
+      <MatchModal
+        target={matchFor}
+        products={productsBase}
+        onClose={() => setMatchFor(null)}
+        onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
+      />
+    )}
+
+    {mergeFor && (
+      <SupplierMergeModal
+        target={mergeFor}
+        suppliers={suppliersBase.filter((s) => !s.isNew)}
+        onClose={() => setMergeFor(null)}
+        onPick={(canonicalName) => { mergeSupplier(mergeFor.name, canonicalName); setMergeFor(null) }}
+      />
+    )}
+    </>
   )
 }

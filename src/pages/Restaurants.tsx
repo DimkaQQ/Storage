@@ -80,7 +80,7 @@ export default function Restaurants({
 
       {/* Comparison table */}
       <Section title="Сравнение точек" subtitle="Сводная таблица по всем ресторанам в срезе" right={<button onClick={onNav} className="btn text-brand-300 hover:text-brand-200">К проверке цен →</button>}>
-        <div className="overflow-hidden rounded-xl border border-ink-700/50">
+        <div className="overflow-x-auto rounded-xl border border-ink-700/50">
           <table className="w-full">
             <thead className="bg-ink-800/50">
               <tr>

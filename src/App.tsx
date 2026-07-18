@@ -115,10 +115,10 @@ export default function App() {
         </aside>
 
         {/* Main */}
-        <div className="ml-64 flex-1">
+        <div className="ml-64 min-w-0 flex-1">
           <header className="sticky top-0 z-10 border-b border-ink-700/50 bg-ink-950">
-            <div className="flex items-center justify-between gap-4 px-8 py-4">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-8 py-4">
+              <div className="min-w-0">
                 <h1 className="text-lg font-bold text-white">{NAV.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-slate-500">
                   Период: <span className="text-slate-300">{period}</span> · Город:{' '}
@@ -126,7 +126,7 @@ export default function App() {
                   <span className="text-slate-300">{categoryFilter ?? 'все'}</span>
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 {page !== 'data' && page !== 'iiko' && categories.length > 1 && (
                   <div className="flex items-center rounded-lg border border-ink-600 bg-ink-800/80 p-0.5" title="Категория закупок">
                     <CityBtn label="Все" active={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
