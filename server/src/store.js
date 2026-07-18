@@ -82,5 +82,5 @@ export const getSeed = () => read(SEED, { restaurants: [] })
  * fresh iiko purchases as precisely as their spreadsheet does: by normalized
  * supplier + exact product name first, falling back to product name alone.
  */
-const EMPTY_MATCHING = { supplierAlias: {}, planPairs: {}, planByProduct: {} }
+const EMPTY_MATCHING = { supplierAlias: {}, planPairs: {}, planPairsByPack: {}, planByProduct: {} }
 export const getMatching = () => read(MATCHING_SEED, EMPTY_MATCHING)

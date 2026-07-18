@@ -5,15 +5,25 @@ const MIN_TURNOVER = 0 // фильтр оборота применяется н�
 /**
  * Resolves the plan price for a purchased line the way the client's own
  * matrix does: normalize the supplier via справочник, then look up
- * (supplier, product) as a pair first — that's what makes their matrix
- * precise when the same product name is sold by several suppliers at
- * different prices. Falls back to product-name-only, then to the
- * app-managed manual plan overrides (edited in "Данные"/"Сверка").
+ * (supplier, product, pack) first. That third key matters more than it looks —
+ * for "assortment" SKUs (iiko records them under one generic name like
+ * "Ягода с/м в асс" while the real flavor/variant only shows up in the
+ * packaging field), the matrix keys its price by packaging too, because the
+ * same generic name can span a 4x price range across flavors (their own
+ * sheet does this per-row, e.g. "Frozen Fruit"'s "Ягода с/м в асс": вишня
+ * 3650, слива 1280, черника 4900 — matching by name alone would silently
+ * pick one arbitrary price for all of them). Falls back to (supplier,
+ * product) pair, then product-name-only, then the app-managed manual plan
+ * overrides (edited in "Данные"/"Сверка").
  */
 function resolvePlan(fact, matching, manualPlan) {
   const product = norm(fact.product)
+  const pack = norm(fact.pack)
   const supplierRaw = norm(fact.supplier)
   const supplierCanon = norm(matching.supplierAlias[supplierRaw] ?? fact.supplier)
+  const triple = matching.planPairsByPack || {}
+  const tripleKey = pack ? `${supplierCanon}::${product}::${pack}` : ''
+  if (tripleKey && triple[tripleKey] != null) return { plan: triple[tripleKey], kind: 'pair' }
   const pairKey = `${supplierCanon}::${product}`
   if (matching.planPairs[pairKey] != null) return { plan: matching.planPairs[pairKey], kind: 'pair' }
   if (matching.planByProduct[product] != null) return { plan: matching.planByProduct[product], kind: 'product' }
@@ -23,7 +33,7 @@ function resolvePlan(fact, matching, manualPlan) {
 
 /** Joins raw purchase facts with the app-managed plan matrix into the dataset shape. */
 export function buildDataset(facts, manualPlan, venues, matching) {
-  const m = matching || { supplierAlias: {}, planPairs: {}, planByProduct: {} }
+  const m = matching || { supplierAlias: {}, planPairs: {}, planPairsByPack: {}, planByProduct: {} }
   const meta = new Map(venues.map((v) => [v.name, v]))
   const byVenue = new Map()
   for (const f of facts) {
