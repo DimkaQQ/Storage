@@ -140,8 +140,8 @@ export default function DataEditor() {
         <div className="flex items-center gap-2">
           {editCount > 0 && <span className="chip border-brand-500/40 bg-brand-500/10 text-brand-300">{fmt(editCount)} {plural(editCount, 'правка', 'правки', 'правок')}</span>}
           <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importEdits(f); e.target.value = '' }} />
-          <button onClick={() => fileRef.current?.click()} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IUpload width={16} height={16} /> Импорт</button>
-          <button onClick={exportEdits} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IDownload width={16} height={16} /> Экспорт</button>
+          <button onClick={() => fileRef.current?.click()} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IDownload width={16} height={16} /> Импорт</button>
+          <button onClick={exportEdits} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IUpload width={16} height={16} /> Экспорт</button>
           {editCount > 0 && (
             <button
               onClick={() => { if (confirm('Сбросить все правки? Названия и плановые цены вернутся к исходным из выгрузки.')) reset() }}
@@ -264,38 +264,38 @@ export default function DataEditor() {
         )}
 
         <div className="overflow-x-auto rounded-xl border border-ink-700/50">
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
                 <tr>
-                  <th className="th w-8"></th>
-                  <th className="th">Исходное название (iiko)</th>
-                  <th className="th">Отображаемое имя</th>
-                  <th className="th">Статус <InfoTip text="«Новый» — компании нет в справочнике-алиасов клиента, поэтому её позиции пока сопоставляются только по названию товара, без учёта поставщика." /></th>
-                  <th className="th text-right">Позиций</th>
-                  <th className="th text-right">Закупка</th>
-                  <th className="th text-center">Действие</th>
+                  <th className="th w-6"></th>
+                  <th className="th w-[27%]">Исходное название (iiko)</th>
+                  <th className="th w-[27%]">Отображаемое имя</th>
+                  <th className="th w-[15%]">Статус <InfoTip text="«Новый» — компании нет в справочнике-алиасов клиента, поэтому её позиции пока сопоставляются только по названию товара, без учёта поставщика." /></th>
+                  <th className="th w-[8%] text-right">Позиций</th>
+                  <th className="th w-[10%] text-right">Закупка</th>
+                  <th className="th w-[10%] text-center">Действие</th>
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-8"></th>
-                  <th className="th">Исходное название (iiko)</th>
-                  <th className="th">Отображаемое имя</th>
-                  <th className="th text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
-                  <th className="th">Статус <InfoTip text="Как найден план: по паре поставщик+товар (надёжно), только по товару (стоит проверить), вручную, или позиция отмечена как «разные товары»." /></th>
-                  <th className="th text-right">Ресторанов</th>
-                  <th className="th text-right">Закупка</th>
-                  <th className="th text-center">Действие</th>
+                  <th className="th w-6"></th>
+                  <th className="th w-[22%]">Исходное название (iiko)</th>
+                  <th className="th w-[22%]">Отображаемое имя</th>
+                  <th className="th w-[11%] text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
+                  <th className="th w-[14%]">Статус <InfoTip text="Как найден план: по паре поставщик+товар (надёжно), только по товару (стоит проверить), вручную, или позиция отмечена как «разные товары»." /></th>
+                  <th className="th w-[8%] text-right">Ресторанов</th>
+                  <th className="th w-[9%] text-right">Закупка</th>
+                  <th className="th w-[10%] text-center">Действие</th>
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-8"></th>
-                  <th className="th">Точка</th>
-                  <th className="th">Город</th>
-                  <th className="th">Бренд</th>
-                  <th className="th">Юрлицо</th>
-                  <th className="th text-right">Закупка</th>
-                  <th className="th text-center">Действие</th>
+                  <th className="th w-6"></th>
+                  <th className="th w-[18%]">Точка</th>
+                  <th className="th w-[14%]">Город</th>
+                  <th className="th w-[16%]">Бренд</th>
+                  <th className="th w-[19%]">Юрлицо</th>
+                  <th className="th w-[12%] text-right">Закупка</th>
+                  <th className="th w-[12%] text-center">Действие</th>
                 </tr>
               )}
             </thead>
@@ -308,11 +308,13 @@ export default function DataEditor() {
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
-                        <td className="td text-slate-400"><span className="inline-flex items-center gap-2"><IStore width={14} height={14} className="text-slate-600" />{s.name}</span></td>
+                        <td className="td overflow-hidden text-slate-400" title={s.name}>
+                          <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><span className="truncate">{s.name}</span></span>
+                        </td>
                         <td className="td"><EditableText value={edits.supplierRenames[s.name] ?? s.name} onCommit={(v) => renameSupplier(s.name, v)} /></td>
-                        <td className="td">
+                        <td className="td overflow-hidden">
                           {mergedTo
-                            ? <span className="chip border-transparent bg-brand-500/10 text-[11px] text-brand-300" title={`Цены и отчёты теперь считаются как для «${mergedTo}»`}>→ объединено с «{mergedTo}»</span>
+                            ? <span className="chip block truncate border-transparent bg-brand-500/10 text-[11px] text-brand-300" title={`Цены и отчёты теперь считаются как для «${mergedTo}»`}>→ объединено с «{mergedTo}»</span>
                             : manual
                             ? <span className="chip border-transparent bg-brand-500/10 text-[11px] text-brand-300">добавлена вручную</span>
                             : s.isNew
@@ -352,13 +354,13 @@ export default function DataEditor() {
                     return (
                       <tr key={p.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
-                        <td className="td text-slate-400">{p.name}</td>
+                        <td className="td truncate text-slate-400" title={p.name}>{p.name}</td>
                         <td className="td"><EditableText value={displayName} onCommit={(v) => renameProduct(p.name, v)} /></td>
                         <td className="td text-right"><EditablePlan value={planVal} placeholder="нет" onCommit={(v) => setPlan(p.name, v)} highlighted={planOv != null} /></td>
-                        <td className="td">
+                        <td className="td overflow-hidden">
                           {st === 'excluded'
                             ? <span className="chip border-transparent bg-ink-750 text-[11px] text-slate-400">разные товары</span>
-                            : <span className={`text-xs ${MATCH_KIND_META[st ?? 'none'].color}`} title={MATCH_KIND_META[st ?? 'none'].hint}>{MATCH_KIND_META[st ?? 'none'].label}</span>}
+                            : <span className={`truncate text-xs ${MATCH_KIND_META[st ?? 'none'].color}`} title={MATCH_KIND_META[st ?? 'none'].hint}>{MATCH_KIND_META[st ?? 'none'].label}</span>}
                         </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
                         <td className="td text-right tabnum text-slate-300">{moneyShort(p.sum)}</td>
@@ -366,21 +368,21 @@ export default function DataEditor() {
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => setMatchFor({ product0: p.name, product: displayName })}
-                              className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
-                              title="Эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
+                              className="btn h-7 w-7 justify-center border border-ink-600 bg-ink-800/70 p-0 text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
+                              title="Сопоставить: эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
                             >
-                              <ILink width={12} height={12} /> Сопоставить
+                              <ILink width={12} height={12} />
                             </button>
                             {excluded ? (
                               <button
                                 onClick={() => setExcluded(p.name, false)}
-                                className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:text-white"
+                                className="btn h-7 w-7 justify-center border border-ink-600 bg-ink-800/70 p-0 text-slate-300 hover:text-white"
                                 title="Вернуть в сравнение"
                               ><IReset width={12} height={12} /></button>
                             ) : (
                               <button
                                 onClick={() => setExcluded(p.name, true)}
-                                className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-400 hover:border-slate-500 hover:text-white"
+                                className="btn whitespace-nowrap border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-400 hover:border-slate-500 hover:text-white"
                                 title="Название совпадает случайно — на самом деле это другой товар. Сравнение с планом для этой позиции отключится"
                               >разные</button>
                             )}
@@ -400,10 +402,10 @@ export default function DataEditor() {
                     return (
                       <tr key={r.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
-                        <td className="td text-slate-100">
-                          <span className="inline-flex items-center gap-2">
-                            <IPin width={14} height={14} className="text-slate-600" />{r.name}
-                            {manual && <span className="chip border-transparent bg-brand-500/10 text-[10px] text-brand-300">вручную</span>}
+                        <td className="td overflow-hidden text-slate-100" title={r.name}>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <IPin width={14} height={14} className="shrink-0 text-slate-600" /><span className="truncate">{r.name}</span>
+                            {manual && <span className="chip shrink-0 border-transparent bg-brand-500/10 text-[10px] text-brand-300">вручную</span>}
                           </span>
                         </td>
                         <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[160px]" /></td>

@@ -121,19 +121,19 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       {/* table */}
       <div className="card overflow-hidden p-0">
         <div>
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product">Товар</Th>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant">Ресторан</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right tip="Общая сумма закупки этой позиции за период (сумма ÷ количество = факт. цена).">Закупка</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right tip="Плановая (целевая) цена за единицу из матрицы. «—» — товара нет в матрице.">План</Th>
-                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right tip="Фактическая цена за единицу, по которой реально закупили (из iiko).">Факт</Th>
-                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right tip="Отклонение факта от плана в процентах. Плюс — дороже плана, минус — дешевле.">Δ%</Th>
-                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
-                <th className="th text-center">ABC</th>
-                <th className="th">Статус</th>
-                <th className="th text-center">Действие</th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[23%]">Товар</Th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]">Ресторан</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[11%]" tip="Общая сумма закупки этой позиции за период (сумма ÷ количество = факт. цена).">Закупка</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[11%]" tip="Плановая (целевая) цена за единицу из матрицы. «—» — товара нет в матрице.">План</Th>
+                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[9%]" tip="Фактическая цена за единицу, по которой реально закупили (из iiko).">Факт</Th>
+                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[7%]" tip="Отклонение факта от плана в процентах. Плюс — дороже плана, минус — дешевле.">Δ%</Th>
+                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right width="w-[9%]" tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
+                <th className="th w-[5%] text-center">ABC</th>
+                <th className="th w-[13%]">Статус</th>
+                <th className="th w-[4%] text-center"><span className="sr-only">Действие</span></th>
               </tr>
             </thead>
             <tbody>
@@ -141,15 +141,17 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 const mk = MATCH_KIND_META[r.matchKind ?? 'none']
                 return (
                 <tr key={r.id} className="row-hover hover:bg-ink-800/40">
-                  <td className="td">
-                    <div className="font-medium text-slate-100">{r.product}</div>
-                    <div className="text-[11px] text-slate-500">{r.supplier} · {r.pack || '—'}</div>
+                  <td className="td overflow-hidden" title={r.product}>
+                    <div className="truncate font-medium text-slate-100">{r.product}</div>
+                    <div className="truncate text-[11px] text-slate-500">{r.supplier} · {r.pack || '—'}</div>
                   </td>
-                  <td className="td text-slate-400">{r.restaurant}</td>
+                  <td className="td truncate text-slate-400" title={r.restaurant}>{r.restaurant}</td>
                   <td className="td text-right tabnum text-slate-300">{money(r.sum)}<div className="text-[11px] text-slate-600">{fmt1(r.qty)} ед.</div></td>
                   <td className="td text-right tabnum text-slate-400">
-                    {r.plan != null ? money(r.plan) : '—'}
-                    {r.plan != null && <div className={`text-[10px] ${mk.color}`} title={mk.hint}>{mk.label}</div>}
+                    <span className="inline-flex items-center justify-end gap-1.5">
+                      {r.plan != null && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${mk.color.replace('text-', 'bg-')}`} title={`${mk.label}: ${mk.hint}`} />}
+                      {r.plan != null ? money(r.plan) : '—'}
+                    </span>
                   </td>
                   <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
                   <td className="td text-right tabnum font-semibold">
@@ -165,10 +167,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   <td className="td text-center">
                     <button
                       onClick={() => setMatchFor({ product0: r.product0, product: r.product })}
-                      className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
-                      title="Эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
+                      className="btn mx-auto h-7 w-7 justify-center border border-ink-600 bg-ink-800/70 p-0 text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
+                      title="Сопоставить: эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
                     >
-                      <ILink width={13} height={13} /> Сопоставить
+                      <ILink width={13} height={13} />
                     </button>
                   </td>
                 </tr>
@@ -210,10 +212,10 @@ function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: str
   )
 }
 
-function Th({ children, onClick, sort, k, right, tip }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; tip?: string }) {
+function Th({ children, onClick, sort, k, right, tip, width }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; tip?: string; width?: string }) {
   const on = sort.key === k
   return (
-    <th className={`th hover:text-slate-300 ${right ? 'text-right' : ''}`}>
+    <th className={`th hover:text-slate-300 ${right ? 'text-right' : ''} ${width ?? ''}`}>
       <span className={`inline-flex items-center gap-1 ${right ? 'flex-row-reverse' : ''}`}>
         <span className="inline-flex cursor-pointer items-center gap-1" onClick={onClick}>
           {children}

@@ -111,33 +111,33 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
   return (
     <>
       <div className="overflow-x-auto rounded-xl border border-ink-700/50">
-        <table className="w-full">
+        <table className="w-full table-fixed">
           <thead className="sticky top-0 z-10 bg-ink-850">
             <tr>
-              <th className="th">Товар</th>
-              <th className="th">Ресторан</th>
-              <th className="th text-right">Закупка</th>
-              <th className="th text-right">План&nbsp;<InfoTip text="Задайте правильную плановую цену за единицу — позиция сразу уйдёт из списка и начнёт сравниваться." /></th>
-              <th className="th text-right">Факт</th>
-              <th className="th text-right">Δ%</th>
-              <th className="th text-center">Действие</th>
+              <th className="th w-[27%]">Товар</th>
+              <th className="th w-[11%]">Ресторан</th>
+              <th className="th w-[11%] text-right">Закупка</th>
+              <th className="th w-[12%] text-right">План&nbsp;<InfoTip text="Задайте правильную плановую цену за единицу — позиция сразу уйдёт из списка и начнёт сравниваться." /></th>
+              <th className="th w-[9%] text-right">Факт</th>
+              <th className="th w-[7%] text-right">Δ%</th>
+              <th className="th w-[23%] text-center">Действие</th>
             </tr>
           </thead>
           <tbody>
             {shown.map((r) => (
               <tr key={r.id} className="row-hover hover:bg-ink-800/40">
-                <td className="td">
+                <td className="td overflow-hidden" title={r.product}>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-slate-100">{r.product}</span>
+                    <span className="truncate font-medium text-slate-100">{r.product}</span>
                     {r.plan != null && (
                       <span className={`shrink-0 text-[10px] ${MATCH_KIND_META[r.matchKind ?? 'none'].color}`} title={MATCH_KIND_META[r.matchKind ?? 'none'].hint}>
                         ({MATCH_KIND_META[r.matchKind ?? 'none'].label})
                       </span>
                     )}
                   </div>
-                  <div className="text-[11px] text-slate-500">{r.supplier || '—'} · {r.pack || '—'}</div>
+                  <div className="truncate text-[11px] text-slate-500">{r.supplier || '—'} · {r.pack || '—'}</div>
                 </td>
-                <td className="td text-slate-400">{r.restaurant}</td>
+                <td className="td truncate text-slate-400" title={r.restaurant}>{r.restaurant}</td>
                 <td className="td text-right tabnum text-slate-300">{money(r.sum)}<div className="text-[11px] text-slate-600">{fmt1(r.qty)} ед.</div></td>
                 <td className="td text-right">
                   <EditablePlan
@@ -162,10 +162,10 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
                     </button>
                     <button
                       onClick={() => onExclude(r.product0)}
-                      className="btn border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-500 hover:text-white"
+                      className="btn whitespace-nowrap border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-500 hover:text-white"
                       title="Название совпадает случайно — на самом деле это другой товар. Сравнение с планом для этой позиции отключится"
                     >
-                      Разные товары
+                      Разные
                     </button>
                   </div>
                 </td>
