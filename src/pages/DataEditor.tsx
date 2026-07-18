@@ -4,6 +4,7 @@ import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText, EditablePlan } from '../components/EditableCell'
 import MatchModal from '../components/MatchModal'
+import SupplierMergeModal from '../components/SupplierMergeModal'
 import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, IPin, ILink, IPlus, ITrash, ICheck } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
@@ -14,6 +15,7 @@ export default function DataEditor() {
   const {
     edits, editCount, renameSupplier, renameProduct, setPlan, setExcluded, setVenue, reset, replaceAll,
     addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
+    mergeSupplier, unmergeSupplier,
     suppliers: suppliersBase, products: productsBase, restaurants, rows,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('products')
@@ -22,6 +24,7 @@ export default function DataEditor() {
   const [pFilter, setPFilter] = useState<ProductFilter>('all')
   const [sFilter, setSFilter] = useState<SupplierFilter>('all')
   const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
+  const [mergeFor, setMergeFor] = useState<{ name: string } | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newPlan, setNewPlan] = useState('')
@@ -300,13 +303,16 @@ export default function DataEditor() {
                 ? (shown as typeof suppliersBase).map((s) => {
                     const changed = !!edits.supplierRenames[s.name]
                     const manual = edits.newSuppliers[s.name] === true
+                    const mergedTo = edits.supplierMerges[s.name]
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
                         <td className="td text-slate-400"><span className="inline-flex items-center gap-2"><IStore width={14} height={14} className="text-slate-600" />{s.name}</span></td>
                         <td className="td"><EditableText value={edits.supplierRenames[s.name] ?? s.name} onCommit={(v) => renameSupplier(s.name, v)} /></td>
                         <td className="td">
-                          {manual
+                          {mergedTo
+                            ? <span className="chip border-transparent bg-brand-500/10 text-[11px] text-brand-300" title={`Цены и отчёты теперь считаются как для «${mergedTo}»`}>→ объединено с «{mergedTo}»</span>
+                            : manual
                             ? <span className="chip border-transparent bg-brand-500/10 text-[11px] text-brand-300">добавлена вручную</span>
                             : s.isNew
                             ? <span className="chip border-transparent bg-warn/10 text-[11px] text-warn">новая, нет в справочнике</span>
@@ -315,11 +321,19 @@ export default function DataEditor() {
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
                         <td className="td text-right tabnum text-slate-300">{money(s.sum)}</td>
                         <td className="td text-center">
-                          {manual && (
+                          {mergedTo ? (
+                            <button onClick={() => unmergeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-white" title="Отменить объединение">
+                              <IReset width={13} height={13} />
+                            </button>
+                          ) : manual ? (
                             <button onClick={() => removeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Удалить добавленную вручную компанию">
                               <ITrash width={13} height={13} />
                             </button>
-                          )}
+                          ) : s.isNew ? (
+                            <button onClick={() => setMergeFor({ name: s.name })} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200" title="Это тот же поставщик, что и уже известный?">
+                              <ILink width={12} height={12} /> Объединить
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     )
@@ -423,6 +437,15 @@ export default function DataEditor() {
           products={productsBase}
           onClose={() => setMatchFor(null)}
           onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
+        />
+      )}
+
+      {mergeFor && (
+        <SupplierMergeModal
+          target={mergeFor}
+          suppliers={suppliersBase.filter((s) => !s.isNew)}
+          onClose={() => setMergeFor(null)}
+          onPick={(canonicalName) => { mergeSupplier(mergeFor.name, canonicalName); setMergeFor(null) }}
         />
       )}
     </div>

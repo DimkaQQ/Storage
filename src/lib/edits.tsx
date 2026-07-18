@@ -18,6 +18,7 @@ function load(): Edits {
       newSuppliers: p.newSuppliers ?? {},
       newProducts: p.newProducts ?? {},
       newVenues: p.newVenues ?? {},
+      supplierMerges: p.supplierMerges ?? {},
     }
   } catch {
     return EMPTY_EDITS
@@ -53,6 +54,8 @@ interface Ctx {
   removeSupplier: (name: string) => void
   removeProduct: (name: string) => void
   removeVenue: (name: string) => void
+  mergeSupplier: (rawName: string, canonicalName: string) => void
+  unmergeSupplier: (rawName: string) => void
   reset: () => void
   replaceAll: (e: Edits) => void
 }
@@ -180,6 +183,18 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  // «Это тот же поставщик, что и...» — заменяет правку справочника руками:
+  // дальнейшее сопоставление плана и все отчёты используют канонического
+  // поставщика, на которого указали, вместо неопознанного iiko-имени.
+  const mergeSupplier = useCallback((rawName: string, canonicalName: string) => {
+    const v = canonicalName.trim()
+    if (!v || v === rawName) return
+    setEdits((e) => ({ ...e, supplierMerges: { ...e.supplierMerges, [rawName]: v } }))
+  }, [])
+  const unmergeSupplier = useCallback((rawName: string) => {
+    setEdits((e) => { const n = { ...e.supplierMerges }; delete n[rawName]; return { ...e, supplierMerges: n } })
+  }, [])
+
   const reset = useCallback(() => setEdits(EMPTY_EDITS), [])
   const replaceAll = useCallback((e: Edits) => setEdits({
     supplierRenames: e.supplierRenames ?? {},
@@ -190,6 +205,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     newSuppliers: e.newSuppliers ?? {},
     newProducts: e.newProducts ?? {},
     newVenues: e.newVenues ?? {},
+    supplierMerges: e.supplierMerges ?? {},
   }), [])
 
   const editCount =
@@ -200,7 +216,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newSuppliers).length +
     Object.keys(edits.newProducts).length +
-    Object.keys(edits.newVenues).length
+    Object.keys(edits.newVenues).length +
+    Object.keys(edits.supplierMerges).length
 
   const restaurants = useMemo(
     () => withNewVenues(applyVenueOverrides(parsed.restaurants, edits.venueOverrides), edits),
@@ -216,6 +233,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     backendOnline, status, syncing, refresh, reloadStatus,
     renameSupplier, renameProduct, setPlan, setExcluded, setVenue,
     addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
+    mergeSupplier, unmergeSupplier,
     reset, replaceAll,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>

@@ -1,7 +1,25 @@
 import raw from '../data/dataset.json'
+import matchingRaw from '../data/matching.json'
 
 /** How confidently the plan price was matched to this purchased line. */
 export type MatchKind = 'pair' | 'product' | 'manual' | null
+
+/**
+ * The plan matrix itself — the same справочник (supplier alias dictionary)
+ * and pair/pack/product price tables the client used to maintain by hand in
+ * Excel. Bundled straight into the app so matching/plan resolution runs
+ * entirely client-side and can be corrected through edits (merges, manual
+ * prices) without anyone touching a spreadsheet again.
+ */
+export interface MatchingTable {
+  supplierAlias: Record<string, string>       // iiko supplier name (norm) -> canonical supplier name
+  planPairs: Record<string, number>           // "supplier::product" (norm) -> plan price
+  planPairsByPack: Record<string, number>     // "supplier::product::pack" (norm) -> plan price
+  planByProduct: Record<string, number>       // product (norm) -> plan price
+}
+export const BUNDLED_MATCHING: MatchingTable = matchingRaw as MatchingTable
+
+const norm = (s: string) => String(s || '').trim().toLowerCase()
 
 /** Raw purchase fact as extracted from the iiko report + matrix join. */
 interface RawItem {
@@ -120,10 +138,11 @@ export interface Edits {
   newSuppliers: Record<string, true>       // компании, добавленные вручную (ещё нет закупок в iiko)
   newProducts: Record<string, true>        // товары, добавленные вручную (план задаётся через planOverrides)
   newVenues: Record<string, true>          // точки, добавленные вручную (мета — через venueOverrides)
+  supplierMerges: Record<string, string>   // iiko-имя, которого нет в справочнике -> существующий поставщик (тот же, что и...)
 }
 export const EMPTY_EDITS: Edits = {
   supplierRenames: {}, productRenames: {}, planOverrides: {}, excludedProducts: {}, venueOverrides: {},
-  newSuppliers: {}, newProducts: {}, newVenues: {},
+  newSuppliers: {}, newProducts: {}, newVenues: {}, supplierMerges: {},
 }
 
 /** Appends manually-added companies that have no purchase history yet. */
@@ -159,15 +178,50 @@ export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta
   return added.length ? [...restaurants, ...added] : restaurants
 }
 
+/**
+ * Resolves the plan price for one purchased line entirely client-side —
+ * the same chain the client's Excel matrix ran by hand (справочник ->
+ * pair -> pack -> product), plus the app's own manual edits layered on top
+ * so the matrix itself never needs touching again:
+ *   1. a plain per-product override (set via "Сопоставить" or an inline edit)
+ *   2. supplier resolution: a manual "тот же поставщик, что и..." merge
+ *      wins over the bundled справочник alias, which wins over the raw name
+ *   3. (supplier, product, pack) — disambiguates "assortment" SKUs where the
+ *      real variant only shows up in the packaging field
+ *   4. (supplier, product) pair
+ *   5. product name only (lowest confidence — ignores supplier)
+ *   6. whatever the backend already resolved, as a last-resort fallback
+ */
+function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable): { plan: number | null; kind: MatchKind } {
+  const productOv = edits.planOverrides[b.product0]
+  if (productOv != null) return { plan: productOv, kind: 'manual' }
+
+  const mergedTo = edits.supplierMerges[b.supplier0]
+  const supplierCanon = norm(mergedTo ?? matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
+  const product = norm(b.product0)
+  const pairKey = `${supplierCanon}::${product}`
+
+  const pack = norm(b.pack)
+  if (pack) {
+    const tripleKey = `${pairKey}::${pack}`
+    if (matching.planPairsByPack[tripleKey] != null) return { plan: matching.planPairsByPack[tripleKey], kind: 'pair' }
+  }
+  if (matching.planPairs[pairKey] != null) return { plan: matching.planPairs[pairKey], kind: 'pair' }
+  if (matching.planByProduct[product] != null) return { plan: matching.planByProduct[product], kind: 'product' }
+
+  if (b.plan0 != null) return { plan: b.plan0, kind: b.planKind0 }
+  return { plan: null, kind: null }
+}
+
 /** Builds display rows by applying edits, then classifies and assigns ABC. */
-export function computeRows(base: BaseRow[], edits: Edits): Row[] {
+export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {
   const rows: Row[] = base.map((b) => {
-    const supplier = edits.supplierRenames[b.supplier0] ?? b.supplier0
+    const mergedTo = edits.supplierMerges[b.supplier0]
+    const supplierDisplay = mergedTo ?? b.supplier0
+    const supplier = edits.supplierRenames[supplierDisplay] ?? supplierDisplay
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
-    const ov = edits.planOverrides[b.product0]
-    const plan = ov != null ? ov : b.plan0
-    const matchKind: MatchKind = ov != null ? 'manual' : b.planKind0
+    const { plan, kind: matchKind } = resolveRowPlan(b, edits, matching)
     const c = classify(plan, b.unit)
     const excluded = edits.excludedProducts[b.product0] === true
     const status: Status = excluded ? 'excluded' : c.status
