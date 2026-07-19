@@ -368,10 +368,10 @@ export default function DataEditor() {
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => setMatchFor({ product0: p.name, product: displayName })}
-                              className="btn h-7 w-7 justify-center border border-ink-600 bg-ink-800/70 p-0 text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
+                              className="btn h-8 w-8 justify-center border border-ink-600 bg-ink-800/70 p-0 text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
                               title="Сопоставить: эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
                             >
-                              <ILink width={12} height={12} />
+                              <ILink width={15} height={15} />
                             </button>
                             {excluded ? (
                               <button

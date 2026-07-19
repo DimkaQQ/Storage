@@ -6,6 +6,7 @@ import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISyn
 import HelpModal from './components/HelpModal'
 import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
+import FilterDropdown from './components/FilterDropdown'
 
 // Pages are code-split: only the open page's code is downloaded.
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -142,20 +143,10 @@ export default function App() {
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {showFilters && categories.length > 1 && (
-                  <div className="flex items-center rounded-lg border border-ink-600 bg-ink-800/80 p-0.5" title="Категория закупок">
-                    <CityBtn label="Все" active={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
-                    {categories.map((c) => (
-                      <CityBtn key={c} label={c} active={categoryFilter === c} onClick={() => setCategoryFilter(c)} />
-                    ))}
-                  </div>
+                  <FilterDropdown label="Категория закупок" value={categoryFilter} options={categories} onChange={setCategoryFilter} />
                 )}
                 {showFilters && cities.length > 1 && (
-                  <div className="flex items-center rounded-lg border border-ink-600 bg-ink-800/80 p-0.5">
-                    <CityBtn label="Все" active={cityFilter === null} onClick={() => pickCity(null)} />
-                    {cities.map((c) => (
-                      <CityBtn key={c} label={c} active={cityFilter === c} onClick={() => pickCity(c)} />
-                    ))}
-                  </div>
+                  <FilterDropdown label="Город" value={cityFilter} options={cities} onChange={pickCity} />
                 )}
                 <ThemePicker />
                 <button
@@ -223,16 +214,5 @@ function PageLoading() {
     <div className="flex h-64 items-center justify-center">
       <span className="h-6 w-6 animate-spin rounded-full border-2 border-ink-600 border-t-brand-400" />
     </div>
-  )
-}
-
-function CityBtn({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'bg-brand-500 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-    >
-      {label}
-    </button>
   )
 }

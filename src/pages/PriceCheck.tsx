@@ -167,10 +167,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   <td className="td text-center">
                     <button
                       onClick={() => setMatchFor({ product0: r.product0, product: r.product })}
-                      className="btn mx-auto h-7 w-7 justify-center border border-ink-600 bg-ink-800/70 p-0 text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
+                      className="btn mx-auto h-8 w-8 justify-center border border-ink-600 bg-ink-800/70 p-0 text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
                       title="Сопоставить: эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
                     >
-                      <ILink width={13} height={13} />
+                      <ILink width={15} height={15} />
                     </button>
                   </td>
                 </tr>
