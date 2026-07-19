@@ -275,7 +275,7 @@ export default function DataEditor() {
               className={`flex w-fit items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${pairOn ? 'border-brand-500/50 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/40 text-slate-400 hover:text-slate-200'}`}
             >
               <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${pairOn ? 'bg-brand-500' : 'bg-ink-600'}`}>
-                <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${pairOn ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                <span className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${pairOn ? 'translate-x-3' : 'translate-x-0'}`} />
               </span>
               {tab === 'products'
                 ? 'Привязать к конкретному поставщику (иначе цена сравнивается для любого)'
