@@ -32,5 +32,7 @@ export const IChart = (p: P) => <svg {...base(p)}><path d="M3 3v18h18" /><rect x
 export const IPin = (p: P) => <svg {...base(p)}><path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11Z" /><circle cx="12" cy="10" r="2.5" /></svg>
 export const ILink = (p: P) => <svg {...base(p)}><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" /></svg>
 export const IPlus = (p: P) => <svg {...base(p)}><path d="M12 5v14M5 12h14" /></svg>
+export const IUser = (p: P) => <svg {...base(p)}><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
+export const ILogout = (p: P) => <svg {...base(p)}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
 export const ITrash = (p: P) => <svg {...base(p)}><path d="M4 7h16" /><path d="M6 7v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" /><path d="M10 11v6M14 11v6" /></svg>
 export const IPalette = (p: P) => <svg {...base(p)}><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2.5-2.5c0-.7-.3-1.3-.7-1.7-.4-.5-.7-1-.7-1.6a1.7 1.7 0 0 1 1.7-1.7H17a5 5 0 0 0 5-5c0-4.4-4.5-7.5-10-7.5Z" /><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="12" cy="7.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" /></svg>

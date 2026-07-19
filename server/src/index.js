@@ -1,35 +1,60 @@
 import express from 'express'
 import cron from 'node-cron'
+import { randomBytes } from 'node:crypto'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
-  getDataset, saveDataset, getPlan, getVenues, getMatching,
+  getDataset, saveDataset, getPlan, getVenues, getMatching, saveMatching,
+  getEdits, saveEdits,
+  bootstrapOrgData, bootstrapAccounts,
+  listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
 } from './store.js'
 import { fetchFacts, testConnection } from './iiko.js'
 import { buildDataset } from './dataset.js'
+import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
 // Same-origin in prod (nginx proxies /api); permissive for local dev.
 app.use((_req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*')
-  res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS')
-  res.set('Access-Control-Allow-Headers', 'Content-Type')
+  res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   next()
 })
 app.options('*', (_req, res) => res.sendStatus(204))
 
-let syncing = false
+/* ---------- first-boot bootstrap: default org + admin account ---------- */
 
-/** Pulls facts from the configured provider and rebuilds the dataset. */
-async function runSync(trigger) {
-  if (syncing) return { ok: false, message: 'Обновление уже выполняется' }
-  syncing = true
-  const settings = getSettings()
+function bootstrap() {
+  const ADMIN_EMAIL = 'admin@admin.com'
+  const password = randomBytes(6).toString('base64url')
+  const created = bootstrapAccounts({ email: ADMIN_EMAIL, passwordHash: hashPassword(password), orgName: 'Основная сеть' })
+  if (created) {
+    bootstrapOrgData(created.org.id, { withSeed: true })
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    console.log('Создан первый админ-аккаунт:')
+    console.log(`  Почта:  ${ADMIN_EMAIL}`)
+    console.log(`  Пароль: ${password}`)
+    console.log('  Смените пароль после первого входа (Настройки → Профиль).')
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+  }
+  // Any org that predates multi-tenancy or was created without data yet.
+  for (const org of listOrgs()) bootstrapOrgData(org.id, { withSeed: false })
+}
+bootstrap()
+
+let syncing = {}
+
+/** Pulls facts from the configured provider and rebuilds the dataset for one org. */
+async function runSync(orgId, trigger) {
+  if (syncing[orgId]) return { ok: false, message: 'Обновление уже выполняется' }
+  syncing[orgId] = true
+  const settings = getSettings(orgId)
   try {
     const facts = await fetchFacts(settings)
     if (!facts.length) throw new Error('Провайдер вернул пустой список закупок')
-    const dataset = buildDataset(facts, getPlan(), getVenues(), getMatching())
-    saveDataset(dataset)
+    const dataset = buildDataset(facts, getPlan(orgId), getVenues(orgId), getMatching(orgId))
+    saveDataset(orgId, dataset)
     const status = {
       lastSync: new Date().toISOString(),
       lastResult: 'ok',
@@ -38,72 +63,131 @@ async function runSync(trigger) {
       positions: facts.length,
       message: `Загружено ${facts.length} позиций`,
     }
-    saveStatus(status)
+    saveStatus(orgId, status)
     return { ok: true, ...status }
   } catch (e) {
-    const status = { ...getStatus(), lastAttempt: new Date().toISOString(), lastResult: 'error', message: String(e.message || e) }
-    saveStatus(status)
+    const status = { ...getStatus(orgId), lastAttempt: new Date().toISOString(), lastResult: 'error', message: String(e.message || e) }
+    saveStatus(orgId, status)
     return { ok: false, message: status.message }
   } finally {
-    syncing = false
+    syncing[orgId] = false
   }
 }
 
-/* ---------- API ---------- */
+/* ---------- auth API (no token required to log in) ---------- */
+
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body || {}
+  const user = email && findUserByEmail(email)
+  if (!user || !verifyPassword(password || '', user.passwordHash)) {
+    return res.status(401).json({ ok: false, message: 'Неверная почта или пароль' })
+  }
+  const token = signToken(user)
+  res.json({ ok: true, token, user: { id: user.id, email: user.email, orgId: user.orgId, role: user.role } })
+})
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  const user = getUser(req.auth.id)
+  if (!user) return res.status(401).json({ ok: false })
+  res.json({ id: user.id, email: user.email, orgId: user.orgId, role: user.role })
+})
+
+app.post('/api/auth/change-password', requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {}
+  const user = getUser(req.auth.id)
+  if (!user || !verifyPassword(currentPassword || '', user.passwordHash)) {
+    return res.status(401).json({ ok: false, message: 'Неверный текущий пароль' })
+  }
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ ok: false, message: 'Новый пароль должен быть не короче 6 символов' })
+  }
+  updateUserPassword(user.id, hashPassword(newPassword))
+  res.json({ ok: true })
+})
+
+/* ---------- team management (admin only, scoped to the admin's own org) ---------- */
+
+app.get('/api/auth/users', requireAuth, requireAdmin, (req, res) => {
+  res.json(listUsersByOrg(req.auth.orgId).map((u) => ({ id: u.id, email: u.email, role: u.role, createdAt: u.createdAt })))
+})
+
+app.post('/api/auth/users', requireAuth, requireAdmin, (req, res) => {
+  const { email, password, role } = req.body || {}
+  if (!email || !password || password.length < 6) {
+    return res.status(400).json({ ok: false, message: 'Нужны почта и пароль (не короче 6 символов)' })
+  }
+  if (findUserByEmail(email)) return res.status(409).json({ ok: false, message: 'Пользователь с такой почтой уже есть' })
+  const user = createUser({ email, passwordHash: hashPassword(password), orgId: req.auth.orgId, role: role === 'admin' ? 'admin' : 'employee' })
+  res.json({ id: user.id, email: user.email, role: user.role, createdAt: user.createdAt })
+})
+
+app.delete('/api/auth/users/:id', requireAuth, requireAdmin, (req, res) => {
+  if (req.params.id === req.auth.id) return res.status(400).json({ ok: false, message: 'Нельзя удалить самого себя' })
+  const ok = deleteUser(req.params.id, req.auth.orgId)
+  res.json({ ok })
+})
+
+/* ---------- app data API (all scoped to req.auth.orgId) ---------- */
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
-app.get('/api/data', (_req, res) => res.json(getDataset()))
+app.get('/api/data', requireAuth, (req, res) => res.json(getDataset(req.auth.orgId)))
 
-app.get('/api/status', (_req, res) => res.json({ ...getStatus(), syncing, schedule: describeSchedule() }))
+app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId) }))
 
-app.post('/api/sync', async (_req, res) => {
-  const result = await runSync('manual')
+app.post('/api/sync', requireAuth, async (req, res) => {
+  const result = await runSync(req.auth.orgId, 'manual')
   res.status(result.ok ? 200 : 502).json(result)
 })
 
-app.get('/api/settings', (_req, res) => {
-  const s = getSettings()
+app.get('/api/settings', requireAuth, (req, res) => {
+  const s = getSettings(req.auth.orgId)
   res.json({ ...s, password: s.password ? '********' : '', apiLogin: s.apiLogin ? '********' : '' })
 })
 
-app.put('/api/settings', (req, res) => {
+app.put('/api/settings', requireAuth, (req, res) => {
   const incoming = { ...req.body }
   // не затирать секреты маскированным значением
   if (incoming.password === '********') delete incoming.password
   if (incoming.apiLogin === '********') delete incoming.apiLogin
-  const next = saveSettings(incoming)
-  armSchedule()
+  const next = saveSettings(req.auth.orgId, incoming)
+  armSchedule(req.auth.orgId)
   res.json({ ...next, password: next.password ? '********' : '', apiLogin: next.apiLogin ? '********' : '' })
 })
 
-app.post('/api/test-connection', async (req, res) => {
-  const s = getSettings()
+app.post('/api/test-connection', requireAuth, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
   const merged = { ...s, ...req.body }
   if (req.body?.password === '********') merged.password = s.password
   if (req.body?.apiLogin === '********') merged.apiLogin = s.apiLogin
   res.json(await testConnection(merged))
 })
 
-/* ---------- scheduler ---------- */
+app.get('/api/edits', requireAuth, (req, res) => res.json(getEdits(req.auth.orgId)))
+app.put('/api/edits', requireAuth, (req, res) => { saveEdits(req.auth.orgId, req.body); res.json({ ok: true }) })
+
+app.get('/api/matching', requireAuth, (req, res) => res.json(getMatching(req.auth.orgId)))
+app.put('/api/matching', requireAuth, (req, res) => { saveMatching(req.auth.orgId, req.body); res.json({ ok: true }) })
+
+/* ---------- scheduler (one cron task per org) ---------- */
 
 const CRON = { hourly: '0 * * * *', daily: '0 3 * * *', weekly: '0 3 * * 1', monthly: '0 3 1 * *' }
-let task = null
+const tasks = {}
 
-function describeSchedule() {
-  const s = getSettings()
+function describeSchedule(orgId) {
+  const s = getSettings(orgId)
   return { autoEnabled: s.autoEnabled, interval: s.interval }
 }
-function armSchedule() {
-  if (task) { task.stop(); task = null }
-  const s = getSettings()
+function armSchedule(orgId) {
+  if (tasks[orgId]) { tasks[orgId].stop(); delete tasks[orgId] }
+  const s = getSettings(orgId)
   if (!s.autoEnabled) return
   const expr = CRON[s.interval] || CRON.daily
-  task = cron.schedule(expr, () => { runSync('schedule') }, { timezone: process.env.TZ || 'Asia/Almaty' })
+  tasks[orgId] = cron.schedule(expr, () => { runSync(orgId, 'schedule') }, { timezone: process.env.TZ || 'Asia/Almaty' })
 }
 
 const PORT = process.env.PORT || 8090
 app.listen(PORT, () => {
-  armSchedule()
-  console.log(`pricecheck-api on :${PORT} (provider=${getSettings().provider}, auto=${getSettings().autoEnabled})`)
+  for (const org of listOrgs()) armSchedule(org.id)
+  console.log(`pricecheck-api on :${PORT} (${listOrgs().length} орг., мультитенант)`)
 })

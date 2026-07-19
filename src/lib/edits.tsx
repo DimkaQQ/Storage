@@ -1,25 +1,27 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
 import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewSuppliers, withNewProducts, withNewVenues } from './data'
-import { fetchDataset, fetchStatus, triggerSync, SyncStatus } from './api'
+import { fetchDataset, fetchStatus, fetchEdits, saveEdits, triggerSync, SyncStatus } from './api'
 
 const KEY = 'pricecheck-edits-v1'
+
+function normalize(p: any): Edits {
+  return {
+    supplierRenames: p?.supplierRenames ?? {},
+    productRenames: p?.productRenames ?? {},
+    planOverrides: p?.planOverrides ?? {},
+    excludedProducts: p?.excludedProducts ?? {},
+    venueOverrides: p?.venueOverrides ?? {},
+    newSuppliers: p?.newSuppliers ?? {},
+    newProducts: p?.newProducts ?? {},
+    newVenues: p?.newVenues ?? {},
+    supplierMerges: p?.supplierMerges ?? {},
+  }
+}
 
 function load(): Edits {
   try {
     const raw = localStorage.getItem(KEY)
-    if (!raw) return EMPTY_EDITS
-    const p = JSON.parse(raw)
-    return {
-      supplierRenames: p.supplierRenames ?? {},
-      productRenames: p.productRenames ?? {},
-      planOverrides: p.planOverrides ?? {},
-      excludedProducts: p.excludedProducts ?? {},
-      venueOverrides: p.venueOverrides ?? {},
-      newSuppliers: p.newSuppliers ?? {},
-      newProducts: p.newProducts ?? {},
-      newVenues: p.newVenues ?? {},
-      supplierMerges: p.supplierMerges ?? {},
-    }
+    return raw ? normalize(JSON.parse(raw)) : EMPTY_EDITS
   } catch {
     return EMPTY_EDITS
   }
@@ -68,10 +70,15 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [backendOnline, setBackendOnline] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
-  }, [edits])
+    // Don't push to the server until the initial server fetch below has
+    // resolved — otherwise a fresh browser's stale/empty localStorage would
+    // briefly overwrite a colleague's already-saved corrections.
+    if (hydrated) saveEdits(edits)
+  }, [edits, hydrated])
 
   const loadData = useCallback(async () => {
     const data = await fetchDataset()
@@ -81,9 +88,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const st = await fetchStatus()
     if (st) { setStatus(st); setBackendOnline(true) }
   }, [])
+  const loadEdits = useCallback(async () => {
+    const data = await fetchEdits()
+    if (data) { setEdits(normalize(data)); setBackendOnline(true) }
+    setHydrated(true)
+  }, [])
 
-  // On mount: pull the live dataset + status from the backend (if present).
-  useEffect(() => { loadData(); reloadStatus() }, [loadData, reloadStatus])
+  // On mount: pull the live dataset + status + shared corrections from the backend (if present).
+  useEffect(() => { loadData(); reloadStatus(); loadEdits() }, [loadData, reloadStatus, loadEdits])
 
   const refresh = useCallback(async () => {
     setSyncing(true)

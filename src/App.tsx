@@ -1,7 +1,8 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
-import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync, IChart } from './components/icons'
+import { useAuth } from './lib/auth'
+import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync, IChart, IUser, ILogout } from './components/icons'
 import HelpModal from './components/HelpModal'
 import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
@@ -15,10 +16,11 @@ const ABC = lazy(() => import('./pages/ABC'))
 const Reconcile = lazy(() => import('./pages/Reconcile'))
 const DataEditor = lazy(() => import('./pages/DataEditor'))
 const IikoSettings = lazy(() => import('./pages/IikoSettings'))
+const UsersAdmin = lazy(() => import('./pages/UsersAdmin'))
 
-type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'analytics' | 'abc' | 'reconcile' | 'data' | 'iiko'
+type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'analytics' | 'abc' | 'reconcile' | 'data' | 'iiko' | 'users'
 
-const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string }[] = [
+const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Обзор', icon: IGauge, hint: 'Ключевые показатели' },
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
   { id: 'restaurants', label: 'Рестораны', icon: IStore, hint: 'По точкам и консолид.' },
@@ -27,6 +29,7 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
   { id: 'reconcile', label: 'Сверка', icon: IAlert, hint: 'Несостыковки и правки' },
   { id: 'data', label: 'Данные', icon: IDatabase, hint: 'Справочники и цены' },
   { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko' },
+  { id: 'users', label: 'Команда', icon: IUser, hint: 'Пользователи вашей сети', adminOnly: true },
 ]
 
 export default function App() {
@@ -36,6 +39,8 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>('Кухня') // null = all categories
   const [help, setHelp] = useState(false)
   const { rows: allRows, editCount, period, restaurants } = useEdits()
+  const { user, logout } = useAuth()
+  const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
   const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city))].sort(), [restaurants])
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
@@ -58,6 +63,7 @@ export default function App() {
   const openIssues = useMemo(() => summarize(categoryRows).openIssues, [categoryRows])
 
   const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
+  const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
 
   return (
     <>
@@ -75,7 +81,7 @@ export default function App() {
           </div>
 
           <nav className="mt-2 flex-1 space-y-1 px-3">
-            {NAV.map((n) => {
+            {nav.map((n) => {
               const active = page === n.id
               return (
                 <button
@@ -106,6 +112,14 @@ export default function App() {
             })}
           </nav>
 
+          <div className="border-t border-ink-700/50 px-5 py-3 text-[11px] text-slate-500">
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-slate-400" title={user?.email}>{user?.email}</span>
+              <button onClick={logout} className="shrink-0 rounded-md p-1 text-slate-500 hover:bg-ink-800 hover:text-white" title="Выйти">
+                <ILogout width={14} height={14} />
+              </button>
+            </div>
+          </div>
           <div className="border-t border-ink-700/50 px-5 py-4 text-[11px] text-slate-500">
             <div className="flex items-center justify-between">
               <span>Данные iiko × Матрица</span>
@@ -119,7 +133,7 @@ export default function App() {
           <header className="sticky top-0 z-10 border-b border-ink-700/50 bg-ink-950">
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-8 py-4">
               <div className="min-w-0">
-                <h1 className="text-lg font-bold text-white">{NAV.find((n) => n.id === page)!.label}</h1>
+                <h1 className="text-lg font-bold text-white">{nav.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-slate-500">
                   Период: <span className="text-slate-300">{period}</span> · Город:{' '}
                   <span className="text-slate-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span> · Категория:{' '}
@@ -127,7 +141,7 @@ export default function App() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {page !== 'data' && page !== 'iiko' && categories.length > 1 && (
+                {showFilters && categories.length > 1 && (
                   <div className="flex items-center rounded-lg border border-ink-600 bg-ink-800/80 p-0.5" title="Категория закупок">
                     <CityBtn label="Все" active={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
                     {categories.map((c) => (
@@ -135,7 +149,7 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                {page !== 'data' && page !== 'iiko' && cities.length > 1 && (
+                {showFilters && cities.length > 1 && (
                   <div className="flex items-center rounded-lg border border-ink-600 bg-ink-800/80 p-0.5">
                     <CityBtn label="Все" active={cityFilter === null} onClick={() => pickCity(null)} />
                     {cities.map((c) => (
@@ -152,7 +166,7 @@ export default function App() {
                   <IHelp width={16} height={16} className="text-brand-300" />
                   Справка
                 </button>
-                {page !== 'data' && page !== 'iiko' && (
+                {showFilters && (
                   <ScopePicker
                     options={venuesInCity.map((r) => r.name)}
                     selected={scope}
@@ -174,6 +188,7 @@ export default function App() {
                 {page === 'reconcile' && <Reconcile rows={rows} />}
                 {page === 'data' && <DataEditor />}
                 {page === 'iiko' && <IikoSettings />}
+                {page === 'users' && <UsersAdmin />}
               </div>
             </Suspense>
           </main>
