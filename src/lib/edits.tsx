@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewSuppliers, withNewProducts, withNewVenues, pairKey } from './data'
 import { fetchDataset, fetchStatus, fetchEdits, saveEdits, triggerSync, SyncStatus } from './api'
 
@@ -62,6 +62,8 @@ interface Ctx {
   unmergeSupplier: (rawName: string) => void
   reset: () => void
   replaceAll: (e: Edits) => void
+  undo: () => void
+  canUndo: boolean
 }
 
 const EditsContext = createContext<Ctx | null>(null)
@@ -73,6 +75,31 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [backendOnline, setBackendOnline] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [hydrated, setHydrated] = useState(false)
+  const history = useRef<Edits[]>([])
+  const [canUndo, setCanUndo] = useState(false)
+
+  // Every mutation goes through here instead of setEdits directly, so each
+  // committed change (not every keystroke — inputs only call onCommit on
+  // blur/Enter) pushes the prior state onto a small undo stack.
+  const updateEdits = useCallback((updater: (e: Edits) => Edits) => {
+    setEdits((e) => {
+      const next = updater(e)
+      if (JSON.stringify(next) !== JSON.stringify(e)) {
+        history.current = [...history.current.slice(-49), e]
+        setCanUndo(true)
+      }
+      return next
+    })
+  }, [])
+
+  const undo = useCallback(() => {
+    const hist = history.current
+    if (hist.length === 0) return
+    const prev = hist[hist.length - 1]
+    history.current = hist.slice(0, -1)
+    setCanUndo(history.current.length > 0)
+    setEdits(prev)
+  }, [])
 
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
@@ -110,50 +137,50 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // Set a map entry, or delete it when the value clears / equals the original.
   const setMap = useCallback((field: 'supplierRenames' | 'productRenames') =>
     (original: string, name: string) => {
-      setEdits((e) => {
+      updateEdits((e) => {
         const next = { ...e[field] }
         const v = name.trim()
         if (!v || v === original) delete next[original]
         else next[original] = v
         return { ...e, [field]: next }
       })
-    }, [])
+    }, [updateEdits])
 
   const renameSupplier = useMemo(() => setMap('supplierRenames'), [setMap])
   const renameProduct = useMemo(() => setMap('productRenames'), [setMap])
 
   const setPlan = useCallback((originalProduct: string, plan: number | null) => {
-    setEdits((e) => {
+    updateEdits((e) => {
       const next = { ...e.planOverrides }
       if (plan == null || !isFinite(plan) || plan <= 0) delete next[originalProduct]
       else next[originalProduct] = plan
       return { ...e, planOverrides: next }
     })
-  }, [])
+  }, [updateEdits])
 
   const setPairPlan = useCallback((supplier: string, product: string, plan: number | null) => {
     const s = supplier.trim(), p = product.trim()
     if (!s || !p) return
-    setEdits((e) => {
+    updateEdits((e) => {
       const next = { ...e.planPairOverrides }
       const key = pairKey(s, p)
       if (plan == null || !isFinite(plan) || plan <= 0) delete next[key]
       else next[key] = plan
       return { ...e, planPairOverrides: next }
     })
-  }, [])
+  }, [updateEdits])
 
   const setExcluded = useCallback((originalProduct: string, excluded: boolean) => {
-    setEdits((e) => {
+    updateEdits((e) => {
       const next = { ...e.excludedProducts }
       if (excluded) next[originalProduct] = true
       else delete next[originalProduct]
       return { ...e, excludedProducts: next }
     })
-  }, [])
+  }, [updateEdits])
 
   const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
-    setEdits((e) => {
+    updateEdits((e) => {
       const next = { ...e.venueOverrides }
       const merged = { ...next[restaurant], ...patch }
       const cleaned: VenuePatch = {}
@@ -164,52 +191,52 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[restaurant] = cleaned
       return { ...e, venueOverrides: next }
     })
-  }, [])
+  }, [updateEdits])
 
   // Ручное добавление справочных позиций, у которых ещё нет закупок в iiko —
   // например, чтобы заранее задать план для новой точки/товара/поставщика.
   const addSupplier = useCallback((name: string) => {
     const v = name.trim()
     if (!v) return
-    setEdits((e) => (e.newSuppliers[v] ? e : { ...e, newSuppliers: { ...e.newSuppliers, [v]: true } }))
-  }, [])
+    updateEdits((e) => (e.newSuppliers[v] ? e : { ...e, newSuppliers: { ...e.newSuppliers, [v]: true } }))
+  }, [updateEdits])
   const addProduct = useCallback((name: string, plan?: number | null) => {
     const v = name.trim()
     if (!v) return
-    setEdits((e) => {
+    updateEdits((e) => {
       const newProducts = e.newProducts[v] ? e.newProducts : { ...e.newProducts, [v]: true as const }
       const planOverrides = plan != null && isFinite(plan) && plan > 0 ? { ...e.planOverrides, [v]: plan } : e.planOverrides
       return { ...e, newProducts, planOverrides }
     })
-  }, [])
+  }, [updateEdits])
   const addVenue = useCallback((name: string, patch?: VenuePatch) => {
     const v = name.trim()
     if (!v) return
-    setEdits((e) => {
+    updateEdits((e) => {
       const newVenues = e.newVenues[v] ? e.newVenues : { ...e.newVenues, [v]: true as const }
       const venueOverrides = patch ? { ...e.venueOverrides, [v]: { ...e.venueOverrides[v], ...patch } } : e.venueOverrides
       return { ...e, newVenues, venueOverrides }
     })
-  }, [])
+  }, [updateEdits])
   const removeSupplier = useCallback((name: string) => {
-    setEdits((e) => { const n = { ...e.newSuppliers }; delete n[name]; return { ...e, newSuppliers: n } })
-  }, [])
+    updateEdits((e) => { const n = { ...e.newSuppliers }; delete n[name]; return { ...e, newSuppliers: n } })
+  }, [updateEdits])
   const removeProduct = useCallback((name: string) => {
-    setEdits((e) => {
+    updateEdits((e) => {
       const n = { ...e.newProducts }; delete n[name]
       const po = { ...e.planOverrides }; delete po[name]
       const suffix = `::${name.trim().toLowerCase()}`
       const ppo = Object.fromEntries(Object.entries(e.planPairOverrides).filter(([k]) => !k.endsWith(suffix)))
       return { ...e, newProducts: n, planOverrides: po, planPairOverrides: ppo }
     })
-  }, [])
+  }, [updateEdits])
   const removeVenue = useCallback((name: string) => {
-    setEdits((e) => {
+    updateEdits((e) => {
       const n = { ...e.newVenues }; delete n[name]
       const vo = { ...e.venueOverrides }; delete vo[name]
       return { ...e, newVenues: n, venueOverrides: vo }
     })
-  }, [])
+  }, [updateEdits])
 
   // «Это тот же поставщик, что и...» — заменяет правку справочника руками:
   // дальнейшее сопоставление плана и все отчёты используют канонического
@@ -217,14 +244,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const mergeSupplier = useCallback((rawName: string, canonicalName: string) => {
     const v = canonicalName.trim()
     if (!v || v === rawName) return
-    setEdits((e) => ({ ...e, supplierMerges: { ...e.supplierMerges, [rawName]: v } }))
-  }, [])
+    updateEdits((e) => ({ ...e, supplierMerges: { ...e.supplierMerges, [rawName]: v } }))
+  }, [updateEdits])
   const unmergeSupplier = useCallback((rawName: string) => {
-    setEdits((e) => { const n = { ...e.supplierMerges }; delete n[rawName]; return { ...e, supplierMerges: n } })
-  }, [])
+    updateEdits((e) => { const n = { ...e.supplierMerges }; delete n[rawName]; return { ...e, supplierMerges: n } })
+  }, [updateEdits])
 
-  const reset = useCallback(() => setEdits(EMPTY_EDITS), [])
-  const replaceAll = useCallback((e: Edits) => setEdits({
+  const reset = useCallback(() => updateEdits(() => EMPTY_EDITS), [updateEdits])
+  const replaceAll = useCallback((e: Edits) => updateEdits(() => ({
     supplierRenames: e.supplierRenames ?? {},
     productRenames: e.productRenames ?? {},
     planOverrides: e.planOverrides ?? {},
@@ -235,7 +262,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     newProducts: e.newProducts ?? {},
     newVenues: e.newVenues ?? {},
     supplierMerges: e.supplierMerges ?? {},
-  }), [])
+  })), [updateEdits])
 
   const editCount =
     Object.keys(edits.supplierRenames).length +
@@ -264,7 +291,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     renameSupplier, renameProduct, setPlan, setPairPlan, setExcluded, setVenue,
     addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
     mergeSupplier, unmergeSupplier,
-    reset, replaceAll,
+    reset, replaceAll, undo, canUndo,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }

@@ -6,7 +6,7 @@ import { EditableText, EditablePlan } from '../components/EditableCell'
 import MatchModal from '../components/MatchModal'
 import SupplierMergeModal from '../components/SupplierMergeModal'
 import HoverName from '../components/HoverName'
-import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, IPin, ILink, IPlus, ITrash, ICheck } from '../components/icons'
+import { ISearch, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, ILink, IPlus, ITrash, ICheck } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
 type ProductFilter = 'all' | 'none' | 'product' | 'manual' | 'excluded'
@@ -16,7 +16,7 @@ export default function DataEditor() {
   const {
     edits, editCount, renameSupplier, renameProduct, setPlan, setPairPlan, setExcluded, setVenue, reset, replaceAll,
     addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
-    mergeSupplier, unmergeSupplier,
+    mergeSupplier, unmergeSupplier, undo, canUndo,
     suppliers: suppliersBase, products: productsBase, restaurants, rows,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('products')
@@ -165,6 +165,12 @@ export default function DataEditor() {
         </div>
         <div className="flex items-center gap-2">
           {editCount > 0 && <span className="chip border-brand-500/40 bg-brand-500/10 text-brand-300">{fmt(editCount)} {plural(editCount, 'правка', 'правки', 'правок')}</span>}
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            title="Отменить последнее изменение"
+            className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
+          ><IUndo width={16} height={16} /> Отменить</button>
           <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importEdits(f); e.target.value = '' }} />
           <button onClick={() => fileRef.current?.click()} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IDownload width={16} height={16} /> Импорт</button>
           <button onClick={exportEdits} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IUpload width={16} height={16} /> Экспорт</button>
