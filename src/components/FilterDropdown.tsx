@@ -3,13 +3,14 @@ import { IChevron, ICheck } from './icons'
 
 interface Props {
   label: string
+  icon: (p: { width?: number; height?: number; className?: string }) => JSX.Element
   value: string | null // null = «Все»
   options: string[]
   onChange: (v: string | null) => void
 }
 
 /** Compact single-select dropdown — replaces a long row of city/category toggle buttons. */
-export default function FilterDropdown({ label, value, options, onChange }: Props) {
+export default function FilterDropdown({ label, icon: Icon, value, options, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -25,12 +26,15 @@ export default function FilterDropdown({ label, value, options, onChange }: Prop
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`btn w-[110px] justify-between border px-3 py-2 text-xs ${
+        className={`btn w-[126px] justify-between border px-2.5 py-2 text-xs ${
           value ? 'border-brand-500/50 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-800/80 text-slate-300 hover:border-brand-500/50 hover:text-white'
         }`}
         title={label}
       >
-        <span className="truncate">{value ?? 'Все'}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Icon width={14} height={14} className="shrink-0 text-slate-500" />
+          <span className="truncate">{value ?? 'Все'}</span>
+        </span>
         <IChevron className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} width={13} height={13} />
       </button>
 

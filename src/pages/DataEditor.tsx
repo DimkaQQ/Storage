@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { money, moneyShort, fmt, plural, byRestaurant, MATCH_KIND_META, MatchKind } from '../lib/data'
+import { money, moneyShort, fmt, plural, byRestaurant, MATCH_KIND_META, MatchKind, supplierByProduct } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText, EditablePlan } from '../components/EditableCell'
@@ -35,6 +35,7 @@ export default function DataEditor() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const needle = q.trim().toLowerCase()
+  const productSupplier = useMemo(() => supplierByProduct(rows), [rows])
 
   const supplierCounts = useMemo(() => ({
     all: suppliersBase.length,
@@ -269,32 +270,29 @@ export default function DataEditor() {
             <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
                 <tr>
-                  <th className="th w-6"></th>
-                  <th className="th w-[24%]">Исходное название (iiko)</th>
-                  <th className="th w-[24%]">Отображаемое имя</th>
+                  <th className="th w-[27%]">Исходное название (iiko)</th>
+                  <th className="th w-[26%]">Отображаемое имя</th>
                   <th className="th w-[17%]">Статус <InfoTip text="«Новый» — компании нет в справочнике-алиасов клиента, поэтому её позиции пока сопоставляются только по названию товара, без учёта поставщика." /></th>
                   <th className="th w-[9%] text-right">Позиций</th>
                   <th className="th w-[11%] text-right">Закупка</th>
-                  <th className="th w-[12%] text-center">Действие</th>
+                  <th className="th w-[10%] text-center">Действие</th>
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-6"></th>
-                  <th className="th w-[17%]">Исходное название (iiko)</th>
+                  <th className="th w-[18%]">Исходное название (iiko)</th>
                   <th className="th w-[18%]">Отображаемое имя</th>
-                  <th className="th w-[14%] text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
-                  <th className="th w-[16%]">Статус <InfoTip text="Как найден план: по паре поставщик+товар (надёжно), только по товару (стоит проверить), вручную, или позиция отмечена как «разные товары»." /></th>
-                  <th className="th w-[8%] text-right">Ресторанов</th>
-                  <th className="th w-[9%] text-right">Закупка</th>
-                  <th className="th w-[11%] text-center">Действие</th>
+                  <th className="th w-[12%] text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
+                  <th className="th w-[17%]">Статус <InfoTip text="Как найден план: по паре поставщик+товар (надёжно, показывает поставщика), только по товару (стоит проверить), вручную, или позиция отмечена как «разные товары»." /></th>
+                  <th className="th w-[11%] text-right">Ресторанов</th>
+                  <th className="th w-[11%] text-right">Закупка</th>
+                  <th className="th w-[13%] text-center">Действие</th>
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-6"></th>
-                  <th className="th w-[16%]">Точка</th>
-                  <th className="th w-[13%]">Город</th>
-                  <th className="th w-[15%]">Бренд</th>
-                  <th className="th w-[19%]">Юрлицо</th>
+                  <th className="th w-[23%]">Точка</th>
+                  <th className="th w-[14%]">Город</th>
+                  <th className="th w-[16%]">Бренд</th>
+                  <th className="th w-[20%]">Юрлицо</th>
                   <th className="th w-[13%] text-right">Закупка</th>
                   <th className="th w-[14%] text-center">Действие</th>
                 </tr>
@@ -303,12 +301,10 @@ export default function DataEditor() {
             <tbody>
               {tab === 'suppliers'
                 ? (shown as typeof suppliersBase).map((s) => {
-                    const changed = !!edits.supplierRenames[s.name]
                     const manual = edits.newSuppliers[s.name] === true
                     const mergedTo = edits.supplierMerges[s.name]
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
-                        <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
                         <td className="td overflow-hidden text-slate-400">
                           <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={s.name} /></span>
                         </td>
@@ -344,24 +340,28 @@ export default function DataEditor() {
                   })
                 : tab === 'products'
                 ? (shown as typeof productsBase).map((p) => {
-                    const renamed = !!edits.productRenames[p.name]
                     const planOv = edits.planOverrides[p.name]
                     const excluded = edits.excludedProducts[p.name] === true
-                    const changed = renamed || planOv != null || excluded
                     const planVal = planOv != null ? String(planOv) : p.basePlan != null ? String(p.basePlan) : ''
                     const st = productStatus(p.name)
                     const displayName = edits.productRenames[p.name] ?? p.name
                     const manual = edits.newProducts[p.name] === true
                     return (
                       <tr key={p.name} className="row-hover hover:bg-ink-800/40">
-                        <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
                         <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
                         <td className="td"><EditableText value={displayName} onCommit={(v) => renameProduct(p.name, v)} /></td>
                         <td className="td overflow-hidden text-right"><EditablePlan value={planVal} placeholder="нет" onCommit={(v) => setPlan(p.name, v)} highlighted={planOv != null} /></td>
                         <td className="td overflow-hidden">
                           {st === 'excluded'
                             ? <span className="chip border-transparent bg-ink-750 text-[11px] text-slate-400">разные товары</span>
-                            : <span className={`truncate text-xs ${MATCH_KIND_META[st ?? 'none'].color}`} title={MATCH_KIND_META[st ?? 'none'].hint}>{MATCH_KIND_META[st ?? 'none'].label}</span>}
+                            : (
+                              <>
+                                <span className={`block truncate text-xs ${MATCH_KIND_META[st ?? 'none'].color}`} title={MATCH_KIND_META[st ?? 'none'].hint}>{MATCH_KIND_META[st ?? 'none'].label}</span>
+                                {st === 'pair' && productSupplier.get(p.name) && (
+                                  <HoverName text={productSupplier.get(p.name)!} className="text-[11px] text-slate-500" />
+                                )}
+                              </>
+                            )}
                         </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
                         <td className="td text-right tabnum text-slate-300">{moneyShort(p.sum)}</td>
@@ -398,11 +398,9 @@ export default function DataEditor() {
                     )
                   })
                 : (shown as typeof venues).map((r) => {
-                    const changed = !!edits.venueOverrides[r.name]
                     const manual = edits.newVenues[r.name] === true
                     return (
                       <tr key={r.name} className="row-hover hover:bg-ink-800/40">
-                        <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
                         <td className="td overflow-hidden text-slate-100">
                           <span className="flex min-w-0 items-center gap-2">
                             <IPin width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={r.name} className="min-w-0 flex-1" />
@@ -440,6 +438,7 @@ export default function DataEditor() {
       <MatchModal
         target={matchFor}
         products={productsBase}
+        supplierByProduct={productSupplier}
         onClose={() => setMatchFor(null)}
         onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
       />

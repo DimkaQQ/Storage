@@ -237,6 +237,20 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
   return rows
 }
 
+/**
+ * For each product, the supplier its plan price is actually matched to — for
+ * showing "this plan belongs to supplier X" next to a matching candidate.
+ * Only meaningful for a `pair` match (a specific поставщик+товар combination);
+ * a `product`-level match applies regardless of supplier, so it's omitted.
+ */
+export function supplierByProduct(rows: Row[]): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const r of rows) {
+    if (r.matchKind === 'pair' && !m.has(r.product0)) m.set(r.product0, r.supplier)
+  }
+  return m
+}
+
 export function assignABC(rows: Row[]) {
   const sorted = [...rows].sort((a, b) => b.sum - a.sum)
   const total = sorted.reduce((s, r) => s + r.sum, 0) || 1

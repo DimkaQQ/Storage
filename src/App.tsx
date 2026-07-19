@@ -2,7 +2,7 @@ import { lazy, Suspense, useMemo, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
-import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync, IChart, IUser, ILogout } from './components/icons'
+import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync, IChart, IUser, ILogout, IPin } from './components/icons'
 import HelpModal from './components/HelpModal'
 import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
@@ -81,7 +81,7 @@ export default function App() {
             </div>
           </div>
 
-          <nav className="mt-2 flex-1 space-y-1 px-3">
+          <nav className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
             {nav.map((n) => {
               const active = page === n.id
               return (
@@ -143,10 +143,10 @@ export default function App() {
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {showFilters && categories.length > 1 && (
-                  <FilterDropdown label="Категория закупок" value={categoryFilter} options={categories} onChange={setCategoryFilter} />
+                  <FilterDropdown label="Категория закупок" icon={ILayers} value={categoryFilter} options={categories} onChange={setCategoryFilter} />
                 )}
                 {showFilters && cities.length > 1 && (
-                  <FilterDropdown label="Город" value={cityFilter} options={cities} onChange={pickCity} />
+                  <FilterDropdown label="Город" icon={IPin} value={cityFilter} options={cities} onChange={pickCity} />
                 )}
                 <ThemePicker />
                 <button

@@ -5,9 +5,10 @@ import Portal from './Portal'
 import { IClose, ISearch, ISpark } from './icons'
 
 /** Constructor: сопоставить закупленную позицию с плановым товаром из матрицы. */
-export default function MatchModal({ target, products, onClose, onPick }: {
+export default function MatchModal({ target, products, supplierByProduct, onClose, onPick }: {
   target: { product0: string; product: string }
   products: { name: string; basePlan: number | null; inMatrix: boolean; sum: number }[]
+  supplierByProduct?: Map<string, string>
   onClose: () => void
   onPick: (plan: number) => void
 }) {
@@ -59,9 +60,12 @@ export default function MatchModal({ target, products, onClose, onPick }: {
               </div>
               {suggested.map(({ item: p, score }) => (
                 <button key={p.name} onClick={() => onPick(p.basePlan!)} className="flex w-full items-center justify-between gap-3 border-b border-ink-700/40 bg-brand-500/[0.04] px-5 py-2.5 text-left hover:bg-ink-800/60">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm text-slate-200">{p.name}</span>
-                    {score > 0.6 && <span className="chip shrink-0 border-good/30 bg-good/10 text-[10px] text-good">похоже</span>}
+                  <span className="min-w-0">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm text-slate-200">{p.name}</span>
+                      {score > 0.6 && <span className="chip shrink-0 border-good/30 bg-good/10 text-[10px] text-good">похоже</span>}
+                    </span>
+                    {supplierByProduct?.get(p.name) && <span className="block truncate text-[11px] text-slate-500">{supplierByProduct.get(p.name)}</span>}
                   </span>
                   <span className="shrink-0 tabnum text-sm font-semibold text-brand-300">{money(p.basePlan!)}</span>
                 </button>
@@ -71,8 +75,11 @@ export default function MatchModal({ target, products, onClose, onPick }: {
           )}
           {list.map((p) => (
             <button key={p.name} onClick={() => onPick(p.basePlan!)} className="flex w-full items-center justify-between border-b border-ink-700/40 px-5 py-2.5 text-left hover:bg-ink-800/60">
-              <span className="text-sm text-slate-200">{p.name}</span>
-              <span className="tabnum text-sm font-semibold text-brand-300">{money(p.basePlan!)}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm text-slate-200">{p.name}</span>
+                {supplierByProduct?.get(p.name) && <span className="block truncate text-[11px] text-slate-500">{supplierByProduct.get(p.name)}</span>}
+              </span>
+              <span className="shrink-0 tabnum text-sm font-semibold text-brand-300">{money(p.basePlan!)}</span>
             </button>
           ))}
           {list.length === 0 && suggested.length === 0 && <div className="py-10 text-center text-sm text-slate-500">Ничего не найдено.</div>}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Row, money, moneyShort, fmt, fmt1, pct, summarize, MATCH_KIND_META } from '../lib/data'
+import { Row, money, moneyShort, fmt, fmt1, pct, summarize, MATCH_KIND_META, supplierByProduct } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditablePlan } from '../components/EditableCell'
@@ -10,7 +10,8 @@ import { IAlert, IScale, ICheck, IReset, ILink } from '../components/icons'
 type Tab = 'review' | 'nomatrix' | 'anomaly' | 'resolved'
 
 export default function Reconcile({ rows }: { rows: Row[] }) {
-  const { edits, setPlan, setExcluded, products } = useEdits()
+  const { edits, setPlan, setExcluded, products, rows: allRows } = useEdits()
+  const productSupplier = useMemo(() => supplierByProduct(allRows), [allRows])
   const [tab, setTab] = useState<Tab>('review')
   const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
   const s = useMemo(() => summarize(rows), [rows])
@@ -88,6 +89,7 @@ export default function Reconcile({ rows }: { rows: Row[] }) {
       <MatchModal
         target={matchFor}
         products={products}
+        supplierByProduct={productSupplier}
         onClose={() => setMatchFor(null)}
         onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
       />
