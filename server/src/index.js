@@ -1,6 +1,5 @@
 import express from 'express'
 import cron from 'node-cron'
-import { randomBytes } from 'node:crypto'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
   getDataset, saveDataset, getPlan, getVenues, getMatching, saveMatching,
@@ -25,17 +24,19 @@ app.options('*', (_req, res) => res.sendStatus(204))
 
 /* ---------- first-boot bootstrap: default org + admin account ---------- */
 
+// Demo credentials for now — override with ADMIN_EMAIL / ADMIN_PASSWORD env
+// vars once the real company account replaces this demo login.
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@admin.com'
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'demo1234'
+
 function bootstrap() {
-  const ADMIN_EMAIL = 'admin@admin.com'
-  const password = randomBytes(6).toString('base64url')
-  const created = bootstrapAccounts({ email: ADMIN_EMAIL, passwordHash: hashPassword(password), orgName: 'Основная сеть' })
+  const created = bootstrapAccounts({ email: ADMIN_EMAIL, passwordHash: hashPassword(ADMIN_PASSWORD), orgName: 'Основная сеть' })
   if (created) {
     bootstrapOrgData(created.org.id, { withSeed: true })
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    console.log('Создан первый админ-аккаунт:')
+    console.log('Создан первый админ-аккаунт (демо):')
     console.log(`  Почта:  ${ADMIN_EMAIL}`)
-    console.log(`  Пароль: ${password}`)
-    console.log('  Смените пароль после первого входа (Настройки → Профиль).')
+    console.log(`  Пароль: ${ADMIN_PASSWORD}`)
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   }
   // Any org that predates multi-tenancy or was created without data yet.
