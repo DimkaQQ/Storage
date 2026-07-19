@@ -114,13 +114,13 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
         <table className="w-full table-fixed">
           <thead className="sticky top-0 z-10 bg-ink-850">
             <tr>
-              <th className="th w-[27%]">Товар</th>
-              <th className="th w-[11%]">Ресторан</th>
-              <th className="th w-[11%] text-right">Закупка</th>
-              <th className="th w-[12%] text-right">План&nbsp;<InfoTip text="Задайте правильную плановую цену за единицу — позиция сразу уйдёт из списка и начнёт сравниваться." /></th>
-              <th className="th w-[9%] text-right">Факт</th>
-              <th className="th w-[7%] text-right">Δ%</th>
-              <th className="th w-[23%] text-center">Действие</th>
+              <th className="th w-[20%]">Товар</th>
+              <th className="th w-[13%]">Ресторан</th>
+              <th className="th w-[13%] text-right">Закупка</th>
+              <th className="th w-[14%] text-right">План&nbsp;<InfoTip text="Задайте правильную плановую цену за единицу — позиция сразу уйдёт из списка и начнёт сравниваться." /></th>
+              <th className="th w-[10%] text-right">Факт</th>
+              <th className="th w-[8%] text-right">Δ%</th>
+              <th className="th w-[22%] text-center">Действие</th>
             </tr>
           </thead>
           <tbody>

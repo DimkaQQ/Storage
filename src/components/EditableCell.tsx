@@ -38,7 +38,7 @@ export function EditablePlan({ value, placeholder, onCommit, highlighted }: {
       onChange={(e) => setV(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-      className={`w-28 rounded-md border bg-ink-900/40 px-2 py-1 text-right text-sm tabnum text-slate-100 transition-colors hover:border-ink-600 focus:border-brand-500 focus:bg-ink-900/70 focus:outline-none ${highlighted ? 'border-brand-500/40' : 'border-transparent'}`}
+      className={`w-full min-w-0 max-w-[120px] rounded-md border bg-ink-900/40 px-2 py-1 text-right text-sm tabnum text-slate-100 transition-colors hover:border-ink-600 focus:border-brand-500 focus:bg-ink-900/70 focus:outline-none ${highlighted ? 'border-brand-500/40' : 'border-ink-700/50'}`}
     />
   )
 }

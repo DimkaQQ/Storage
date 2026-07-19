@@ -124,15 +124,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           <table className="w-full table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[23%]">Товар</Th>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]">Ресторан</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[11%]" tip="Общая сумма закупки этой позиции за период (сумма ÷ количество = факт. цена).">Закупка</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[11%]" tip="Плановая (целевая) цена за единицу из матрицы. «—» — товара нет в матрице.">План</Th>
-                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[9%]" tip="Фактическая цена за единицу, по которой реально закупили (из iiko).">Факт</Th>
-                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[7%]" tip="Отклонение факта от плана в процентах. Плюс — дороже плана, минус — дешевле.">Δ%</Th>
-                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right width="w-[9%]" tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
-                <th className="th w-[5%] text-center">ABC</th>
-                <th className="th w-[13%]">Статус</th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[15%]">Товар</Th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[9%]">Ресторан</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[12%]" tip="Общая сумма закупки этой позиции за период (сумма ÷ количество = факт. цена).">Закупка</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[12%]" tip="Плановая (целевая) цена за единицу из матрицы. «—» — товара нет в матрице.">План</Th>
+                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[10%]" tip="Фактическая цена за единицу, по которой реально закупили (из iiko).">Факт</Th>
+                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[8%]" tip="Отклонение факта от плана в процентах. Плюс — дороже плана, минус — дешевле.">Δ%</Th>
+                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right width="w-[10%]" tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
+                <th className="th w-[6%] text-center">ABC</th>
+                <th className="th w-[14%]">Статус</th>
                 <th className="th w-[4%] text-center"><span className="sr-only">Действие</span></th>
               </tr>
             </thead>

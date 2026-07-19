@@ -269,33 +269,33 @@ export default function DataEditor() {
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-6"></th>
-                  <th className="th w-[27%]">Исходное название (iiko)</th>
-                  <th className="th w-[27%]">Отображаемое имя</th>
-                  <th className="th w-[15%]">Статус <InfoTip text="«Новый» — компании нет в справочнике-алиасов клиента, поэтому её позиции пока сопоставляются только по названию товара, без учёта поставщика." /></th>
-                  <th className="th w-[8%] text-right">Позиций</th>
-                  <th className="th w-[10%] text-right">Закупка</th>
-                  <th className="th w-[10%] text-center">Действие</th>
+                  <th className="th w-[24%]">Исходное название (iiko)</th>
+                  <th className="th w-[24%]">Отображаемое имя</th>
+                  <th className="th w-[17%]">Статус <InfoTip text="«Новый» — компании нет в справочнике-алиасов клиента, поэтому её позиции пока сопоставляются только по названию товара, без учёта поставщика." /></th>
+                  <th className="th w-[9%] text-right">Позиций</th>
+                  <th className="th w-[11%] text-right">Закупка</th>
+                  <th className="th w-[12%] text-center">Действие</th>
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
                   <th className="th w-6"></th>
-                  <th className="th w-[22%]">Исходное название (iiko)</th>
-                  <th className="th w-[22%]">Отображаемое имя</th>
-                  <th className="th w-[11%] text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
-                  <th className="th w-[14%]">Статус <InfoTip text="Как найден план: по паре поставщик+товар (надёжно), только по товару (стоит проверить), вручную, или позиция отмечена как «разные товары»." /></th>
+                  <th className="th w-[17%]">Исходное название (iiko)</th>
+                  <th className="th w-[18%]">Отображаемое имя</th>
+                  <th className="th w-[14%] text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
+                  <th className="th w-[16%]">Статус <InfoTip text="Как найден план: по паре поставщик+товар (надёжно), только по товару (стоит проверить), вручную, или позиция отмечена как «разные товары»." /></th>
                   <th className="th w-[8%] text-right">Ресторанов</th>
                   <th className="th w-[9%] text-right">Закупка</th>
-                  <th className="th w-[10%] text-center">Действие</th>
+                  <th className="th w-[11%] text-center">Действие</th>
                 </tr>
               ) : (
                 <tr>
                   <th className="th w-6"></th>
-                  <th className="th w-[18%]">Точка</th>
-                  <th className="th w-[14%]">Город</th>
-                  <th className="th w-[16%]">Бренд</th>
+                  <th className="th w-[16%]">Точка</th>
+                  <th className="th w-[13%]">Город</th>
+                  <th className="th w-[15%]">Бренд</th>
                   <th className="th w-[19%]">Юрлицо</th>
-                  <th className="th w-[12%] text-right">Закупка</th>
-                  <th className="th w-[12%] text-center">Действие</th>
+                  <th className="th w-[13%] text-right">Закупка</th>
+                  <th className="th w-[14%] text-center">Действие</th>
                 </tr>
               )}
             </thead>
@@ -356,7 +356,7 @@ export default function DataEditor() {
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
                         <td className="td truncate text-slate-400" title={p.name}>{p.name}</td>
                         <td className="td"><EditableText value={displayName} onCommit={(v) => renameProduct(p.name, v)} /></td>
-                        <td className="td text-right"><EditablePlan value={planVal} placeholder="нет" onCommit={(v) => setPlan(p.name, v)} highlighted={planOv != null} /></td>
+                        <td className="td overflow-hidden text-right"><EditablePlan value={planVal} placeholder="нет" onCommit={(v) => setPlan(p.name, v)} highlighted={planOv != null} /></td>
                         <td className="td overflow-hidden">
                           {st === 'excluded'
                             ? <span className="chip border-transparent bg-ink-750 text-[11px] text-slate-400">разные товары</span>
