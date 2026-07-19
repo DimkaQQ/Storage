@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,8 +9,17 @@ const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', 'data')
 const norm = (s) => String(s || '').trim().toLowerCase()
 const pairKey = (supplier, product) => `${norm(supplier)}::${norm(product)}`
 
-const db = new Database(join(DATA_DIR, 'edits.db'))
-db.pragma('journal_mode = WAL')
+// Built into Node itself (22.5+) — no native module to compile, so no
+// build toolchain (python3/make/g++) needed in the Docker image at all.
+const db = new DatabaseSync(join(DATA_DIR, 'edits.db'))
+db.exec('PRAGMA journal_mode = WAL')
+
+/** better-sqlite3 had db.transaction(fn); node:sqlite doesn't — same shape by hand. */
+function tx(fn) {
+  db.exec('BEGIN')
+  try { fn(); db.exec('COMMIT') }
+  catch (err) { db.exec('ROLLBACK'); throw err }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS supplier_renames (org_id TEXT NOT NULL, original TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, original));
@@ -158,20 +167,18 @@ export function removeSupplier(orgId, name) {
 
 export function removeProduct(orgId, name) {
   const suffix = `::${norm(name)}`
-  const tx = db.transaction(() => {
+  tx(() => {
     db.prepare('DELETE FROM new_products WHERE org_id=? AND name=?').run(orgId, name)
     db.prepare('DELETE FROM plan_overrides WHERE org_id=? AND product=?').run(orgId, name)
     db.prepare("DELETE FROM plan_pair_overrides WHERE org_id=? AND pair_key LIKE '%' || ?").run(orgId, suffix)
   })
-  tx()
 }
 
 export function removeVenue(orgId, name) {
-  const tx = db.transaction(() => {
+  tx(() => {
     db.prepare('DELETE FROM new_venues WHERE org_id=? AND name=?').run(orgId, name)
     db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, name)
   })
-  tx()
 }
 
 export function mergeSupplier(orgId, rawName, canonicalName) {
@@ -185,13 +192,12 @@ export function unmergeSupplier(orgId, rawName) {
 }
 
 export function resetEdits(orgId) {
-  const tx = db.transaction(() => { for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId) })
-  tx()
+  tx(() => { for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId) })
 }
 
 /** Full-blob restore — used by "Импорт" (explicit, deliberate user action) and the legacy-JSON migration. */
 export function replaceAllEdits(orgId, e) {
-  const tx = db.transaction(() => {
+  tx(() => {
     for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId)
     for (const [original, name] of Object.entries(e.supplierRenames || {}))
       db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, original, name)
@@ -215,5 +221,4 @@ export function replaceAllEdits(orgId, e) {
     for (const [rawName, canonicalName] of Object.entries(e.supplierMerges || {}))
       db.prepare('INSERT INTO supplier_merges (org_id, raw_name, canonical_name) VALUES (?,?,?)').run(orgId, rawName, canonicalName)
   })
-  tx()
 }

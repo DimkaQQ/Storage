@@ -1,16 +1,10 @@
-# better-sqlite3 needs a native build — compile it in its own stage (with
-# build tools) so the runtime image below stays small and toolchain-free.
-FROM node:20-alpine AS build
-WORKDIR /app
-RUN apk add --no-cache python3 make g++
-COPY package*.json ./
-RUN npm install --omit=dev
-
-FROM node:20-alpine
+# SQLite comes from Node's own built-in node:sqlite (22.5+) — no native
+# module to compile, so no build toolchain (python3/make/g++) needed here.
+FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
 COPY package*.json ./
+RUN npm install --omit=dev
 COPY src ./src
 COPY seed ./seed
 EXPOSE 8090
