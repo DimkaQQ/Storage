@@ -94,7 +94,6 @@ function orgPaths(orgId) {
     plan: join(dir, 'planmatrix.json'),
     venues: join(dir, 'venues.json'),
     matching: join(dir, 'matching.json'),
-    edits: join(dir, 'edits.json'),
   }
 }
 
@@ -150,8 +149,6 @@ export const savePlan = (orgId, p) => write(orgPaths(orgId).plan, p)
 export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])
 export const getMatching = (orgId) => read(orgPaths(orgId).matching, EMPTY_MATCHING)
 export const saveMatching = (orgId, m) => write(orgPaths(orgId).matching, m)
-export const getEdits = (orgId) => read(orgPaths(orgId).edits, null)
-export const saveEdits = (orgId, e) => write(orgPaths(orgId).edits, e)
 
 /** The bundled demo dataset — used by the 'mock' provider regardless of org. */
 export const getSeed = () => read(SEED, { restaurants: [] })

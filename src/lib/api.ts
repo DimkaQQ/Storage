@@ -49,9 +49,22 @@ export async function saveSettings(s: Partial<IikoSettings>): Promise<IikoSettin
   } catch { return null }
 }
 
+/** Full-blob restore — only for "Импорт" (explicit, deliberate replace-everything action). */
 export async function saveEdits(e: unknown): Promise<boolean> {
   try {
     const r = await fetch('/api/edits', { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(e) })
+    return r.ok
+  } catch { return false }
+}
+
+/**
+ * Applies ONE targeted правка to the server's copy (e.g. "set this product's
+ * plan price") instead of overwriting the whole справочник — so two people
+ * editing different things at the same time never clobber each other.
+ */
+export async function applyEditOp(type: string, payload: Record<string, unknown> = {}): Promise<boolean> {
+  try {
+    const r = await fetch('/api/edits/op', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ type, ...payload }) })
     return r.ok
   } catch { return false }
 }

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewSuppliers, withNewProducts, withNewVenues, pairKey } from './data'
-import { fetchDataset, fetchStatus, fetchEdits, saveEdits, triggerSync, SyncStatus } from './api'
+import { fetchDataset, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus } from './api'
 
 const KEY = 'pricecheck-edits-v1'
 
@@ -26,6 +26,47 @@ function load(): Edits {
   } catch {
     return EMPTY_EDITS
   }
+}
+
+function diffKeys<T>(current: Record<string, T>, target: Record<string, T>): string[] {
+  return [...new Set([...Object.keys(current), ...Object.keys(target)])].filter(
+    (k) => JSON.stringify(current[k]) !== JSON.stringify(target[k]),
+  )
+}
+
+/**
+ * Undo reverts local state instantly, but the server only knows individual
+ * operations (no whole-blob overwrite) — so undo has to be pushed back to
+ * the server the same way: as the specific corrective ops for whatever
+ * categories actually changed between `current` and `target`.
+ */
+function syncUndoToServer(current: Edits, target: Edits) {
+  for (const k of diffKeys(current.supplierRenames, target.supplierRenames))
+    applyEditOp('renameSupplier', { original: k, name: target.supplierRenames[k] ?? '' })
+  for (const k of diffKeys(current.productRenames, target.productRenames))
+    applyEditOp('renameProduct', { original: k, name: target.productRenames[k] ?? '' })
+  for (const k of diffKeys(current.planOverrides, target.planOverrides))
+    applyEditOp('setPlan', { product: k, plan: target.planOverrides[k] ?? null })
+  for (const k of diffKeys(current.planPairOverrides, target.planPairOverrides)) {
+    const [supplier, product] = k.split('::')
+    applyEditOp('setPairPlan', { supplier, product, plan: target.planPairOverrides[k] ?? null })
+  }
+  for (const k of diffKeys(current.excludedProducts, target.excludedProducts))
+    applyEditOp('setExcluded', { product: k, excluded: !!target.excludedProducts[k] })
+  for (const k of diffKeys(current.venueOverrides, target.venueOverrides)) {
+    applyEditOp('clearVenue', { restaurant: k })
+    if (target.venueOverrides[k]) applyEditOp('setVenue', { restaurant: k, patch: target.venueOverrides[k] })
+  }
+  for (const k of diffKeys(current.newSuppliers, target.newSuppliers))
+    applyEditOp(target.newSuppliers[k] ? 'addSupplier' : 'removeSupplier', { name: k })
+  for (const k of diffKeys(current.newProducts, target.newProducts))
+    applyEditOp(target.newProducts[k] ? 'addProduct' : 'removeProduct', { name: k, plan: null })
+  for (const k of diffKeys(current.newVenues, target.newVenues))
+    applyEditOp(target.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k })
+  for (const k of diffKeys(current.supplierMerges, target.supplierMerges))
+    target.supplierMerges[k]
+      ? applyEditOp('mergeSupplier', { rawName: k, canonicalName: target.supplierMerges[k] })
+      : applyEditOp('unmergeSupplier', { rawName: k })
 }
 
 interface Ctx {
@@ -74,7 +115,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [backendOnline, setBackendOnline] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [hydrated, setHydrated] = useState(false)
   const history = useRef<Edits[]>([])
   const [canUndo, setCanUndo] = useState(false)
 
@@ -98,16 +138,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const prev = hist[hist.length - 1]
     history.current = hist.slice(0, -1)
     setCanUndo(history.current.length > 0)
-    setEdits(prev)
+    setEdits((current) => { syncUndoToServer(current, prev); return prev })
   }, [])
 
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
-    // Don't push to the server until the initial server fetch below has
-    // resolved — otherwise a fresh browser's stale/empty localStorage would
-    // briefly overwrite a colleague's already-saved corrections.
-    if (hydrated) saveEdits(edits)
-  }, [edits, hydrated])
+  }, [edits])
 
   const loadData = useCallback(async () => {
     const data = await fetchDataset()
@@ -120,7 +156,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const loadEdits = useCallback(async () => {
     const data = await fetchEdits()
     if (data) { setEdits(normalize(data)); setBackendOnline(true) }
-    setHydrated(true)
   }, [])
 
   // On mount: pull the live dataset + status + shared corrections from the backend (if present).
@@ -137,13 +172,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // Set a map entry, or delete it when the value clears / equals the original.
   const setMap = useCallback((field: 'supplierRenames' | 'productRenames') =>
     (original: string, name: string) => {
+      const v = name.trim()
       updateEdits((e) => {
         const next = { ...e[field] }
-        const v = name.trim()
         if (!v || v === original) delete next[original]
         else next[original] = v
         return { ...e, [field]: next }
       })
+      applyEditOp(field === 'supplierRenames' ? 'renameSupplier' : 'renameProduct', { original, name: v })
     }, [updateEdits])
 
   const renameSupplier = useMemo(() => setMap('supplierRenames'), [setMap])
@@ -156,6 +192,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[originalProduct] = plan
       return { ...e, planOverrides: next }
     })
+    applyEditOp('setPlan', { product: originalProduct, plan })
   }, [updateEdits])
 
   const setPairPlan = useCallback((supplier: string, product: string, plan: number | null) => {
@@ -168,6 +205,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[key] = plan
       return { ...e, planPairOverrides: next }
     })
+    applyEditOp('setPairPlan', { supplier: s, product: p, plan })
   }, [updateEdits])
 
   const setExcluded = useCallback((originalProduct: string, excluded: boolean) => {
@@ -177,6 +215,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else delete next[originalProduct]
       return { ...e, excludedProducts: next }
     })
+    applyEditOp('setExcluded', { product: originalProduct, excluded })
   }, [updateEdits])
 
   const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
@@ -191,6 +230,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[restaurant] = cleaned
       return { ...e, venueOverrides: next }
     })
+    applyEditOp('setVenue', { restaurant, patch })
   }, [updateEdits])
 
   // Ручное добавление справочных позиций, у которых ещё нет закупок в iiko —
@@ -199,6 +239,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const v = name.trim()
     if (!v) return
     updateEdits((e) => (e.newSuppliers[v] ? e : { ...e, newSuppliers: { ...e.newSuppliers, [v]: true } }))
+    applyEditOp('addSupplier', { name: v })
   }, [updateEdits])
   const addProduct = useCallback((name: string, plan?: number | null) => {
     const v = name.trim()
@@ -208,6 +249,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       const planOverrides = plan != null && isFinite(plan) && plan > 0 ? { ...e.planOverrides, [v]: plan } : e.planOverrides
       return { ...e, newProducts, planOverrides }
     })
+    applyEditOp('addProduct', { name: v, plan: plan ?? null })
   }, [updateEdits])
   const addVenue = useCallback((name: string, patch?: VenuePatch) => {
     const v = name.trim()
@@ -217,9 +259,11 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       const venueOverrides = patch ? { ...e.venueOverrides, [v]: { ...e.venueOverrides[v], ...patch } } : e.venueOverrides
       return { ...e, newVenues, venueOverrides }
     })
+    applyEditOp('addVenue', { name: v, patch: patch ?? null })
   }, [updateEdits])
   const removeSupplier = useCallback((name: string) => {
     updateEdits((e) => { const n = { ...e.newSuppliers }; delete n[name]; return { ...e, newSuppliers: n } })
+    applyEditOp('removeSupplier', { name })
   }, [updateEdits])
   const removeProduct = useCallback((name: string) => {
     updateEdits((e) => {
@@ -229,6 +273,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       const ppo = Object.fromEntries(Object.entries(e.planPairOverrides).filter(([k]) => !k.endsWith(suffix)))
       return { ...e, newProducts: n, planOverrides: po, planPairOverrides: ppo }
     })
+    applyEditOp('removeProduct', { name })
   }, [updateEdits])
   const removeVenue = useCallback((name: string) => {
     updateEdits((e) => {
@@ -236,6 +281,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       const vo = { ...e.venueOverrides }; delete vo[name]
       return { ...e, newVenues: n, venueOverrides: vo }
     })
+    applyEditOp('removeVenue', { name })
   }, [updateEdits])
 
   // «Это тот же поставщик, что и...» — заменяет правку справочника руками:
@@ -245,24 +291,33 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const v = canonicalName.trim()
     if (!v || v === rawName) return
     updateEdits((e) => ({ ...e, supplierMerges: { ...e.supplierMerges, [rawName]: v } }))
+    applyEditOp('mergeSupplier', { rawName, canonicalName: v })
   }, [updateEdits])
   const unmergeSupplier = useCallback((rawName: string) => {
     updateEdits((e) => { const n = { ...e.supplierMerges }; delete n[rawName]; return { ...e, supplierMerges: n } })
+    applyEditOp('unmergeSupplier', { rawName })
   }, [updateEdits])
 
-  const reset = useCallback(() => updateEdits(() => EMPTY_EDITS), [updateEdits])
-  const replaceAll = useCallback((e: Edits) => updateEdits(() => ({
-    supplierRenames: e.supplierRenames ?? {},
-    productRenames: e.productRenames ?? {},
-    planOverrides: e.planOverrides ?? {},
-    planPairOverrides: e.planPairOverrides ?? {},
-    excludedProducts: e.excludedProducts ?? {},
-    venueOverrides: e.venueOverrides ?? {},
-    newSuppliers: e.newSuppliers ?? {},
-    newProducts: e.newProducts ?? {},
-    newVenues: e.newVenues ?? {},
-    supplierMerges: e.supplierMerges ?? {},
-  })), [updateEdits])
+  const reset = useCallback(() => {
+    updateEdits(() => EMPTY_EDITS)
+    applyEditOp('reset')
+  }, [updateEdits])
+  const replaceAll = useCallback((e: Edits) => {
+    const next: Edits = {
+      supplierRenames: e.supplierRenames ?? {},
+      productRenames: e.productRenames ?? {},
+      planOverrides: e.planOverrides ?? {},
+      planPairOverrides: e.planPairOverrides ?? {},
+      excludedProducts: e.excludedProducts ?? {},
+      venueOverrides: e.venueOverrides ?? {},
+      newSuppliers: e.newSuppliers ?? {},
+      newProducts: e.newProducts ?? {},
+      newVenues: e.newVenues ?? {},
+      supplierMerges: e.supplierMerges ?? {},
+    }
+    updateEdits(() => next)
+    saveEdits(next) // whole-blob PUT — Импорт is an explicit, deliberate replace-everything action
+  }, [updateEdits])
 
   const editCount =
     Object.keys(edits.supplierRenames).length +

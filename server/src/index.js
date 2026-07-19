@@ -3,10 +3,10 @@ import cron from 'node-cron'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
   getDataset, saveDataset, getPlan, getVenues, getMatching, saveMatching,
-  getEdits, saveEdits,
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
 } from './store.js'
+import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection } from './iiko.js'
 import { buildDataset } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -164,8 +164,46 @@ app.post('/api/test-connection', requireAuth, async (req, res) => {
   res.json(await testConnection(merged))
 })
 
-app.get('/api/edits', requireAuth, (req, res) => res.json(getEdits(req.auth.orgId)))
-app.put('/api/edits', requireAuth, (req, res) => { saveEdits(req.auth.orgId, req.body); res.json({ ok: true }) })
+app.get('/api/edits', requireAuth, (req, res) => res.json(editsDb.getEditsForOrg(req.auth.orgId)))
+
+// Explicit full restore (used by "Импорт") — everyone else's правки go
+// through /api/edits/op below, which applies one targeted change at a time
+// so two people editing different things never clobber each other.
+app.put('/api/edits', requireAuth, (req, res) => {
+  editsDb.replaceAllEdits(req.auth.orgId, req.body || {})
+  res.json({ ok: true })
+})
+
+const EDIT_OPS = {
+  renameSupplier: (orgId, { original, name }) => editsDb.renameSupplier(orgId, original, name),
+  renameProduct: (orgId, { original, name }) => editsDb.renameProduct(orgId, original, name),
+  setPlan: (orgId, { product, plan }) => editsDb.setPlan(orgId, product, plan),
+  setPairPlan: (orgId, { supplier, product, plan }) => editsDb.setPairPlan(orgId, supplier, product, plan),
+  setExcluded: (orgId, { product, excluded }) => editsDb.setExcluded(orgId, product, excluded),
+  setVenue: (orgId, { restaurant, patch }) => editsDb.setVenue(orgId, restaurant, patch),
+  clearVenue: (orgId, { restaurant }) => editsDb.clearVenue(orgId, restaurant),
+  addSupplier: (orgId, { name }) => editsDb.addSupplier(orgId, name),
+  addProduct: (orgId, { name, plan }) => editsDb.addProduct(orgId, name, plan),
+  addVenue: (orgId, { name, patch }) => editsDb.addVenue(orgId, name, patch),
+  removeSupplier: (orgId, { name }) => editsDb.removeSupplier(orgId, name),
+  removeProduct: (orgId, { name }) => editsDb.removeProduct(orgId, name),
+  removeVenue: (orgId, { name }) => editsDb.removeVenue(orgId, name),
+  mergeSupplier: (orgId, { rawName, canonicalName }) => editsDb.mergeSupplier(orgId, rawName, canonicalName),
+  unmergeSupplier: (orgId, { rawName }) => editsDb.unmergeSupplier(orgId, rawName),
+  reset: (orgId) => editsDb.resetEdits(orgId),
+}
+
+app.post('/api/edits/op', requireAuth, (req, res) => {
+  const { type, ...payload } = req.body || {}
+  const apply = EDIT_OPS[type]
+  if (!apply) return res.status(400).json({ ok: false, message: `Неизвестная операция: ${type}` })
+  try {
+    apply(req.auth.orgId, payload)
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ ok: false, message: String(err?.message || err) })
+  }
+})
 
 app.get('/api/matching', requireAuth, (req, res) => res.json(getMatching(req.auth.orgId)))
 app.put('/api/matching', requireAuth, (req, res) => { saveMatching(req.auth.orgId, req.body); res.json({ ok: true }) })
