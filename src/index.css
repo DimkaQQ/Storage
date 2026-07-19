@@ -108,3 +108,9 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Chart hover tooltips must float above any center overlay (e.g. the donut's
+   total-count label), regardless of DOM order. */
+.recharts-tooltip-wrapper {
+  z-index: 30;
+}

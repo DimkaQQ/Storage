@@ -97,7 +97,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                 <Tooltip content={<ChartTip money={false} />} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <div className="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center">
               <span className="text-2xl font-bold text-white tabnum">{fmt(s.positions)}</span>
               <span className="text-[11px] text-slate-500">позиций</span>
             </div>
