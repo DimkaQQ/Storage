@@ -1,10 +1,8 @@
 import { useMemo, useState } from 'react'
-import { Row, Status, STATUS_META, MATCH_KIND_META, money, moneyShort, pct, fmt, fmt1, summarize, supplierByProduct } from '../lib/data'
-import { useEdits } from '../lib/edits'
+import { Row, Status, STATUS_META, MATCH_KIND_META, money, moneyShort, pct, fmt, fmt1, summarize } from '../lib/data'
 import { StatusBadge, AbcBadge, InfoTip } from '../components/ui'
-import MatchModal from '../components/MatchModal'
 import HoverName from '../components/HoverName'
-import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, ILink } from '../components/icons'
+import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'sum' | 'plan' | 'unit' | 'diffPct' | 'effect'
 
@@ -19,13 +17,10 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
-  const { setPlan, products, rows: allRows } = useEdits()
-  const productSupplier = useMemo(() => supplierByProduct(allRows), [allRows])
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'sum', dir: -1 })
   const [limit, setLimit] = useState(60)
-  const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -71,7 +66,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   }
 
   return (
-    <>
     <div className="space-y-4">
       {/* mini KPIs for current filter */}
       <div className="grid grid-cols-4 gap-4">
@@ -126,16 +120,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           <table className="w-full table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[16%]">Товар</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[18%]">Товар</Th>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[13%]">Ресторан</Th>
                 <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[12%]">Закупка</Th>
                 <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
                 <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[9%]">Факт</Th>
                 <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[9%]" tip="Отклонение факта от плана в процентах. Плюс — дороже плана, минус — дешевле.">Δ%</Th>
-                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right width="w-[13%]" tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
+                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right width="w-[14%]" tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
                 <th className="th w-[4%] text-center">ABC</th>
-                <th className="th w-[10%]">Статус</th>
-                <th className="th w-[4%] text-center"><span className="sr-only">Действие</span></th>
+                <th className="th w-[12%]">Статус</th>
               </tr>
             </thead>
             <tbody>
@@ -166,15 +159,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   </td>
                   <td className="td text-center"><AbcBadge abc={r.abc} /></td>
                   <td className="td"><StatusBadge status={r.status} /></td>
-                  <td className="td text-center">
-                    <button
-                      onClick={() => setMatchFor({ product0: r.product0, product: r.product })}
-                      className="btn mx-auto h-8 w-8 justify-center border border-ink-600 bg-ink-800/70 p-0 text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
-                      title="Сопоставить: эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
-                    >
-                      <ILink width={15} height={15} />
-                    </button>
-                  </td>
                 </tr>
                 )
               })}
@@ -191,17 +175,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
         )}
       </div>
     </div>
-
-    {matchFor && (
-      <MatchModal
-        target={matchFor}
-        products={products}
-        supplierByProduct={productSupplier}
-        onClose={() => setMatchFor(null)}
-        onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
-      />
-    )}
-    </>
   )
 }
 
