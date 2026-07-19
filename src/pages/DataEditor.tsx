@@ -14,7 +14,7 @@ type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
-    edits, editCount, renameSupplier, renameProduct, setPlan, setExcluded, setVenue, reset, replaceAll,
+    edits, editCount, renameSupplier, renameProduct, setPlan, setPairPlan, setExcluded, setVenue, reset, replaceAll,
     addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
     mergeSupplier, unmergeSupplier,
     suppliers: suppliersBase, products: productsBase, restaurants, rows,
@@ -32,6 +32,8 @@ export default function DataEditor() {
   const [newCity, setNewCity] = useState('')
   const [newBrand, setNewBrand] = useState('')
   const [newEntity, setNewEntity] = useState('')
+  const [pairOn, setPairOn] = useState(false)
+  const [pairName, setPairName] = useState('') // поставщик (products tab) или товар (suppliers tab)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const needle = q.trim().toLowerCase()
@@ -50,13 +52,35 @@ export default function DataEditor() {
     return list
   }, [needle, edits.supplierRenames, sFilter, suppliersBase])
 
-  const resetAddForm = () => { setNewName(''); setNewPlan(''); setNewCity(''); setNewBrand(''); setNewEntity(''); setAddOpen(false) }
+  const resetAddForm = () => {
+    setNewName(''); setNewPlan(''); setNewCity(''); setNewBrand(''); setNewEntity('')
+    setPairOn(false); setPairName(''); setAddOpen(false)
+  }
   const submitAdd = () => {
     const name = newName.trim()
     if (!name) return
-    if (tab === 'suppliers') addSupplier(name)
-    else if (tab === 'products') addProduct(name, newPlan.trim() ? parseFloat(newPlan.replace(',', '.')) : null)
-    else addVenue(name, { city: newCity.trim() || undefined, brand: newBrand.trim() || undefined, entity: newEntity.trim() || undefined })
+    const price = newPlan.trim() ? parseFloat(newPlan.replace(',', '.')) : null
+    const pair = pairName.trim()
+
+    if (tab === 'suppliers') {
+      addSupplier(name)
+      if (pairOn && pair && price != null && isFinite(price) && price > 0) {
+        if (!productsBase.some((p) => p.name.toLowerCase() === pair.toLowerCase())) addProduct(pair, null)
+        setPairPlan(name, pair, price)
+      }
+    } else if (tab === 'products') {
+      if (pairOn && pair) {
+        addProduct(name, null)
+        if (price != null && isFinite(price) && price > 0) {
+          if (!suppliersBase.some((s) => s.name.toLowerCase() === pair.toLowerCase())) addSupplier(pair)
+          setPairPlan(pair, name, price)
+        }
+      } else {
+        addProduct(name, price)
+      }
+    } else {
+      addVenue(name, { city: newCity.trim() || undefined, brand: newBrand.trim() || undefined, entity: newEntity.trim() || undefined })
+    }
     resetAddForm()
   }
 
@@ -182,7 +206,8 @@ export default function DataEditor() {
         </div>
 
         {addOpen && (
-          <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
+          <div className="mb-4 flex flex-col gap-3 rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
+          <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[200px] flex-1">
               <label className="mb-1 block text-[11px] text-slate-500">{tab === 'products' ? 'Название товара' : tab === 'suppliers' ? 'Название компании' : 'Название точки'}</label>
               <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus
@@ -190,7 +215,25 @@ export default function DataEditor() {
             </div>
             {tab === 'products' && (
               <div className="w-32">
-                <label className="mb-1 block text-[11px] text-slate-500">План, ₸ (необязательно)</label>
+                <label className="mb-1 block text-[11px] text-slate-500">{pairOn ? 'Цена, ₸' : 'План, ₸ (необязательно)'}</label>
+                <input value={newPlan} onChange={(e) => setNewPlan(e.target.value)} inputMode="decimal"
+                  className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-right text-sm tabnum text-slate-100 focus:border-brand-500 focus:outline-none" />
+              </div>
+            )}
+            {pairOn && (
+              <div className="min-w-[180px] flex-1">
+                <label className="mb-1 block text-[11px] text-slate-500">{tab === 'products' ? 'Поставщик' : 'Товар'}</label>
+                <input list="pair-suggestions" value={pairName} onChange={(e) => setPairName(e.target.value)}
+                  placeholder={tab === 'products' ? 'например, ТОО «Глобал Фуд Трейд»' : 'например, Сыр пармезан'}
+                  className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                <datalist id="pair-suggestions">
+                  {(tab === 'products' ? suppliersBase : productsBase).map((x) => <option key={x.name} value={x.name} />)}
+                </datalist>
+              </div>
+            )}
+            {tab === 'suppliers' && pairOn && (
+              <div className="w-32">
+                <label className="mb-1 block text-[11px] text-slate-500">Цена, ₸</label>
                 <input value={newPlan} onChange={(e) => setNewPlan(e.target.value)} inputMode="decimal"
                   className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-right text-sm tabnum text-slate-100 focus:border-brand-500 focus:outline-none" />
               </div>
@@ -218,6 +261,21 @@ export default function DataEditor() {
               <ICheck width={14} height={14} /> Добавить
             </button>
             <button onClick={resetAddForm} className="btn px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300">Отмена</button>
+          </div>
+          {(tab === 'products' || tab === 'suppliers') && (
+            <button
+              type="button"
+              onClick={() => setPairOn((v) => !v)}
+              className={`flex w-fit items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${pairOn ? 'border-brand-500/50 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/40 text-slate-400 hover:text-slate-200'}`}
+            >
+              <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${pairOn ? 'bg-brand-500' : 'bg-ink-600'}`}>
+                <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${pairOn ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+              </span>
+              {tab === 'products'
+                ? 'Привязать к конкретному поставщику (иначе цена сравнивается для любого)'
+                : 'Сразу привязать к товару и цене (иначе просто добавится компания)'}
+            </button>
+          )}
           </div>
         )}
 

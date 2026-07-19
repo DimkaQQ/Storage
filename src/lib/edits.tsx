@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
-import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewSuppliers, withNewProducts, withNewVenues } from './data'
+import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewSuppliers, withNewProducts, withNewVenues, pairKey } from './data'
 import { fetchDataset, fetchStatus, fetchEdits, saveEdits, triggerSync, SyncStatus } from './api'
 
 const KEY = 'pricecheck-edits-v1'
@@ -9,6 +9,7 @@ function normalize(p: any): Edits {
     supplierRenames: p?.supplierRenames ?? {},
     productRenames: p?.productRenames ?? {},
     planOverrides: p?.planOverrides ?? {},
+    planPairOverrides: p?.planPairOverrides ?? {},
     excludedProducts: p?.excludedProducts ?? {},
     venueOverrides: p?.venueOverrides ?? {},
     newSuppliers: p?.newSuppliers ?? {},
@@ -48,6 +49,7 @@ interface Ctx {
   renameSupplier: (original: string, name: string) => void
   renameProduct: (original: string, name: string) => void
   setPlan: (originalProduct: string, plan: number | null) => void
+  setPairPlan: (supplier: string, product: string, plan: number | null) => void
   setExcluded: (originalProduct: string, excluded: boolean) => void
   setVenue: (restaurant: string, patch: VenuePatch) => void
   addSupplier: (name: string) => void
@@ -129,6 +131,18 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const setPairPlan = useCallback((supplier: string, product: string, plan: number | null) => {
+    const s = supplier.trim(), p = product.trim()
+    if (!s || !p) return
+    setEdits((e) => {
+      const next = { ...e.planPairOverrides }
+      const key = pairKey(s, p)
+      if (plan == null || !isFinite(plan) || plan <= 0) delete next[key]
+      else next[key] = plan
+      return { ...e, planPairOverrides: next }
+    })
+  }, [])
+
   const setExcluded = useCallback((originalProduct: string, excluded: boolean) => {
     setEdits((e) => {
       const next = { ...e.excludedProducts }
@@ -184,7 +198,9 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     setEdits((e) => {
       const n = { ...e.newProducts }; delete n[name]
       const po = { ...e.planOverrides }; delete po[name]
-      return { ...e, newProducts: n, planOverrides: po }
+      const suffix = `::${name.trim().toLowerCase()}`
+      const ppo = Object.fromEntries(Object.entries(e.planPairOverrides).filter(([k]) => !k.endsWith(suffix)))
+      return { ...e, newProducts: n, planOverrides: po, planPairOverrides: ppo }
     })
   }, [])
   const removeVenue = useCallback((name: string) => {
@@ -212,6 +228,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     supplierRenames: e.supplierRenames ?? {},
     productRenames: e.productRenames ?? {},
     planOverrides: e.planOverrides ?? {},
+    planPairOverrides: e.planPairOverrides ?? {},
     excludedProducts: e.excludedProducts ?? {},
     venueOverrides: e.venueOverrides ?? {},
     newSuppliers: e.newSuppliers ?? {},
@@ -224,6 +241,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.supplierRenames).length +
     Object.keys(edits.productRenames).length +
     Object.keys(edits.planOverrides).length +
+    Object.keys(edits.planPairOverrides).length +
     Object.keys(edits.excludedProducts).length +
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newSuppliers).length +
@@ -243,7 +261,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products,
     backendOnline, status, syncing, refresh, reloadStatus,
-    renameSupplier, renameProduct, setPlan, setExcluded, setVenue,
+    renameSupplier, renameProduct, setPlan, setPairPlan, setExcluded, setVenue,
     addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
     mergeSupplier, unmergeSupplier,
     reset, replaceAll,

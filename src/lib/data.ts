@@ -132,7 +132,8 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string }
 export interface Edits {
   supplierRenames: Record<string, string>  // original supplier name -> new name
   productRenames: Record<string, string>   // original product name -> new name
-  planOverrides: Record<string, number>    // original product name -> plan price
+  planOverrides: Record<string, number>    // original product name -> plan price (any supplier)
+  planPairOverrides: Record<string, number> // "supplier::product" (norm) -> plan price (this supplier only)
   excludedProducts: Record<string, true>   // original product name -> исключён из сравнения
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо
   newSuppliers: Record<string, true>       // компании, добавленные вручную (ещё нет закупок в iiko)
@@ -141,9 +142,12 @@ export interface Edits {
   supplierMerges: Record<string, string>   // iiko-имя, которого нет в справочнике -> существующий поставщик (тот же, что и...)
 }
 export const EMPTY_EDITS: Edits = {
-  supplierRenames: {}, productRenames: {}, planOverrides: {}, excludedProducts: {}, venueOverrides: {},
+  supplierRenames: {}, productRenames: {}, planOverrides: {}, planPairOverrides: {}, excludedProducts: {}, venueOverrides: {},
   newSuppliers: {}, newProducts: {}, newVenues: {}, supplierMerges: {},
 }
+
+/** Consistent key for a manual поставщик+товар price pin — mirrors matching.planPairs' own key format. */
+export const pairKey = (supplier: string, product: string) => `${norm(supplier)}::${norm(product)}`
 
 /** Appends manually-added companies that have no purchase history yet. */
 export function withNewSuppliers(suppliers: SupplierAgg[], edits: Edits): SupplierAgg[] {
@@ -160,7 +164,9 @@ export function withNewProducts(products: ProductAgg[], edits: Edits): ProductAg
   const added = Object.keys(edits.newProducts)
     .filter((name) => !existing.has(name))
     .map((name): ProductAgg => {
-      const plan = edits.planOverrides[name] ?? null
+      const productNorm = norm(name)
+      const pairPlan = Object.entries(edits.planPairOverrides).find(([k]) => k.endsWith(`::${productNorm}`))?.[1]
+      const plan = edits.planOverrides[name] ?? pairPlan ?? null
       return { name, count: 0, sum: 0, basePlan: plan, inMatrix: plan != null, planKind: plan != null ? 'manual' : null, restaurantCount: 0 }
     })
   return added.length ? [...products, ...added] : products
@@ -183,30 +189,43 @@ export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta
  * the same chain the client's Excel matrix ran by hand (справочник ->
  * pair -> pack -> product), plus the app's own manual edits layered on top
  * so the matrix itself never needs touching again:
- *   1. a plain per-product override (set via "Сопоставить" or an inline edit)
- *   2. supplier resolution: a manual "тот же поставщик, что и..." merge
+ *   1. supplier resolution: a manual "тот же поставщик, что и..." merge
  *      wins over the bundled справочник alias, which wins over the raw name
- *   3. (supplier, product, pack) — disambiguates "assortment" SKUs where the
+ *   2. a manual pin for this exact (supplier, product) pair — set via the
+ *      "Привязать к поставщику" toggle when adding a company/product
+ *   3. a plain per-product override (set via "Сопоставить" или без toggle) —
+ *      applies regardless of supplier
+ *   4. (supplier, product, pack) — disambiguates "assortment" SKUs where the
  *      real variant only shows up in the packaging field
- *   4. (supplier, product) pair
- *   5. product name only (lowest confidence — ignores supplier)
- *   6. whatever the backend already resolved, as a last-resort fallback
+ *   5. (supplier, product) pair from the bundled matrix
+ *   6. product name only (lowest confidence — ignores supplier)
+ *   7. whatever the backend already resolved, as a last-resort fallback
  */
 function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable): { plan: number | null; kind: MatchKind } {
+  const mergedTo = edits.supplierMerges[b.supplier0]
+  const product = norm(b.product0)
+
+  // A manual pin for THIS exact supplier+product wins over everything else —
+  // it's more specific than a blanket per-product override. Keyed on the
+  // supplier name as the user actually sees/picks it (raw iiko name, or the
+  // manual merge target), NOT the internal справочник alias below — the
+  // alias only exists to canonicalise names for the *automatic* matrix.
+  const supplierDisplay = norm(mergedTo ?? b.supplier0)
+  const pairOv = edits.planPairOverrides[`${supplierDisplay}::${product}`]
+  if (pairOv != null) return { plan: pairOv, kind: 'manual' }
+
   const productOv = edits.planOverrides[b.product0]
   if (productOv != null) return { plan: productOv, kind: 'manual' }
 
-  const mergedTo = edits.supplierMerges[b.supplier0]
   const supplierCanon = norm(mergedTo ?? matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
-  const product = norm(b.product0)
-  const pairKey = `${supplierCanon}::${product}`
+  const pairLookupKey = `${supplierCanon}::${product}`
 
   const pack = norm(b.pack)
   if (pack) {
-    const tripleKey = `${pairKey}::${pack}`
+    const tripleKey = `${pairLookupKey}::${pack}`
     if (matching.planPairsByPack[tripleKey] != null) return { plan: matching.planPairsByPack[tripleKey], kind: 'pair' }
   }
-  if (matching.planPairs[pairKey] != null) return { plan: matching.planPairs[pairKey], kind: 'pair' }
+  if (matching.planPairs[pairLookupKey] != null) return { plan: matching.planPairs[pairLookupKey], kind: 'pair' }
   if (matching.planByProduct[product] != null) return { plan: matching.planByProduct[product], kind: 'product' }
 
   if (b.plan0 != null) return { plan: b.plan0, kind: b.planKind0 }
