@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { Row, Status, STATUS_META, MATCH_KIND_META, money, moneyShort, pct, fmt, fmt1, summarize } from '../lib/data'
 import { StatusBadge, AbcBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -50,19 +51,21 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const setSortKey = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: -1 }))
 
-  const exportCsv = () => {
+  const exportExcel = () => {
     const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Кол-во', 'Сумма', 'План цена', 'Факт цена', 'Δ%', 'Эффект', 'ABC', 'Статус']
     const lines = filtered.map((r) => [
-      r.restaurant, r.supplier, r.product, r.pack, fmt1(r.qty), Math.round(r.sum),
-      r.plan ?? '', Math.round(r.unit), r.diffPct != null ? (r.diffPct * 100).toFixed(1) : '',
+      r.restaurant, r.supplier, r.product, r.pack, Math.round(r.qty * 10) / 10, Math.round(r.sum),
+      r.plan ?? '', Math.round(r.unit), r.diffPct != null ? Number((r.diffPct * 100).toFixed(1)) : '',
       Math.round(r.effect), r.abc, STATUS_META[r.status].label,
     ])
-    const csv = [head, ...lines].map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = 'proverka-cen.csv'
-    a.click()
+    const ws = XLSX.utils.aoa_to_sheet([head, ...lines])
+    ws['!cols'] = [
+      { wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 10 }, { wch: 9 }, { wch: 12 },
+      { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 5 }, { wch: 14 },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
+    XLSX.writeFile(wb, 'proverka-cen.xlsx')
   }
 
   return (
@@ -87,8 +90,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
-          <button onClick={exportCsv} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750">
-            <IDownload width={16} height={16} /> CSV
+          <button onClick={exportExcel} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750">
+            <IDownload width={16} height={16} /> Excel
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
