@@ -115,7 +115,7 @@ export default function ABC({ rows }: { rows: Row[] }) {
                 <th className="th text-right">Сумма закупки</th>
                 <th className="th text-right">Доля</th>
                 <th className="th text-right">Накоплено</th>
-                <th className="th">Позиций</th>
+                <th className="th">Отклонения <InfoTip text="Среди всех закупок этого товара за период: красным — сколько раз купили дороже плана (переплата), зелёным — сколько раз дешевле (экономия). Число рядом со стрелкой — количество таких случаев." /></th>
               </tr>
             </thead>
             <tbody>
@@ -146,8 +146,8 @@ function statusChips(rows: Row[]) {
   const over = rows.filter((r) => r.status === 'overpay').length
   const save = rows.filter((r) => r.status === 'saving').length
   const chips: JSX.Element[] = []
-  if (over) chips.push(<span key="o" className="chip border-transparent bg-bad/10 text-bad">↑{over}</span>)
-  if (save) chips.push(<span key="s" className="chip border-transparent bg-good/10 text-good">↓{save}</span>)
+  if (over) chips.push(<span key="o" className="chip border-transparent bg-bad/10 text-bad" title={`Дороже плана в ${over} из ${rows.length} закупок этого товара`}>↑{over}</span>)
+  if (save) chips.push(<span key="s" className="chip border-transparent bg-good/10 text-good" title={`Дешевле плана в ${save} из ${rows.length} закупок этого товара`}>↓{save}</span>)
   if (!chips.length) chips.push(<span key="n" className="text-xs text-slate-600">—</span>)
   return chips
 }

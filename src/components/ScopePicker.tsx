@@ -34,11 +34,13 @@ export default function ScopePicker({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="btn border border-ink-600 bg-ink-800/80 text-slate-200 hover:border-ink-600/80 hover:bg-ink-750"
+        className="btn w-[240px] justify-between border border-ink-600 bg-ink-800/80 text-slate-200 hover:border-ink-600/80 hover:bg-ink-750"
       >
-        <IStore className="text-brand-300" width={16} height={16} />
-        <span className="max-w-[220px] truncate">{label}</span>
-        <IChevron className={`text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} width={16} height={16} />
+        <span className="flex min-w-0 items-center gap-2">
+          <IStore className="shrink-0 text-brand-300" width={16} height={16} />
+          <span className="truncate">{label}</span>
+        </span>
+        <IChevron className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} width={16} height={16} />
       </button>
 
       {open && (

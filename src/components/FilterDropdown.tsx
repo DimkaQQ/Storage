@@ -25,12 +25,12 @@ export default function FilterDropdown({ label, value, options, onChange }: Prop
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`btn border px-3 py-2 text-xs ${
+        className={`btn w-[110px] justify-between border px-3 py-2 text-xs ${
           value ? 'border-brand-500/50 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-800/80 text-slate-300 hover:border-brand-500/50 hover:text-white'
         }`}
         title={label}
       >
-        <span className="max-w-[110px] truncate">{value ?? 'Все'}</span>
+        <span className="truncate">{value ?? 'Все'}</span>
         <IChevron className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} width={13} height={13} />
       </button>
 

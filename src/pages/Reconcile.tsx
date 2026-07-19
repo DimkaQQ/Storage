@@ -4,6 +4,7 @@ import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditablePlan } from '../components/EditableCell'
 import MatchModal from '../components/MatchModal'
+import HoverName from '../components/HoverName'
 import { IAlert, IScale, ICheck, IReset, ILink } from '../components/icons'
 
 type Tab = 'review' | 'nomatrix' | 'anomaly' | 'resolved'
@@ -126,18 +127,18 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
           <tbody>
             {shown.map((r) => (
               <tr key={r.id} className="row-hover hover:bg-ink-800/40">
-                <td className="td overflow-hidden" title={r.product}>
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate font-medium text-slate-100">{r.product}</span>
+                <td className="td overflow-hidden">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <HoverName text={r.product} className="min-w-0 flex-1 font-medium text-slate-100" />
                     {r.plan != null && (
                       <span className={`shrink-0 text-[10px] ${MATCH_KIND_META[r.matchKind ?? 'none'].color}`} title={MATCH_KIND_META[r.matchKind ?? 'none'].hint}>
                         ({MATCH_KIND_META[r.matchKind ?? 'none'].label})
                       </span>
                     )}
                   </div>
-                  <div className="truncate text-[11px] text-slate-500">{r.supplier || '—'} · {r.pack || '—'}</div>
+                  <HoverName text={`${r.supplier || '—'} · ${r.pack || '—'}`} className="text-[11px] text-slate-500" />
                 </td>
-                <td className="td truncate text-slate-400" title={r.restaurant}>{r.restaurant}</td>
+                <td className="td overflow-hidden text-slate-400"><HoverName text={r.restaurant} /></td>
                 <td className="td text-right tabnum text-slate-300">{money(r.sum)}<div className="text-[11px] text-slate-600">{fmt1(r.qty)} ед.</div></td>
                 <td className="td text-right">
                   <EditablePlan

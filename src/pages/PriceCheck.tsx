@@ -3,6 +3,7 @@ import { Row, Status, STATUS_META, MATCH_KIND_META, money, moneyShort, pct, fmt,
 import { useEdits } from '../lib/edits'
 import { StatusBadge, AbcBadge, InfoTip } from '../components/ui'
 import MatchModal from '../components/MatchModal'
+import HoverName from '../components/HoverName'
 import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, ILink } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'sum' | 'plan' | 'unit' | 'diffPct' | 'effect'
@@ -141,11 +142,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 const mk = MATCH_KIND_META[r.matchKind ?? 'none']
                 return (
                 <tr key={r.id} className="row-hover hover:bg-ink-800/40">
-                  <td className="td overflow-hidden" title={r.product}>
-                    <div className="truncate font-medium text-slate-100">{r.product}</div>
-                    <div className="truncate text-[11px] text-slate-500">{r.supplier} · {r.pack || '—'}</div>
+                  <td className="td overflow-hidden">
+                    <HoverName text={r.product} className="font-medium text-slate-100" />
+                    <HoverName text={`${r.supplier} · ${r.pack || '—'}`} className="text-[11px] text-slate-500" />
                   </td>
-                  <td className="td truncate text-slate-400" title={r.restaurant}>{r.restaurant}</td>
+                  <td className="td overflow-hidden text-slate-400"><HoverName text={r.restaurant} /></td>
                   <td className="td text-right tabnum text-slate-300">{money(r.sum)}<div className="text-[11px] text-slate-600">{fmt1(r.qty)} ед.</div></td>
                   <td className="td text-right tabnum text-slate-400">
                     <span className="inline-flex items-center justify-end gap-1.5">

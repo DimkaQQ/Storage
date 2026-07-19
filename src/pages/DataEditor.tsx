@@ -5,6 +5,7 @@ import { Section, InfoTip } from '../components/ui'
 import { EditableText, EditablePlan } from '../components/EditableCell'
 import MatchModal from '../components/MatchModal'
 import SupplierMergeModal from '../components/SupplierMergeModal'
+import HoverName from '../components/HoverName'
 import { ISearch, IDownload, IUpload, IReset, IStore, IDatabase, IPin, ILink, IPlus, ITrash, ICheck } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
@@ -308,8 +309,8 @@ export default function DataEditor() {
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
-                        <td className="td overflow-hidden text-slate-400" title={s.name}>
-                          <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><span className="truncate">{s.name}</span></span>
+                        <td className="td overflow-hidden text-slate-400">
+                          <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={s.name} /></span>
                         </td>
                         <td className="td"><EditableText value={edits.supplierRenames[s.name] ?? s.name} onCommit={(v) => renameSupplier(s.name, v)} /></td>
                         <td className="td overflow-hidden">
@@ -354,7 +355,7 @@ export default function DataEditor() {
                     return (
                       <tr key={p.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
-                        <td className="td truncate text-slate-400" title={p.name}>{p.name}</td>
+                        <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
                         <td className="td"><EditableText value={displayName} onCommit={(v) => renameProduct(p.name, v)} /></td>
                         <td className="td overflow-hidden text-right"><EditablePlan value={planVal} placeholder="нет" onCommit={(v) => setPlan(p.name, v)} highlighted={planOv != null} /></td>
                         <td className="td overflow-hidden">
@@ -402,9 +403,9 @@ export default function DataEditor() {
                     return (
                       <tr key={r.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td text-center">{changed ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" title="изменено" /> : null}</td>
-                        <td className="td overflow-hidden text-slate-100" title={r.name}>
+                        <td className="td overflow-hidden text-slate-100">
                           <span className="flex min-w-0 items-center gap-2">
-                            <IPin width={14} height={14} className="shrink-0 text-slate-600" /><span className="truncate">{r.name}</span>
+                            <IPin width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={r.name} className="min-w-0 flex-1" />
                             {manual && <span className="chip shrink-0 border-transparent bg-brand-500/10 text-[10px] text-brand-300">вручную</span>}
                           </span>
                         </td>
