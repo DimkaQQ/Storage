@@ -2,7 +2,7 @@ import { lazy, Suspense, useMemo, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
-import { IGauge, IScale, IStore, ILayers, IAlert, ISpark, IHelp, IDatabase, ISync, IChart, IUser, ILogout, IPin } from './components/icons'
+import { IGauge, IScale, ISpark, IHelp, IDatabase, ISync, IUser, ILogout, IPin, ILayers } from './components/icons'
 import HelpModal from './components/HelpModal'
 import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
@@ -11,24 +11,16 @@ import FilterDropdown from './components/FilterDropdown'
 // Pages are code-split: only the open page's code is downloaded.
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const PriceCheck = lazy(() => import('./pages/PriceCheck'))
-const Restaurants = lazy(() => import('./pages/Restaurants'))
-const Analytics = lazy(() => import('./pages/Analytics'))
-const ABC = lazy(() => import('./pages/ABC'))
-const Reconcile = lazy(() => import('./pages/Reconcile'))
 const DataEditor = lazy(() => import('./pages/DataEditor'))
 const IikoSettings = lazy(() => import('./pages/IikoSettings'))
 const UsersAdmin = lazy(() => import('./pages/UsersAdmin'))
 
-type PageId = 'dashboard' | 'pricecheck' | 'restaurants' | 'analytics' | 'abc' | 'reconcile' | 'data' | 'iiko' | 'users'
+type PageId = 'dashboard' | 'pricecheck' | 'data' | 'iiko' | 'users'
 
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Обзор', icon: IGauge, hint: 'Ключевые показатели' },
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
-  { id: 'restaurants', label: 'Рестораны', icon: IStore, hint: 'По точкам и консолид.' },
-  { id: 'analytics', label: 'Аналитика', icon: IChart, hint: 'Города, бренды, поставщики' },
-  { id: 'abc', label: 'ABC-анализ', icon: ILayers, hint: 'Структура закупок' },
-  { id: 'reconcile', label: 'Сверка', icon: IAlert, hint: 'Несостыковки и правки' },
-  { id: 'data', label: 'Данные', icon: IDatabase, hint: 'Справочники и цены' },
+  { id: 'data', label: 'Справочники', icon: IDatabase, hint: 'Компании, товары, точки' },
   { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko' },
   { id: 'users', label: 'Команда', icon: IUser, hint: 'Пользователи вашей сети', adminOnly: true },
 ]
@@ -37,9 +29,9 @@ export default function App() {
   const [page, setPage] = useState<PageId>('dashboard')
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
-  const [categoryFilter, setCategoryFilter] = useState<string | null>('Кухня') // null = all categories
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
   const [help, setHelp] = useState(false)
-  const { rows: allRows, editCount, period, restaurants } = useEdits()
+  const { rows: allRows, period, restaurants } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
@@ -57,11 +49,7 @@ export default function App() {
     if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
     return r
   }, [allRows, categoryFilter, cityFilter, scope])
-  const categoryRows = useMemo(
-    () => (categoryFilter ? allRows.filter((x) => x.category === categoryFilter) : allRows),
-    [allRows, categoryFilter],
-  )
-  const openIssues = useMemo(() => summarize(categoryRows).openIssues, [categoryRows])
+  const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
   const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
@@ -98,10 +86,7 @@ export default function App() {
                   <span className="flex-1">
                     <span className="flex items-center gap-2 text-sm font-medium">
                       {n.label}
-                      {n.id === 'data' && editCount > 0 && (
-                        <span className="rounded-full bg-brand-500/20 px-1.5 text-[10px] font-semibold text-brand-300">{editCount}</span>
-                      )}
-                      {n.id === 'reconcile' && openIssues > 0 && (
+                      {n.id === 'pricecheck' && openIssues > 0 && (
                         <span className="rounded-full bg-warn/20 px-1.5 text-[10px] font-semibold text-warn">{openIssues}</span>
                       )}
                     </span>
@@ -122,10 +107,8 @@ export default function App() {
             </div>
           </div>
           <div className="border-t border-ink-700/50 px-5 py-4 text-[11px] text-slate-500">
-            <div className="flex items-center justify-between">
-              <span>Данные iiko × Матрица</span>
-            </div>
-            <div className="mt-1 text-slate-600">{restaurants.length} точек · {categoryFilter ?? 'все категории'}</div>
+            <span>Данные iiko × Матрица</span>
+            <div className="mt-1 text-slate-600">{restaurants.length} точек</div>
           </div>
         </aside>
 
@@ -137,8 +120,7 @@ export default function App() {
                 <h1 className="text-lg font-bold text-white">{nav.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-slate-500">
                   Период: <span className="text-slate-300">{period}</span> · Город:{' '}
-                  <span className="text-slate-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span> · Категория:{' '}
-                  <span className="text-slate-300">{categoryFilter ?? 'все'}</span>
+                  <span className="text-slate-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span>
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -173,10 +155,6 @@ export default function App() {
               <div key={page} className="animate-fade-in">
                 {page === 'dashboard' && <Dashboard rows={rows} onNav={(p) => setPage(p as PageId)} />}
                 {page === 'pricecheck' && <PriceCheck rows={rows} />}
-                {page === 'restaurants' && <Restaurants rows={rows} scope={scope} onScope={setScope} onNav={() => setPage('pricecheck')} />}
-                {page === 'analytics' && <Analytics rows={rows} />}
-                {page === 'abc' && <ABC rows={rows} />}
-                {page === 'reconcile' && <Reconcile rows={rows} />}
                 {page === 'data' && <DataEditor />}
                 {page === 'iiko' && <IikoSettings />}
                 {page === 'users' && <UsersAdmin />}

@@ -2,7 +2,7 @@ import express from 'express'
 import cron from 'node-cron'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
-  getDataset, saveDataset, getPlan, getVenues, getMatching, saveMatching,
+  getDataset, saveDataset, getVenues,
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
 } from './store.js'
@@ -54,7 +54,7 @@ async function runSync(orgId, trigger) {
   try {
     const facts = await fetchFacts(settings)
     if (!facts.length) throw new Error('Провайдер вернул пустой список закупок')
-    const dataset = buildDataset(facts, getPlan(orgId), getVenues(orgId), getMatching(orgId))
+    const dataset = buildDataset(facts, getVenues(orgId))
     saveDataset(orgId, dataset)
     const status = {
       lastSync: new Date().toISOString(),
@@ -177,20 +177,12 @@ app.put('/api/edits', requireAuth, (req, res) => {
 const EDIT_OPS = {
   renameSupplier: (orgId, { original, name }) => editsDb.renameSupplier(orgId, original, name),
   renameProduct: (orgId, { original, name }) => editsDb.renameProduct(orgId, original, name),
-  setPlan: (orgId, { product, plan }) => editsDb.setPlan(orgId, product, plan),
-  setPairPlan: (orgId, { supplier, product, plan }) => editsDb.setPairPlan(orgId, supplier, product, plan),
-  setExcluded: (orgId, { product, excluded }) => editsDb.setExcluded(orgId, product, excluded),
   setVenue: (orgId, { restaurant, patch }) => editsDb.setVenue(orgId, restaurant, patch),
   clearVenue: (orgId, { restaurant }) => editsDb.clearVenue(orgId, restaurant),
-  addSupplier: (orgId, { name }) => editsDb.addSupplier(orgId, name),
-  addProduct: (orgId, { name, plan }) => editsDb.addProduct(orgId, name, plan),
   addVenue: (orgId, { name, patch }) => editsDb.addVenue(orgId, name, patch),
-  removeSupplier: (orgId, { name }) => editsDb.removeSupplier(orgId, name),
-  removeProduct: (orgId, { name }) => editsDb.removeProduct(orgId, name),
   removeVenue: (orgId, { name }) => editsDb.removeVenue(orgId, name),
   mergeSupplier: (orgId, { rawName, canonicalName }) => editsDb.mergeSupplier(orgId, rawName, canonicalName),
   unmergeSupplier: (orgId, { rawName }) => editsDb.unmergeSupplier(orgId, rawName),
-  setInProgress: (orgId, { product, value }) => editsDb.setInProgress(orgId, product, value),
   reset: (orgId) => editsDb.resetEdits(orgId),
 }
 
@@ -205,9 +197,6 @@ app.post('/api/edits/op', requireAuth, (req, res) => {
     res.status(500).json({ ok: false, message: String(err?.message || err) })
   }
 })
-
-app.get('/api/matching', requireAuth, (req, res) => res.json(getMatching(req.auth.orgId)))
-app.put('/api/matching', requireAuth, (req, res) => { saveMatching(req.auth.orgId, req.body); res.json({ ok: true }) })
 
 /* ---------- scheduler (one cron task per org) ---------- */
 

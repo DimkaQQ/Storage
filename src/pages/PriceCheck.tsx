@@ -1,26 +1,24 @@
 import { useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Row, Status, STATUS_META, MATCH_KIND_META, money, moneyShort, pct, fmt, fmt1, summarize } from '../lib/data'
-import { StatusBadge, AbcBadge, InfoTip } from '../components/ui'
+import { Row, Status, STATUS_META, money, pct, fmt, summarize } from '../lib/data'
+import { StatusBadge } from '../components/ui'
 import HoverName from '../components/HoverName'
 import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/icons'
 
-type SortKey = 'product' | 'restaurant' | 'sum' | 'plan' | 'unit' | 'diffPct' | 'effect'
+type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct'
 
 const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'overpay', label: 'Переплата' },
   { id: 'saving', label: 'Экономия' },
   { id: 'ok', label: 'В норме' },
-  { id: 'review', label: 'Проверить' },
+  { id: 'wrongSupplier', label: 'Не тот поставщик' },
   { id: 'nomatrix', label: 'Нет в матрице' },
-  { id: 'anomaly', label: 'Аномалия' },
-  { id: 'excluded', label: 'Разные товары' },
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'sum', dir: -1 })
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'restaurant', dir: -1 })
   const [limit, setLimit] = useState(60)
 
   const filtered = useMemo(() => {
@@ -52,17 +50,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     setSort((s) => (s.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: -1 }))
 
   const exportExcel = () => {
-    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Кол-во', 'Сумма', 'План цена', 'Факт цена', 'Δ%', 'Эффект', 'ABC', 'Статус']
+    const head = ['Ресторан', 'Поставщик', 'Товар', 'План цена', 'Факт цена', 'Δ%', 'Статус', 'Должны у']
     const lines = filtered.map((r) => [
-      r.restaurant, r.supplier, r.product, r.pack, Math.round(r.qty * 10) / 10, Math.round(r.sum),
+      r.restaurant, r.supplier, r.product,
       r.plan ?? '', Math.round(r.unit), r.diffPct != null ? Number((r.diffPct * 100).toFixed(1)) : '',
-      Math.round(r.effect), r.abc, STATUS_META[r.status].label,
+      STATUS_META[r.status].label, r.designatedSuppliers.join(', '),
     ])
     const ws = XLSX.utils.aoa_to_sheet([head, ...lines])
-    ws['!cols'] = [
-      { wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 10 }, { wch: 9 }, { wch: 12 },
-      { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 5 }, { wch: 14 },
-    ]
+    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
     XLSX.writeFile(wb, 'proverka-cen.xlsx')
@@ -73,9 +68,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       {/* mini KPIs for current filter */}
       <div className="grid grid-cols-4 gap-4">
         <MiniStat delay={0} label="Позиций в срезе" value={fmt(filtered.length)} tone="slate" />
-        <MiniStat delay={50} label="Сумма закупок" value={moneyShort(s.spend)} tone="slate" />
-        <MiniStat delay={100} label="Переплаты" value={moneyShort(s.overpaySum)} tone="bad" />
-        <MiniStat delay={150} label="Экономия" value={moneyShort(s.savingSum)} tone="good" />
+        <MiniStat delay={50} label="Совпадает с матрицей" value={pct(s.matchRate).replace('+', '')} tone="slate" />
+        <MiniStat delay={100} label="Не тот поставщик" value={fmt(s.wrongSupplierCount)} tone="bad" />
+        <MiniStat delay={150} label="Нет в матрице" value={fmt(s.noMatrixCount)} tone="bad" />
       </div>
 
       {/* toolbar */}
@@ -123,48 +118,34 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           <table className="w-full table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[18%]">Товар</Th>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[13%]">Ресторан</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[12%]">Закупка</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
-                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[9%]">Факт</Th>
-                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[9%]" tip="Отклонение факта от плана в процентах. Плюс — дороже плана, минус — дешевле.">Δ%</Th>
-                <Th onClick={() => setSortKey('effect')} sort={sort} k="effect" right width="w-[14%]" tip="Денежный эффект = (план − факт) × количество. Зелёное — экономия, красное — переплата.">Эффект</Th>
-                <th className="th w-[4%] text-center">ABC</th>
-                <th className="th w-[12%]">Статус</th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[16%]">Ресторан</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[19%]">Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[24%]">Товар</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[11%]">План</Th>
+                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[11%]">Факт</Th>
+                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[9%]">Δ%</Th>
+                <th className="th w-[10%]">Статус</th>
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => {
-                const mk = MATCH_KIND_META[r.matchKind ?? 'none']
-                return (
+              {shown.map((r) => (
                 <tr key={r.id} className="row-hover hover:bg-ink-800/40">
-                  <td className="td overflow-hidden">
-                    <HoverName text={r.product} className="font-medium text-slate-100" />
-                    <HoverName text={`${r.supplier} · ${r.pack || '—'}`} className="text-[11px] text-slate-500" />
-                  </td>
                   <td className="td overflow-hidden text-slate-400"><HoverName text={r.restaurant} /></td>
-                  <td className="td text-right tabnum text-slate-300">{money(r.sum)}<div className="text-[11px] text-slate-600">{fmt1(r.qty)} ед.</div></td>
-                  <td className="td text-right tabnum text-slate-400">
-                    <span className="inline-flex items-center justify-end gap-1.5">
-                      {r.plan != null && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${mk.color.replace('text-', 'bg-')}`} title={`${mk.label}: ${mk.hint}`} />}
-                      {r.plan != null ? money(r.plan) : '—'}
-                    </span>
-                  </td>
+                  <td className="td overflow-hidden text-slate-300"><HoverName text={r.supplier} /></td>
+                  <td className="td overflow-hidden font-medium text-slate-100"><HoverName text={r.product} /></td>
+                  <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
                   <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
                   <td className="td text-right tabnum font-semibold">
                     {r.diffPct != null ? <span className={r.status === 'overpay' ? 'text-bad' : r.status === 'saving' ? 'text-good' : 'text-slate-400'}>{pct(r.diffPct)}</span> : <span className="text-slate-600">—</span>}
                   </td>
-                  <td className="td text-right tabnum font-semibold">
-                    {r.status === 'overpay' || r.status === 'saving'
-                      ? <span className={r.effect >= 0 ? 'text-good' : 'text-bad'}>{moneyShort(r.effect)}</span>
-                      : <span className="text-slate-600">—</span>}
+                  <td className="td overflow-hidden">
+                    <StatusBadge status={r.status} />
+                    {r.status === 'wrongSupplier' && r.designatedSuppliers.length > 0 && (
+                      <HoverName text={`должны: ${r.designatedSuppliers.join(', ')}`} className="mt-0.5 block text-[11px] text-slate-500" />
+                    )}
                   </td>
-                  <td className="td text-center"><AbcBadge abc={r.abc} /></td>
-                  <td className="td"><StatusBadge status={r.status} /></td>
                 </tr>
-                )
-              })}
+              ))}
             </tbody>
           </table>
           {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено по заданным фильтрам.</div>}
@@ -191,16 +172,13 @@ function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: str
   )
 }
 
-function Th({ children, onClick, sort, k, right, tip, width }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; tip?: string; width?: string }) {
+function Th({ children, onClick, sort, k, right, width }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; width?: string }) {
   const on = sort.key === k
   return (
     <th className={`th hover:text-slate-300 ${right ? 'text-right' : ''} ${width ?? ''}`}>
-      <span className={`inline-flex items-center gap-1 ${right ? 'flex-row-reverse' : ''}`}>
-        <span className="inline-flex cursor-pointer items-center gap-1" onClick={onClick}>
-          {children}
-          {on ? (sort.dir === 1 ? <IArrowUp width={12} height={12} className="text-brand-300" /> : <IArrowDown width={12} height={12} className="text-brand-300" />) : <ISort width={12} height={12} className="text-slate-600" />}
-        </span>
-        {tip && <InfoTip text={tip} align={right ? 'right' : 'left'} />}
+      <span className={`inline-flex cursor-pointer items-center gap-1 ${right ? 'flex-row-reverse' : ''}`} onClick={onClick}>
+        {children}
+        {on ? (sort.dir === 1 ? <IArrowUp width={12} height={12} className="text-brand-300" /> : <IArrowDown width={12} height={12} className="text-brand-300" />) : <ISort width={12} height={12} className="text-slate-600" />}
       </span>
     </th>
   )

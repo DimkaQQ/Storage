@@ -3,11 +3,11 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell,
   PieChart, Pie,
 } from 'recharts'
-import { Row, summarize, byRestaurant, money, moneyShort, fmt, fmt1, pct, STATUS_META, Status } from '../lib/data'
+import { Row, summarize, byRestaurant, money, moneyShort, fmt, pct, STATUS_META, Status } from '../lib/data'
 import StatCard from '../components/StatCard'
 import { Section, AnimatedNumber } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
-import { IScale, IStore, IAlert, IArrowDown, IArrowUp, IGauge, ICheck, ISpark } from '../components/icons'
+import { IScale, IStore, IGauge, ICheck, IArrowDown, IArrowUp, ISpark } from '../components/icons'
 
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
   const s = useMemo(() => summarize(rows), [rows])
@@ -19,10 +19,10 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
   )
 
   const statusData = useMemo(() => {
-    const order: Status[] = ['saving', 'ok', 'overpay', 'review', 'nomatrix', 'anomaly', 'excluded']
+    const order: Status[] = ['saving', 'ok', 'overpay', 'wrongSupplier', 'nomatrix']
     const counts = new Map<Status, number>()
     for (const r of rows) counts.set(r.status, (counts.get(r.status) || 0) + 1)
-    const colors: Record<Status, string> = { saving: C.good, ok: '#64748b', overpay: C.bad, review: '#38bdf8', nomatrix: C.warn, anomaly: C.purple, excluded: '#475569' }
+    const colors: Record<Status, string> = { saving: C.good, ok: '#64748b', overpay: C.bad, wrongSupplier: C.warn, nomatrix: C.purple }
     return order.map((st) => ({ st, name: STATUS_META[st].label, value: counts.get(st) || 0, color: colors[st] }))
       .filter((d) => d.value > 0)
   }, [rows])
@@ -42,7 +42,6 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
         <p className="text-slate-400">
           Сравниваем <b className="text-slate-200">плановую цену</b> (из матрицы) с <b className="text-slate-200">фактической</b> (из iiko).
           <span className="text-bad"> Красное</span> — переплата, <span className="text-good">зелёное</span> — экономия.
-          Кнопка <b className="text-slate-200">«Справка»</b> вверху объясняет все термины.
         </p>
       </div>
 
@@ -62,11 +61,10 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
         <StatCard delay={180} label="Экономия" infoAlign="right" info="Сумма, сэкономленная на позициях, купленных дешевле плановой цены." value={<span className="text-good"><AnimatedNumber value={s.savingSum} format={moneyShort} /></span>} sub={`${s.savingCount} позиций дешевле плана`} accent="good" icon={<IArrowDown width={16} height={16} />} />
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard delay={220} label="Совпадение с матрицей" info="Доля закупленных позиций, для которых нашлась плановая цена в матрице. Остальные — «нет в матрице»." value={<AnimatedNumber value={s.matchRate * 100} format={(n) => fmt1(n) + '%'} />} sub={`${fmt(s.matched)} из ${fmt(s.positions)} позиций найдено`} accent="brand" icon={<ICheck width={16} height={16} />} />
-        <StatCard delay={260} label="Нет в матрице" info="Товары, которых нет в плановой матрице — не с чем сравнить цену. Добавьте им план в разделе «Данные»." value={<AnimatedNumber value={s.noMatrixCount} format={(n) => fmt(n)} />} sub="позиции вне план-матрицы" accent="warn" icon={<IScale width={16} height={16} />} />
-        <StatCard delay={300} label="Аномалии" info="Цена отличается от плана в разы — скорее всего разные единицы измерения (шт/кг). Исключены из расчёта эффекта." value={<AnimatedNumber value={s.anomalyCount} format={(n) => fmt(n)} />} sub="расхождение ед. изм. — проверить" accent="warn" icon={<IAlert width={16} height={16} />} />
-        <StatCard delay={340} label="На проверку" infoAlign="right" info="Позиции с отклонением цены больше 50% — вероятно, разные товары под одним названием. Разберите их в разделе «Сверка»." value={<AnimatedNumber value={s.reviewCount} format={(n) => fmt(n)} />} sub="крупные отклонения — в «Сверку»" accent="slate" icon={<IScale width={16} height={16} />} />
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard delay={220} label="Совпадение с матрицей" info="Доля закупленных позиций, для которых нашлась плановая цена в матрице." value={<AnimatedNumber value={s.matchRate * 100} format={(n) => `${fmt(n)}%`} />} sub={`${fmt(s.matched)} из ${fmt(s.positions)} позиций найдено`} accent="brand" icon={<ICheck width={16} height={16} />} />
+        <StatCard delay={260} label="Не тот поставщик" info="Товар есть в матрице, но куплен не у назначенного поставщика — расхождение с матрицей, не цена." value={<AnimatedNumber value={s.wrongSupplierCount} format={(n) => fmt(n)} />} sub="позиции вне назначенного поставщика" accent="warn" icon={<IScale width={16} height={16} />} />
+        <StatCard delay={300} label="Нет в матрице" infoAlign="right" info="Товара нет в плановой матрице ни у одного поставщика для этой точки." value={<AnimatedNumber value={s.noMatrixCount} format={(n) => fmt(n)} />} sub="позиции вне план-матрицы" accent="warn" icon={<IScale width={16} height={16} />} />
       </div>
 
       {/* Charts */}

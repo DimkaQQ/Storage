@@ -40,7 +40,6 @@ export const fetchDataset = () => get<any>('/api/data')
 export const fetchStatus = () => get<SyncStatus>('/api/status')
 export const fetchSettings = () => get<IikoSettings>('/api/settings')
 export const fetchEdits = () => get<any>('/api/edits')
-export const fetchMatching = () => get<any>('/api/matching')
 
 export async function saveSettings(s: Partial<IikoSettings>): Promise<IikoSettings | null> {
   try {

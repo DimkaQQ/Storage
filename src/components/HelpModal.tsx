@@ -1,29 +1,26 @@
 import { useEffect } from 'react'
 import Portal from './Portal'
-import { IClose, IScale, IStore, ILayers, IAlert, IGauge, ISpark } from './icons'
+import { IClose, IScale, IGauge, IDatabase, ISpark } from './icons'
 
 const STATUSES: { label: string; dot: string; text: string }[] = [
   { label: 'Переплата', dot: 'bg-bad', text: 'купили дороже плановой цены — здесь теряем деньги' },
   { label: 'Экономия', dot: 'bg-good', text: 'купили дешевле плановой цены — здесь выигрываем' },
   { label: 'В норме', dot: 'bg-slate-400', text: 'цена совпадает с планом (отклонение до 2%)' },
-  { label: 'Нет в матрице', dot: 'bg-warn', text: 'такого товара нет в плановой матрице — не с чем сравнивать' },
-  { label: 'Аномалия', dot: 'bg-purple-400', text: 'цена отличается от плана в разы — скорее всего перепутаны единицы (шт/кг), нужно проверить' },
+  { label: 'Не тот поставщик', dot: 'bg-warn', text: 'товар есть в матрице, но купили не у назначенного поставщика — по этой позиции нет смысла сравнивать цену' },
+  { label: 'Нет в матрице', dot: 'bg-purple-400', text: 'такого товара нет в плановой матрице ни у одного поставщика для этой точки' },
 ]
 
 const TERMS: { term: string; def: string }[] = [
-  { term: 'План', def: 'целевая (договорная) цена за единицу товара — берётся из матрицы сырья.' },
+  { term: 'План', def: 'целевая (договорная) цена за единицу товара — берётся из вашей матрицы, отдельно для каждой точки.' },
   { term: 'Факт', def: 'реальная цена, по которой закупили — из отчёта iiko (сумма ÷ количество).' },
-  { term: 'Эффект мониторинга', def: 'сколько денег сэкономили (+) или переплатили (−) относительно плана. Считается как (план − факт) × количество.' },
-  { term: 'Отдельно / консолидировано', def: 'можно смотреть одну точку или все рестораны вместе — переключатель в правом верхнем углу.' },
-  { term: 'ABC-анализ', def: 'разделение товаров по доле в затратах. Группа A — товары, на которые уходит 80% денег; за их ценами следим в первую очередь.' },
+  { term: 'Δ%', def: 'на сколько процентов факт отличается от плана. Плюс — дороже, минус — дешевле.' },
+  { term: 'Справочник', def: 'сопоставление названий компаний между iiko и матрицей — одна и та же компания может называться по-разному.' },
 ]
 
 const SECTIONS: { icon: (p: any) => JSX.Element; name: string; text: string }[] = [
   { icon: IGauge, name: 'Обзор', text: 'общая картина за месяц: сколько потратили, где переплатили, где сэкономили.' },
-  { icon: IScale, name: 'Проверка цен', text: 'главная таблица: план против факта по каждому товару. Можно искать, фильтровать и выгрузить в Excel.' },
-  { icon: IStore, name: 'Рестораны', text: 'сравнение точек между собой; нажмите на карточку, чтобы открыть одну точку.' },
-  { icon: ILayers, name: 'ABC-анализ', text: 'на какие товары уходит основная часть денег.' },
-  { icon: IAlert, name: 'Аномалии', text: 'товары, которые нужно проверить вручную: нет в матрице или странная цена.' },
+  { icon: IScale, name: 'Проверка цен', text: 'главная таблица: план против факта по каждому товару, ресторану и поставщику. Поиск, фильтры, выгрузка в Excel.' },
+  { icon: IDatabase, name: 'Справочники', text: 'компании (и их сопоставление с матрицей), товары, точки продаж.' },
 ]
 
 export default function HelpModal({ onClose }: { onClose: () => void }) {
@@ -56,14 +53,15 @@ export default function HelpModal({ onClose }: { onClose: () => void }) {
         <div className="space-y-6 overflow-y-auto px-6 py-5">
           <div className="rounded-xl border border-brand-500/25 bg-brand-500/10 p-4">
             <p className="text-sm text-slate-200">
-              Приложение сравнивает <b className="text-white">плановую цену</b> (сколько товар должен стоить по договору — из матрицы)
+              Приложение сравнивает <b className="text-white">плановую цену</b> (сколько товар должен стоить по договору — из вашей матрицы)
               с <b className="text-white">фактической</b> (сколько реально заплатили — из iiko) и показывает,
-              где ресторан <span className="text-bad">переплачивает</span> или <span className="text-good">экономит</span>.
+              где ресторан <span className="text-bad">переплачивает</span>, где <span className="text-good">экономит</span>,
+              и где закупили не у того поставщика, что назначен в матрице.
             </p>
           </div>
 
           <div>
-            <h3 className="mb-2.5 text-[13px] font-semibold uppercase tracking-wider text-slate-400">Что означают цвета и статусы</h3>
+            <h3 className="mb-2.5 text-[13px] font-semibold uppercase tracking-wider text-slate-400">Что означают статусы</h3>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {STATUSES.map((s) => (
                 <div key={s.label} className="flex items-start gap-3 rounded-xl bg-ink-900/50 px-3.5 py-3">
@@ -101,10 +99,9 @@ export default function HelpModal({ onClose }: { onClose: () => void }) {
           <div className="rounded-xl border border-ink-700/60 bg-ink-900/40 p-4">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Что сейчас в данных</h3>
             <p className="text-sm text-slate-400">
-              Реальные данные загружены за <b className="text-slate-200">май 2026</b>, категория <b className="text-slate-200">Кухня</b>,
-              города <b className="text-slate-200">Алматы и Астана</b> (13 точек). Категории «Бар / Алкоголь / Безалкоголь / ERO»
-              (переключатель вверху) и сравнение периодов на «Аналитике» пока показаны демо-данными — для реальных цифр
-              нужны соответствующие выгрузки из iiko.
+              Реальные данные за <b className="text-slate-200">май 2026</b>, город <b className="text-slate-200">Алматы</b> (15 точек),
+              взяты напрямую из вашей матрицы и отчётов iiko. Автоматическая подгрузка из iiko подключится, когда будут готовы доступы —
+              пока обновление данных ручное.
             </p>
           </div>
         </div>

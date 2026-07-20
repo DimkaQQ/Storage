@@ -6,7 +6,6 @@ import { randomUUID } from 'node:crypto'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', 'data')
 const SEED = join(__dirname, '..', 'seed', 'dataset.json')
-const MATCHING_SEED = join(__dirname, '..', 'seed', 'matching.json')
 
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
 
@@ -91,9 +90,7 @@ function orgPaths(orgId) {
     settings: join(dir, 'settings.json'),
     status: join(dir, 'status.json'),
     dataset: join(dir, 'dataset.json'),
-    plan: join(dir, 'planmatrix.json'),
     venues: join(dir, 'venues.json'),
-    matching: join(dir, 'matching.json'),
   }
 }
 
@@ -112,8 +109,6 @@ export const DEFAULT_SETTINGS = {
   period: 'current-month',     // отчётный период выгрузки
 }
 
-const EMPTY_MATCHING = { supplierAlias: {}, planPairs: {}, planPairsByPack: {}, planByProduct: {} }
-
 /**
  * The very first org ever created gets the bundled demo/seed dataset
  * (the real Кухня export this project shipped with). Any org created
@@ -125,17 +120,11 @@ export function bootstrapOrgData(orgId, { withSeed }) {
   if (existsSync(paths.dataset)) return
   const seed = withSeed ? read(SEED, { restaurants: [] }) : { restaurants: [] }
   write(paths.dataset, seed)
-  const plan = {}
-  for (const r of seed.restaurants || [])
-    for (const it of r.items || [])
-      if (it.pl != null && plan[norm(it.p)] == null) plan[norm(it.p)] = it.pl
-  write(paths.plan, plan)
   const venues = (seed.restaurants || []).map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category }))
   write(paths.venues, venues)
   write(paths.status, seed.restaurants?.length
     ? { lastSync: null, lastResult: 'seed', source: 'seed', message: 'Стартовые данные (демо)' }
     : { lastSync: null, lastResult: null, source: null, message: 'Данных пока нет — настройте подключение к iiko' })
-  write(paths.matching, withSeed ? read(MATCHING_SEED, EMPTY_MATCHING) : EMPTY_MATCHING)
 }
 
 export const getSettings = (orgId) => ({ ...DEFAULT_SETTINGS, ...read(orgPaths(orgId).settings, {}) })
@@ -144,11 +133,7 @@ export const getStatus = (orgId) => read(orgPaths(orgId).status, { lastSync: nul
 export const saveStatus = (orgId, s) => { write(orgPaths(orgId).status, s); return s }
 export const getDataset = (orgId) => read(orgPaths(orgId).dataset, { restaurants: [] })
 export const saveDataset = (orgId, d) => write(orgPaths(orgId).dataset, d)
-export const getPlan = (orgId) => read(orgPaths(orgId).plan, {})
-export const savePlan = (orgId, p) => write(orgPaths(orgId).plan, p)
 export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])
-export const getMatching = (orgId) => read(orgPaths(orgId).matching, EMPTY_MATCHING)
-export const saveMatching = (orgId, m) => write(orgPaths(orgId).matching, m)
 
 /** The bundled demo dataset — used by the 'mock' provider regardless of org. */
 export const getSeed = () => read(SEED, { restaurants: [] })

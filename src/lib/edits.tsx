@@ -1,22 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewSuppliers, withNewProducts, withNewVenues, pairKey } from './data'
+import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
 import { fetchDataset, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus } from './api'
 
-const KEY = 'pricecheck-edits-v1'
+const KEY = 'pricecheck-edits-v2'
 
 function normalize(p: any): Edits {
   return {
     supplierRenames: p?.supplierRenames ?? {},
     productRenames: p?.productRenames ?? {},
-    planOverrides: p?.planOverrides ?? {},
-    planPairOverrides: p?.planPairOverrides ?? {},
-    excludedProducts: p?.excludedProducts ?? {},
-    venueOverrides: p?.venueOverrides ?? {},
-    newSuppliers: p?.newSuppliers ?? {},
-    newProducts: p?.newProducts ?? {},
-    newVenues: p?.newVenues ?? {},
     supplierMerges: p?.supplierMerges ?? {},
-    inProgress: p?.inProgress ?? {},
+    venueOverrides: p?.venueOverrides ?? {},
+    newVenues: p?.newVenues ?? {},
   }
 }
 
@@ -46,30 +40,16 @@ function syncUndoToServer(current: Edits, target: Edits) {
     applyEditOp('renameSupplier', { original: k, name: target.supplierRenames[k] ?? '' })
   for (const k of diffKeys(current.productRenames, target.productRenames))
     applyEditOp('renameProduct', { original: k, name: target.productRenames[k] ?? '' })
-  for (const k of diffKeys(current.planOverrides, target.planOverrides))
-    applyEditOp('setPlan', { product: k, plan: target.planOverrides[k] ?? null })
-  for (const k of diffKeys(current.planPairOverrides, target.planPairOverrides)) {
-    const [supplier, product] = k.split('::')
-    applyEditOp('setPairPlan', { supplier, product, plan: target.planPairOverrides[k] ?? null })
-  }
-  for (const k of diffKeys(current.excludedProducts, target.excludedProducts))
-    applyEditOp('setExcluded', { product: k, excluded: !!target.excludedProducts[k] })
   for (const k of diffKeys(current.venueOverrides, target.venueOverrides)) {
     applyEditOp('clearVenue', { restaurant: k })
     if (target.venueOverrides[k]) applyEditOp('setVenue', { restaurant: k, patch: target.venueOverrides[k] })
   }
-  for (const k of diffKeys(current.newSuppliers, target.newSuppliers))
-    applyEditOp(target.newSuppliers[k] ? 'addSupplier' : 'removeSupplier', { name: k })
-  for (const k of diffKeys(current.newProducts, target.newProducts))
-    applyEditOp(target.newProducts[k] ? 'addProduct' : 'removeProduct', { name: k, plan: null })
   for (const k of diffKeys(current.newVenues, target.newVenues))
     applyEditOp(target.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k })
   for (const k of diffKeys(current.supplierMerges, target.supplierMerges))
     target.supplierMerges[k]
       ? applyEditOp('mergeSupplier', { rawName: k, canonicalName: target.supplierMerges[k] })
       : applyEditOp('unmergeSupplier', { rawName: k })
-  for (const k of diffKeys(current.inProgress, target.inProgress))
-    applyEditOp('setInProgress', { product: k, value: !!target.inProgress[k] })
 }
 
 interface Ctx {
@@ -92,19 +72,11 @@ interface Ctx {
   // edits
   renameSupplier: (original: string, name: string) => void
   renameProduct: (original: string, name: string) => void
-  setPlan: (originalProduct: string, plan: number | null) => void
-  setPairPlan: (supplier: string, product: string, plan: number | null) => void
-  setExcluded: (originalProduct: string, excluded: boolean) => void
   setVenue: (restaurant: string, patch: VenuePatch) => void
-  addSupplier: (name: string) => void
-  addProduct: (name: string, plan?: number | null) => void
   addVenue: (name: string, patch?: VenuePatch) => void
-  removeSupplier: (name: string) => void
-  removeProduct: (name: string) => void
   removeVenue: (name: string) => void
   mergeSupplier: (rawName: string, canonicalName: string) => void
   unmergeSupplier: (rawName: string) => void
-  setInProgress: (originalProduct: string, value: boolean) => void
   reset: () => void
   replaceAll: (e: Edits) => void
   undo: () => void
@@ -189,39 +161,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const renameSupplier = useMemo(() => setMap('supplierRenames'), [setMap])
   const renameProduct = useMemo(() => setMap('productRenames'), [setMap])
 
-  const setPlan = useCallback((originalProduct: string, plan: number | null) => {
-    updateEdits((e) => {
-      const next = { ...e.planOverrides }
-      if (plan == null || !isFinite(plan) || plan <= 0) delete next[originalProduct]
-      else next[originalProduct] = plan
-      return { ...e, planOverrides: next }
-    })
-    applyEditOp('setPlan', { product: originalProduct, plan })
-  }, [updateEdits])
-
-  const setPairPlan = useCallback((supplier: string, product: string, plan: number | null) => {
-    const s = supplier.trim(), p = product.trim()
-    if (!s || !p) return
-    updateEdits((e) => {
-      const next = { ...e.planPairOverrides }
-      const key = pairKey(s, p)
-      if (plan == null || !isFinite(plan) || plan <= 0) delete next[key]
-      else next[key] = plan
-      return { ...e, planPairOverrides: next }
-    })
-    applyEditOp('setPairPlan', { supplier: s, product: p, plan })
-  }, [updateEdits])
-
-  const setExcluded = useCallback((originalProduct: string, excluded: boolean) => {
-    updateEdits((e) => {
-      const next = { ...e.excludedProducts }
-      if (excluded) next[originalProduct] = true
-      else delete next[originalProduct]
-      return { ...e, excludedProducts: next }
-    })
-    applyEditOp('setExcluded', { product: originalProduct, excluded })
-  }, [updateEdits])
-
   const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
     updateEdits((e) => {
       const next = { ...e.venueOverrides }
@@ -238,24 +177,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('setVenue', { restaurant, patch })
   }, [updateEdits])
 
-  // Ручное добавление справочных позиций, у которых ещё нет закупок в iiko —
-  // например, чтобы заранее задать план для новой точки/товара/поставщика.
-  const addSupplier = useCallback((name: string) => {
-    const v = name.trim()
-    if (!v) return
-    updateEdits((e) => (e.newSuppliers[v] ? e : { ...e, newSuppliers: { ...e.newSuppliers, [v]: true } }))
-    applyEditOp('addSupplier', { name: v })
-  }, [updateEdits])
-  const addProduct = useCallback((name: string, plan?: number | null) => {
-    const v = name.trim()
-    if (!v) return
-    updateEdits((e) => {
-      const newProducts = e.newProducts[v] ? e.newProducts : { ...e.newProducts, [v]: true as const }
-      const planOverrides = plan != null && isFinite(plan) && plan > 0 ? { ...e.planOverrides, [v]: plan } : e.planOverrides
-      return { ...e, newProducts, planOverrides }
-    })
-    applyEditOp('addProduct', { name: v, plan: plan ?? null })
-  }, [updateEdits])
+  // Ручное добавление точки, у которой ещё нет закупок в iiko.
   const addVenue = useCallback((name: string, patch?: VenuePatch) => {
     const v = name.trim()
     if (!v) return
@@ -266,21 +188,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
     applyEditOp('addVenue', { name: v, patch: patch ?? null })
   }, [updateEdits])
-  const removeSupplier = useCallback((name: string) => {
-    updateEdits((e) => { const n = { ...e.newSuppliers }; delete n[name]; return { ...e, newSuppliers: n } })
-    applyEditOp('removeSupplier', { name })
-  }, [updateEdits])
-  const removeProduct = useCallback((name: string) => {
-    updateEdits((e) => {
-      const n = { ...e.newProducts }; delete n[name]
-      const po = { ...e.planOverrides }; delete po[name]
-      const suffix = `::${name.trim().toLowerCase()}`
-      const ppo = Object.fromEntries(Object.entries(e.planPairOverrides).filter(([k]) => !k.endsWith(suffix)))
-      const ip = { ...e.inProgress }; delete ip[name]
-      return { ...e, newProducts: n, planOverrides: po, planPairOverrides: ppo, inProgress: ip }
-    })
-    applyEditOp('removeProduct', { name })
-  }, [updateEdits])
   const removeVenue = useCallback((name: string) => {
     updateEdits((e) => {
       const n = { ...e.newVenues }; delete n[name]
@@ -290,9 +197,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('removeVenue', { name })
   }, [updateEdits])
 
-  // «Это тот же поставщик, что и...» — заменяет правку справочника руками:
-  // дальнейшее сопоставление плана и все отчёты используют канонического
-  // поставщика, на которого указали, вместо неопознанного iiko-имени.
+  // «Это тот же поставщик, что и...» — чинит разрыв в справочнике-алиасов,
+  // когда iiko называет компанию иначе, чем матрица.
   const mergeSupplier = useCallback((rawName: string, canonicalName: string) => {
     const v = canonicalName.trim()
     if (!v || v === rawName) return
@@ -304,18 +210,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('unmergeSupplier', { rawName })
   }, [updateEdits])
 
-  // Метка «кто-то уже разбирает эту несостыковку» — не меняет статус/цену,
-  // просто координация между людьми в «Сверке», чтобы не делать одно и то же дважды.
-  const setInProgress = useCallback((originalProduct: string, value: boolean) => {
-    updateEdits((e) => {
-      const next = { ...e.inProgress }
-      if (value) next[originalProduct] = true
-      else delete next[originalProduct]
-      return { ...e, inProgress: next }
-    })
-    applyEditOp('setInProgress', { product: originalProduct, value })
-  }, [updateEdits])
-
   const reset = useCallback(() => {
     updateEdits(() => EMPTY_EDITS)
     applyEditOp('reset')
@@ -324,15 +218,9 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const next: Edits = {
       supplierRenames: e.supplierRenames ?? {},
       productRenames: e.productRenames ?? {},
-      planOverrides: e.planOverrides ?? {},
-      planPairOverrides: e.planPairOverrides ?? {},
-      excludedProducts: e.excludedProducts ?? {},
-      venueOverrides: e.venueOverrides ?? {},
-      newSuppliers: e.newSuppliers ?? {},
-      newProducts: e.newProducts ?? {},
-      newVenues: e.newVenues ?? {},
       supplierMerges: e.supplierMerges ?? {},
-      inProgress: e.inProgress ?? {},
+      venueOverrides: e.venueOverrides ?? {},
+      newVenues: e.newVenues ?? {},
     }
     updateEdits(() => next)
     saveEdits(next) // whole-blob PUT — Импорт is an explicit, deliberate replace-everything action
@@ -341,31 +229,23 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const editCount =
     Object.keys(edits.supplierRenames).length +
     Object.keys(edits.productRenames).length +
-    Object.keys(edits.planOverrides).length +
-    Object.keys(edits.planPairOverrides).length +
-    Object.keys(edits.excludedProducts).length +
-    Object.keys(edits.venueOverrides).length +
-    Object.keys(edits.newSuppliers).length +
-    Object.keys(edits.newProducts).length +
-    Object.keys(edits.newVenues).length +
     Object.keys(edits.supplierMerges).length +
-    Object.keys(edits.inProgress).length
+    Object.keys(edits.venueOverrides).length +
+    Object.keys(edits.newVenues).length
 
   const restaurants = useMemo(
     () => withNewVenues(applyVenueOverrides(parsed.restaurants, edits.venueOverrides), edits),
     [parsed.restaurants, edits],
   )
-  const suppliers = useMemo(() => withNewSuppliers(parsed.suppliers, edits), [parsed.suppliers, edits])
-  const products = useMemo(() => withNewProducts(parsed.products, edits), [parsed.products, edits])
 
   const value: Ctx = {
     edits, rows, editCount,
     period: parsed.period, city: parsed.city, category: parsed.category,
-    restaurants, suppliers, products,
+    restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
-    renameSupplier, renameProduct, setPlan, setPairPlan, setExcluded, setVenue,
-    addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
-    mergeSupplier, unmergeSupplier, setInProgress,
+    renameSupplier, renameProduct, setVenue,
+    addVenue, removeVenue,
+    mergeSupplier, unmergeSupplier,
     reset, replaceAll, undo, canUndo,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>

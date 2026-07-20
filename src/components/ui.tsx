@@ -89,15 +89,6 @@ export function StatusBadge({ status }: { status: Status }) {
   )
 }
 
-export function AbcBadge({ abc }: { abc: 'A' | 'B' | 'C' }) {
-  const map = {
-    A: 'text-brand-300 border-brand-500/40 bg-brand-500/10',
-    B: 'text-warn border-warn/30 bg-warn/10',
-    C: 'text-slate-400 border-ink-600 bg-ink-750/60',
-  }
-  return <span className={`chip ${map[abc]}`}>{abc}</span>
-}
-
 export function Section({ title, subtitle, right, children, className = '', delay }: {
   title?: string; subtitle?: string; right?: ReactNode; children: ReactNode; className?: string; delay?: number
 }) {

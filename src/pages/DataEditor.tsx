@@ -1,45 +1,45 @@
 import { useMemo, useRef, useState } from 'react'
-import { money, moneyShort, fmt, plural, byRestaurant, MATCH_KIND_META, MatchKind, supplierByProduct } from '../lib/data'
+import { fmt, moneyShort, plural, byRestaurant, BUNDLED_MATCHING } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
-import { EditableText, EditablePlan } from '../components/EditableCell'
-import MatchModal from '../components/MatchModal'
+import { EditableText } from '../components/EditableCell'
 import SupplierMergeModal from '../components/SupplierMergeModal'
 import HoverName from '../components/HoverName'
 import { ISearch, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, ILink, IPlus, ITrash, ICheck } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
-type ProductFilter = 'all' | 'none' | 'product' | 'manual' | 'excluded'
 type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
-    edits, editCount, renameSupplier, renameProduct, setPlan, setPairPlan, setExcluded, setVenue, reset, replaceAll,
-    addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
-    mergeSupplier, unmergeSupplier, undo, canUndo,
+    edits, editCount, renameSupplier, renameProduct, setVenue, reset, replaceAll,
+    addVenue, removeVenue, mergeSupplier, unmergeSupplier, undo, canUndo,
     suppliers: suppliersBase, products: productsBase, restaurants, rows,
   } = useEdits()
-  const [tab, setTab] = useState<Tab>('products')
+  const [tab, setTab] = useState<Tab>('suppliers')
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
-  const [pFilter, setPFilter] = useState<ProductFilter>('all')
   const [sFilter, setSFilter] = useState<SupplierFilter>('all')
-  const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
   const [mergeFor, setMergeFor] = useState<{ name: string } | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newPlan, setNewPlan] = useState('')
   const [newCity, setNewCity] = useState('')
   const [newBrand, setNewBrand] = useState('')
   const [newEntity, setNewEntity] = useState('')
   const [newCategory, setNewCategory] = useState('')
-  const [pairOn, setPairOn] = useState(false)
-  const [pairName, setPairName] = useState('') // поставщик (products tab) или товар (suppliers tab)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const needle = q.trim().toLowerCase()
-  const productSupplier = useMemo(() => supplierByProduct(rows), [rows])
-  const categories = useMemo(() => [...new Set(rows.map((r) => r.category))].filter(Boolean).sort(), [rows])
+  const norm = (s: string) => s.trim().toLowerCase()
+
+  // Canonical (matrix-side) supplier names available as merge targets, even
+  // when they've never shown up as a raw iiko supplier themselves.
+  const mergeCandidates = useMemo(() => {
+    const byName = new Map(suppliersBase.map((s) => [s.name, s]))
+    for (const canon of new Set(Object.values(BUNDLED_MATCHING.supplierAlias)))
+      if (!byName.has(canon)) byName.set(canon, { name: canon, count: 0, sum: 0, isNew: false })
+    return [...byName.values()]
+  }, [suppliersBase])
 
   const supplierCounts = useMemo(() => ({
     all: suppliersBase.length,
@@ -54,82 +54,38 @@ export default function DataEditor() {
     return list
   }, [needle, edits.supplierRenames, sFilter, suppliersBase])
 
-  const resetAddForm = () => {
-    setNewName(''); setNewPlan(''); setNewCity(''); setNewBrand(''); setNewEntity(''); setNewCategory('')
-    setPairOn(false); setPairName(''); setAddOpen(false)
-  }
-  const submitAdd = () => {
-    const name = newName.trim()
-    if (!name) return
-    const price = newPlan.trim() ? parseFloat(newPlan.replace(',', '.')) : null
-    const pair = pairName.trim()
-
-    if (tab === 'suppliers') {
-      addSupplier(name)
-      if (pairOn && pair && price != null && isFinite(price) && price > 0) {
-        if (!productsBase.some((p) => p.name.toLowerCase() === pair.toLowerCase())) addProduct(pair, null)
-        setPairPlan(name, pair, price)
-      }
-    } else if (tab === 'products') {
-      if (pairOn && pair) {
-        addProduct(name, null)
-        if (price != null && isFinite(price) && price > 0) {
-          if (!suppliersBase.some((s) => s.name.toLowerCase() === pair.toLowerCase())) addSupplier(pair)
-          setPairPlan(pair, name, price)
-        }
-      } else {
-        addProduct(name, price)
-      }
-    } else {
-      addVenue(name, {
-        city: newCity.trim() || undefined, brand: newBrand.trim() || undefined,
-        entity: newEntity.trim() || undefined, category: newCategory.trim() || undefined,
-      })
-    }
-    resetAddForm()
-  }
-
-  // Итоговый статус позиции: чем сопоставлен план (пара/только товар),
-  // задан ли он вручную, или отмечена как «разные товары».
-  const productStatus = (name: string): MatchKind | 'excluded' => {
-    if (edits.excludedProducts[name]) return 'excluded'
-    if (edits.planOverrides[name] != null) return 'manual'
-    const p = productsBase.find((x) => x.name === name)
-    return p?.planKind ?? null
-  }
-
-  const products = useMemo(() => {
-    let list = needle
+  const products = useMemo(
+    () => (needle
       ? productsBase.filter((p) => p.name.toLowerCase().includes(needle) || (edits.productRenames[p.name] ?? '').toLowerCase().includes(needle))
-      : productsBase
-    if (pFilter !== 'all') list = list.filter((p) => productStatus(p.name) === (pFilter === 'none' ? null : pFilter))
-    return list
-  }, [needle, edits.productRenames, edits.planOverrides, edits.excludedProducts, pFilter, productsBase])
+      : productsBase),
+    [needle, edits.productRenames, productsBase],
+  )
 
-  const productCounts = useMemo(() => {
-    const c: Record<ProductFilter, number> = { all: productsBase.length, none: 0, product: 0, manual: 0, excluded: 0 }
-    for (const p of productsBase) {
-      const st = productStatus(p.name)
-      if (st === null) c.none++
-      else if (st === 'product') c.product++
-      else if (st === 'manual') c.manual++
-      else if (st === 'excluded') c.excluded++
-    }
-    return c
-  }, [productsBase, edits.planOverrides, edits.excludedProducts])
-
+  const venues = useMemo(
+    () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
+    [needle, restaurants],
+  )
   const venueSpend = useMemo(() => {
     const m = new Map<string, number>()
     for (const g of byRestaurant(rows)) m.set(g.name, g.summary.spend)
     return m
   }, [rows])
-  const venues = useMemo(
-    () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
-    [needle, restaurants],
-  )
 
   const shown = tab === 'suppliers' ? suppliers.slice(0, limit) : tab === 'products' ? products.slice(0, limit) : venues.slice(0, limit)
   const total = tab === 'suppliers' ? suppliers.length : tab === 'products' ? products.length : venues.length
+
+  const resetAddForm = () => {
+    setNewName(''); setNewCity(''); setNewBrand(''); setNewEntity(''); setNewCategory(''); setAddOpen(false)
+  }
+  const submitAddVenue = () => {
+    const name = newName.trim()
+    if (!name) return
+    addVenue(name, {
+      city: newCity.trim() || undefined, brand: newBrand.trim() || undefined,
+      entity: newEntity.trim() || undefined, category: newCategory.trim() || undefined,
+    })
+    resetAddForm()
+  }
 
   const exportEdits = () => {
     const blob = new Blob([JSON.stringify(edits, null, 2)], { type: 'application/json' })
@@ -159,12 +115,11 @@ export default function DataEditor() {
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-500/10 text-brand-300"><IDatabase width={18} height={18} /></span>
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
-              Справочники и плановые цены
-              <InfoTip text="Здесь можно вести проект без Excel: переименовывать компании и товары, задавать плановые цены. Правки применяются ко всем отчётам сразу." />
+              Справочники
+              <InfoTip text="Компании и товары приходят из iiko. Плановые цены и матрица остаются в вашем Excel-файле — здесь только сопоставление названий и список точек." />
             </div>
             <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
-              Правки сохраняются в этом браузере и сразу применяются на всех экранах. Чтобы перенести их на другой
-              компьютер или сделать резервную копию — используйте «Экспорт».
+              Если компания в iiko называется иначе, чем в матрице — «Объединить». Правки сохраняются автоматически.
             </p>
           </div>
         </div>
@@ -181,22 +136,19 @@ export default function DataEditor() {
           <button onClick={exportEdits} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IUpload width={16} height={16} /> Экспорт</button>
           {editCount > 0 && (
             <button
-              onClick={() => { if (confirm('Сбросить все правки? Названия и плановые цены вернутся к исходным из выгрузки.')) reset() }}
+              onClick={() => { if (confirm('Сбросить все правки?')) reset() }}
               className="btn border border-bad/30 bg-bad/10 text-bad hover:bg-bad/20"
             ><IReset width={16} height={16} /> Сбросить</button>
           )}
         </div>
       </div>
 
-      <Section
-        title={undefined}
-        right={undefined}
-      >
+      <Section title={undefined} right={undefined}>
         {/* tabs + search */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
-            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productsBase.length)})</button>
             <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
+            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productsBase.length)})</button>
             <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
           </div>
           <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
@@ -208,129 +160,62 @@ export default function DataEditor() {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
-          <button
-            onClick={() => setAddOpen((v) => !v)}
-            className={`btn border px-3 py-2 text-xs ${addOpen ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
-          >
-            <IPlus width={14} height={14} /> {tab === 'products' ? 'Добавить товар' : tab === 'suppliers' ? 'Добавить компанию' : 'Добавить точку'}
-          </button>
+          {tab === 'venues' && (
+            <button
+              onClick={() => setAddOpen((v) => !v)}
+              className={`btn border px-3 py-2 text-xs ${addOpen ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+            >
+              <IPlus width={14} height={14} /> Добавить точку
+            </button>
+          )}
         </div>
 
-        {addOpen && (
-          <div className="mb-4 flex flex-col gap-3 rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
-          <div className="flex flex-wrap items-end gap-2">
+        {addOpen && tab === 'venues' && (
+          <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
             <div className="min-w-[200px] flex-1">
-              <label className="mb-1 block text-[11px] text-slate-500">{tab === 'products' ? 'Название товара' : tab === 'suppliers' ? 'Название компании' : 'Название точки'}</label>
+              <label className="mb-1 block text-[11px] text-slate-500">Название точки</label>
               <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus
                 className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
             </div>
-            {tab === 'products' && (
-              <div className="w-32">
-                <label className="mb-1 block text-[11px] text-slate-500">{pairOn ? 'Цена, ₸' : 'План, ₸ (необязательно)'}</label>
-                <input value={newPlan} onChange={(e) => setNewPlan(e.target.value)} inputMode="decimal"
-                  className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-right text-sm tabnum text-slate-100 focus:border-brand-500 focus:outline-none" />
-              </div>
-            )}
-            {pairOn && (
-              <div className="min-w-[180px] flex-1">
-                <label className="mb-1 block text-[11px] text-slate-500">{tab === 'products' ? 'Поставщик' : 'Товар'}</label>
-                <input list="pair-suggestions" value={pairName} onChange={(e) => setPairName(e.target.value)}
-                  placeholder={tab === 'products' ? 'например, ТОО «Глобал Фуд Трейд»' : 'например, Сыр пармезан'}
-                  className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
-                <datalist id="pair-suggestions">
-                  {(tab === 'products' ? suppliersBase : productsBase).map((x) => <option key={x.name} value={x.name} />)}
-                </datalist>
-              </div>
-            )}
-            {tab === 'suppliers' && pairOn && (
-              <div className="w-32">
-                <label className="mb-1 block text-[11px] text-slate-500">Цена, ₸</label>
-                <input value={newPlan} onChange={(e) => setNewPlan(e.target.value)} inputMode="decimal"
-                  className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-right text-sm tabnum text-slate-100 focus:border-brand-500 focus:outline-none" />
-              </div>
-            )}
-            {tab === 'venues' && (
-              <>
-                <div className="w-36">
-                  <label className="mb-1 block text-[11px] text-slate-500">Город</label>
-                  <input value={newCity} onChange={(e) => setNewCity(e.target.value)}
-                    className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
-                </div>
-                <div className="w-40">
-                  <label className="mb-1 block text-[11px] text-slate-500">Бренд</label>
-                  <input value={newBrand} onChange={(e) => setNewBrand(e.target.value)}
-                    className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
-                </div>
-                <div className="w-44">
-                  <label className="mb-1 block text-[11px] text-slate-500">Юрлицо</label>
-                  <input value={newEntity} onChange={(e) => setNewEntity(e.target.value)}
-                    className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
-                </div>
-                <div className="w-40">
-                  <label className="mb-1 block text-[11px] text-slate-500">Категория</label>
-                  <input list="category-suggestions" value={newCategory} onChange={(e) => setNewCategory(e.target.value)}
-                    placeholder="например, Кухня"
-                    className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
-                  <datalist id="category-suggestions">
-                    {categories.map((c) => <option key={c} value={c} />)}
-                  </datalist>
-                </div>
-              </>
-            )}
-            <button onClick={submitAdd} disabled={!newName.trim()} className="btn border border-brand-500/50 bg-brand-500/15 px-3 py-1.5 text-xs text-brand-200 hover:bg-brand-500/25 disabled:opacity-40">
+            <div className="w-36">
+              <label className="mb-1 block text-[11px] text-slate-500">Город</label>
+              <input value={newCity} onChange={(e) => setNewCity(e.target.value)}
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+            </div>
+            <div className="w-40">
+              <label className="mb-1 block text-[11px] text-slate-500">Бренд</label>
+              <input value={newBrand} onChange={(e) => setNewBrand(e.target.value)}
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+            </div>
+            <div className="w-44">
+              <label className="mb-1 block text-[11px] text-slate-500">Юрлицо</label>
+              <input value={newEntity} onChange={(e) => setNewEntity(e.target.value)}
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+            </div>
+            <div className="w-40">
+              <label className="mb-1 block text-[11px] text-slate-500">Категория</label>
+              <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="например, Кухня"
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+            </div>
+            <button onClick={submitAddVenue} disabled={!newName.trim()} className="btn border border-brand-500/50 bg-brand-500/15 px-3 py-1.5 text-xs text-brand-200 hover:bg-brand-500/25 disabled:opacity-40">
               <ICheck width={14} height={14} /> Добавить
             </button>
             <button onClick={resetAddForm} className="btn px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300">Отмена</button>
-          </div>
-          {(tab === 'products' || tab === 'suppliers') && (
-            <button
-              type="button"
-              onClick={() => setPairOn((v) => !v)}
-              className={`flex w-fit items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${pairOn ? 'border-brand-500/50 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/40 text-slate-400 hover:text-slate-200'}`}
-            >
-              <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${pairOn ? 'bg-brand-500' : 'bg-ink-600'}`}>
-                <span className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${pairOn ? 'translate-x-3' : 'translate-x-0'}`} />
-              </span>
-              {tab === 'products'
-                ? 'Привязать к конкретному поставщику (иначе цена сравнивается для любого)'
-                : 'Сразу привязать к товару и цене (иначе просто добавится компания)'}
-            </button>
-          )}
           </div>
         )}
 
         {tab === 'venues' && (
           <p className="mb-3 text-xs text-slate-500">
-            Если город, бренд или юрлицо определились неверно — поправьте здесь. Изменение сразу применится
-            ко всем отчётам и графикам по этой точке.
+            Если город, бренд, юрлицо или категория определились неверно — поправьте здесь. Изменение сразу применится
+            ко всем отчётам по этой точке.
           </p>
-        )}
-
-        {tab === 'products' && (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {([
-              ['all', `Все (${fmt(productCounts.all)})`],
-              ['none', `Нет в матрице (${fmt(productCounts.none)})`],
-              ['product', `Низкая уверенность (${fmt(productCounts.product)})`],
-              ['manual', `Заданы вручную (${fmt(productCounts.manual)})`],
-              ['excluded', `Разные товары (${fmt(productCounts.excluded)})`],
-            ] as [ProductFilter, string][]).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => { setPFilter(id); setLimit(60) }}
-                className={`chip transition-colors ${pFilter === id ? 'border-brand-400 bg-brand-500/10 text-brand-300' : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
         )}
 
         {tab === 'suppliers' && (
           <div className="mb-3 flex flex-wrap gap-2">
             {([
               ['all', `Все (${fmt(supplierCounts.all)})`],
-              ['new', `Новые, нет в справочнике (${fmt(supplierCounts.new)})`],
+              ['new', `Нет в справочнике (${fmt(supplierCounts.new)})`],
             ] as [SupplierFilter, string][]).map(([id, label]) => (
               <button
                 key={id}
@@ -348,40 +233,37 @@ export default function DataEditor() {
             <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
                 <tr>
-                  <th className="th w-[27%]">Исходное название (iiko)</th>
+                  <th className="th w-[27%]">Название (iiko)</th>
                   <th className="th w-[26%]">Отображаемое имя</th>
-                  <th className="th w-[17%]">Статус <InfoTip text="«Новый» — компании нет в справочнике-алиасов клиента, поэтому её позиции пока сопоставляются только по названию товара, без учёта поставщика." /></th>
+                  <th className="th w-[19%]">Справочник <InfoTip text="«Нет в справочнике» — iiko называет компанию иначе, чем матрица, и её позиции не сопоставляются. Нажмите «Объединить»." /></th>
                   <th className="th w-[9%] text-right">Позиций</th>
-                  <th className="th w-[11%] text-right">Закупка</th>
+                  <th className="th w-[9%] text-right">Закупка</th>
                   <th className="th w-[10%] text-center">Действие</th>
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-[18%]">Исходное название (iiko)</th>
-                  <th className="th w-[18%]">Отображаемое имя</th>
-                  <th className="th w-[12%] text-right">Плановая цена, ₸ <InfoTip text="Целевая цена за единицу. Задайте её, чтобы сравнивать факт с планом — в том числе для позиций «нет в матрице»." /></th>
-                  <th className="th w-[17%]">Статус <InfoTip text="Как найден план: по паре поставщик+товар (надёжно, показывает поставщика), только по товару (стоит проверить), вручную, или позиция отмечена как «разные товары»." /></th>
-                  <th className="th w-[11%] text-right">Ресторанов</th>
-                  <th className="th w-[11%] text-right">Закупка</th>
-                  <th className="th w-[13%] text-center">Действие</th>
+                  <th className="th w-[32%]">Название (iiko)</th>
+                  <th className="th w-[32%]">Отображаемое имя</th>
+                  <th className="th w-[16%] text-right">Ресторанов</th>
+                  <th className="th w-[20%] text-right">Закупка</th>
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-[20%]">Точка</th>
-                  <th className="th w-[12%]">Город</th>
-                  <th className="th w-[14%]">Бренд</th>
-                  <th className="th w-[16%]">Юрлицо</th>
-                  <th className="th w-[13%]">Категория</th>
-                  <th className="th w-[12%] text-right">Закупка</th>
-                  <th className="th w-[13%] text-center">Действие</th>
+                  <th className="th w-[23%]">Точка</th>
+                  <th className="th w-[13%]">Город</th>
+                  <th className="th w-[15%]">Бренд</th>
+                  <th className="th w-[19%]">Юрлицо</th>
+                  <th className="th w-[12%]">Категория</th>
+                  <th className="th w-[10%] text-right">Закупка</th>
+                  <th className="th w-[8%] text-center">Действие</th>
                 </tr>
               )}
             </thead>
             <tbody>
               {tab === 'suppliers'
                 ? (shown as typeof suppliersBase).map((s) => {
-                    const manual = edits.newSuppliers[s.name] === true
                     const mergedTo = edits.supplierMerges[s.name]
+                    const canon = mergedTo ?? BUNDLED_MATCHING.supplierAlias[norm(s.name)]
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-slate-400">
@@ -389,27 +271,19 @@ export default function DataEditor() {
                         </td>
                         <td className="td"><EditableText value={edits.supplierRenames[s.name] ?? s.name} onCommit={(v) => renameSupplier(s.name, v)} /></td>
                         <td className="td overflow-hidden">
-                          {mergedTo
-                            ? <span className="chip block truncate border-transparent bg-brand-500/10 text-[11px] text-brand-300" title={`Цены и отчёты теперь считаются как для «${mergedTo}»`}>→ объединено с «{mergedTo}»</span>
-                            : manual
-                            ? <span className="chip border-transparent bg-brand-500/10 text-[11px] text-brand-300">добавлена вручную</span>
-                            : s.isNew
-                            ? <span className="chip border-transparent bg-warn/10 text-[11px] text-warn">новая, нет в справочнике</span>
-                            : null}
+                          {canon
+                            ? <HoverName text={mergedTo ? `объединено: ${canon}` : canon} className="text-[11px] text-good" />
+                            : <span className="chip border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>}
                         </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
-                        <td className="td text-right tabnum text-slate-300">{money(s.sum)}</td>
+                        <td className="td text-right tabnum text-slate-300">{moneyShort(s.sum)}</td>
                         <td className="td text-center">
                           {mergedTo ? (
                             <button onClick={() => unmergeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-white" title="Отменить объединение">
                               <IReset width={13} height={13} />
                             </button>
-                          ) : manual ? (
-                            <button onClick={() => removeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Удалить добавленную вручную компанию">
-                              <ITrash width={13} height={13} />
-                            </button>
-                          ) : s.isNew ? (
-                            <button onClick={() => setMergeFor({ name: s.name })} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200" title="Это тот же поставщик, что и уже известный?">
+                          ) : !canon ? (
+                            <button onClick={() => setMergeFor({ name: s.name })} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200" title="Это тот же поставщик, что и...?">
                               <ILink width={12} height={12} /> Объединить
                             </button>
                           ) : null}
@@ -418,64 +292,14 @@ export default function DataEditor() {
                     )
                   })
                 : tab === 'products'
-                ? (shown as typeof productsBase).map((p) => {
-                    const planOv = edits.planOverrides[p.name]
-                    const excluded = edits.excludedProducts[p.name] === true
-                    const planVal = planOv != null ? String(planOv) : p.basePlan != null ? String(p.basePlan) : ''
-                    const st = productStatus(p.name)
-                    const displayName = edits.productRenames[p.name] ?? p.name
-                    const manual = edits.newProducts[p.name] === true
-                    return (
-                      <tr key={p.name} className="row-hover hover:bg-ink-800/40">
-                        <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
-                        <td className="td"><EditableText value={displayName} onCommit={(v) => renameProduct(p.name, v)} /></td>
-                        <td className="td overflow-hidden text-right"><EditablePlan value={planVal} placeholder="нет" onCommit={(v) => setPlan(p.name, v)} highlighted={planOv != null} /></td>
-                        <td className="td overflow-hidden">
-                          {st === 'excluded'
-                            ? <span className="chip border-transparent bg-ink-750 text-[11px] text-slate-400">разные товары</span>
-                            : (
-                              <>
-                                <span className={`block truncate text-xs ${MATCH_KIND_META[st ?? 'none'].color}`} title={MATCH_KIND_META[st ?? 'none'].hint}>{MATCH_KIND_META[st ?? 'none'].label}</span>
-                                {st === 'pair' && productSupplier.get(p.name) && (
-                                  <HoverName text={productSupplier.get(p.name)!} className="text-[11px] text-slate-500" />
-                                )}
-                              </>
-                            )}
-                        </td>
-                        <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
-                        <td className="td text-right tabnum text-slate-300">{moneyShort(p.sum)}</td>
-                        <td className="td">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              onClick={() => setMatchFor({ product0: p.name, product: displayName })}
-                              className="btn h-8 w-8 justify-center border border-ink-600 bg-ink-800/70 p-0 text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
-                              title="Сопоставить: эта закупка сравнивается не с тем товаром из плана — выберите вручную, с каким плановым товаром её сравнивать"
-                            >
-                              <ILink width={15} height={15} />
-                            </button>
-                            {excluded ? (
-                              <button
-                                onClick={() => setExcluded(p.name, false)}
-                                className="btn h-7 w-7 justify-center border border-ink-600 bg-ink-800/70 p-0 text-slate-300 hover:text-white"
-                                title="Вернуть в сравнение"
-                              ><IReset width={12} height={12} /></button>
-                            ) : (
-                              <button
-                                onClick={() => setExcluded(p.name, true)}
-                                className="btn whitespace-nowrap border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-400 hover:border-slate-500 hover:text-white"
-                                title="Название совпадает случайно — на самом деле это другой товар. Сравнение с планом для этой позиции отключится"
-                              >разные</button>
-                            )}
-                            {manual && (
-                              <button onClick={() => removeProduct(p.name)} className="btn px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Удалить добавленный вручную товар">
-                                <ITrash width={12} height={12} />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })
+                ? (shown as typeof productsBase).map((p) => (
+                    <tr key={p.name} className="row-hover hover:bg-ink-800/40">
+                      <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
+                      <td className="td"><EditableText value={edits.productRenames[p.name] ?? p.name} onCommit={(v) => renameProduct(p.name, v)} /></td>
+                      <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
+                      <td className="td text-right tabnum text-slate-300">{moneyShort(p.sum)}</td>
+                    </tr>
+                  ))
                 : (shown as typeof venues).map((r) => {
                     const manual = edits.newVenues[r.name] === true
                     return (
@@ -486,10 +310,10 @@ export default function DataEditor() {
                             {manual && <span className="chip shrink-0 border-transparent bg-brand-500/10 text-[10px] text-brand-300">вручную</span>}
                           </span>
                         </td>
-                        <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[160px]" /></td>
-                        <td className="td"><EditableText value={r.brand} onCommit={(v) => setVenue(r.name, { brand: v })} className="max-w-[180px]" /></td>
-                        <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[200px]" /></td>
-                        <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[160px]" /></td>
+                        <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[140px]" /></td>
+                        <td className="td"><EditableText value={r.brand} onCommit={(v) => setVenue(r.name, { brand: v })} className="max-w-[160px]" /></td>
+                        <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[180px]" /></td>
+                        <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[140px]" /></td>
                         <td className="td text-right tabnum text-slate-300">{moneyShort(venueSpend.get(r.name) ?? 0)}</td>
                         <td className="td text-center">
                           {manual && (
@@ -514,20 +338,10 @@ export default function DataEditor() {
       </Section>
     </div>
 
-    {matchFor && (
-      <MatchModal
-        target={matchFor}
-        products={productsBase}
-        supplierByProduct={productSupplier}
-        onClose={() => setMatchFor(null)}
-        onPick={(plan) => { setPlan(matchFor.product0, plan); setMatchFor(null) }}
-      />
-    )}
-
     {mergeFor && (
       <SupplierMergeModal
         target={mergeFor}
-        suppliers={suppliersBase.filter((s) => !s.isNew)}
+        suppliers={mergeCandidates}
         onClose={() => setMergeFor(null)}
         onPick={(canonicalName) => { mergeSupplier(mergeFor.name, canonicalName); setMergeFor(null) }}
       />
