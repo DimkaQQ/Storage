@@ -190,6 +190,7 @@ const EDIT_OPS = {
   removeVenue: (orgId, { name }) => editsDb.removeVenue(orgId, name),
   mergeSupplier: (orgId, { rawName, canonicalName }) => editsDb.mergeSupplier(orgId, rawName, canonicalName),
   unmergeSupplier: (orgId, { rawName }) => editsDb.unmergeSupplier(orgId, rawName),
+  setInProgress: (orgId, { product, value }) => editsDb.setInProgress(orgId, product, value),
   reset: (orgId) => editsDb.resetEdits(orgId),
 }
 

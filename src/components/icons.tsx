@@ -26,6 +26,7 @@ export const IEdit = (p: P) => <svg {...base(p)}><path d="M12 20h9" /><path d="M
 export const IDatabase = (p: P) => <svg {...base(p)}><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></svg>
 export const IReset = (p: P) => <svg {...base(p)}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
 export const IUndo = (p: P) => <svg {...base(p)}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a5 5 0 0 1 0 10h-1" /></svg>
+export const IClock = (p: P) => <svg {...base(p)}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></svg>
 export const IUpload = (p: P) => <svg {...base(p)}><path d="M12 15V3M7 8l5-5 5 5" /><path d="M5 21h14" /></svg>
 export const ISync = (p: P) => <svg {...base(p)}><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.5-4" /><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.5 4" /><path d="M21 3v5h-5" /><path d="M3 21v-5h5" /></svg>
 export const IPlug = (p: P) => <svg {...base(p)}><path d="M9 2v6M15 2v6" /><path d="M6 8h12v3a6 6 0 0 1-12 0V8Z" /><path d="M12 17v5" /></svg>

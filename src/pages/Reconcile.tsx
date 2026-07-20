@@ -5,12 +5,12 @@ import { Section, InfoTip } from '../components/ui'
 import { EditablePlan } from '../components/EditableCell'
 import MatchModal from '../components/MatchModal'
 import HoverName from '../components/HoverName'
-import { IAlert, IScale, ICheck, IReset, ILink } from '../components/icons'
+import { IAlert, IScale, ICheck, IReset, ILink, IClock } from '../components/icons'
 
-type Tab = 'review' | 'nomatrix' | 'anomaly' | 'resolved'
+type Tab = 'review' | 'nomatrix' | 'anomaly' | 'inprogress' | 'resolved'
 
 export default function Reconcile({ rows }: { rows: Row[] }) {
-  const { edits, setPlan, setExcluded, products, rows: allRows } = useEdits()
+  const { edits, setPlan, setExcluded, setInProgress, products, rows: allRows } = useEdits()
   const productSupplier = useMemo(() => supplierByProduct(allRows), [allRows])
   const [tab, setTab] = useState<Tab>('review')
   const [matchFor, setMatchFor] = useState<{ product0: string; product: string } | null>(null)
@@ -19,6 +19,12 @@ export default function Reconcile({ rows }: { rows: Row[] }) {
   const review = useMemo(() => rows.filter((r) => r.status === 'review').sort((a, b) => b.sum - a.sum), [rows])
   const nomatrix = useMemo(() => rows.filter((r) => r.status === 'nomatrix').sort((a, b) => b.sum - a.sum), [rows])
   const anomaly = useMemo(() => rows.filter((r) => r.status === 'anomaly').sort((a, b) => b.sum - a.sum), [rows])
+  // «В работе» — не отдельная причина несостыковки, а метка поверх review/nomatrix/anomaly:
+  // кто-то уже разбирает эту позицию, чтобы двое не делали одно и то же.
+  const inProgress = useMemo(
+    () => [...review, ...nomatrix, ...anomaly].filter((r) => edits.inProgress[r.product0]).sort((a, b) => b.sum - a.sum),
+    [review, nomatrix, anomaly, edits.inProgress],
+  )
 
   // Resolved = products the user has acted on (set a plan or marked "разные товары").
   const resolved = useMemo(() => {
@@ -37,23 +43,26 @@ export default function Reconcile({ rows }: { rows: Row[] }) {
     { id: 'review', label: 'Проверить', count: review.length },
     { id: 'nomatrix', label: 'Нет в матрице', count: nomatrix.length },
     { id: 'anomaly', label: 'Аномалии', count: anomaly.length },
+    { id: 'inprogress', label: 'В работе', count: inProgress.length },
     { id: 'resolved', label: 'Решённые', count: resolved.length },
   ]
-  const list = tab === 'review' ? review : tab === 'nomatrix' ? nomatrix : anomaly
+  const list = tab === 'review' ? review : tab === 'nomatrix' ? nomatrix : tab === 'anomaly' ? anomaly : inProgress
 
   return (
     <>
     <div className="space-y-5">
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <IssueCard color="sky" icon={<IScale width={18} height={18} />} label="Проверить"
           value={fmt(s.reviewCount)} hint="Отклонение цены больше 50% — вероятно, разные товары под одним названием. Не входят в «Переплаты»." delay={0} />
         <IssueCard color="warn" icon={<IScale width={18} height={18} />} label="Нет в матрице"
           value={fmt(s.noMatrixCount)} hint="Товара нет в плановой матрице — задайте плановую цену, чтобы начать сравнивать." delay={60} />
         <IssueCard color="purple" icon={<IAlert width={18} height={18} />} label="Аномалии"
           value={fmt(s.anomalyCount)} hint="Цена отличается в разы — скорее всего перепутаны единицы (шт/кг)." delay={120} />
+        <IssueCard color="brand" icon={<IClock width={18} height={18} />} label="В работе"
+          value={fmt(inProgress.length)} hint="Кто-то уже разбирает эту позицию — отмечено вручную, чтобы не делать одно и то же дважды." delay={180} />
         <IssueCard color="good" icon={<ICheck width={18} height={18} />} label="Решено"
-          value={fmt(resolved.length)} hint="Позиции, по которым вы задали цену или отметили «разные товары»." delay={180} />
+          value={fmt(resolved.length)} hint="Позиции, по которым вы задали цену или отметили «разные товары»." delay={240} />
       </div>
 
       <Section
@@ -77,9 +86,11 @@ export default function Reconcile({ rows }: { rows: Row[] }) {
             rows={list}
             kind={tab}
             planOverrides={edits.planOverrides}
+            inProgress={edits.inProgress}
             onPlan={setPlan}
             onExclude={(p) => setExcluded(p, true)}
             onMatch={(product0, product) => setMatchFor({ product0, product })}
+            onToggleProgress={(p, v) => setInProgress(p, v)}
           />
         )}
       </Section>
@@ -98,13 +109,15 @@ export default function Reconcile({ rows }: { rows: Row[] }) {
   )
 }
 
-function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
+function IssueTable({ rows, kind, planOverrides, inProgress, onPlan, onExclude, onMatch, onToggleProgress }: {
   rows: Row[]
-  kind: 'review' | 'nomatrix' | 'anomaly'
+  kind: 'review' | 'nomatrix' | 'anomaly' | 'inprogress'
   planOverrides: Record<string, number>
+  inProgress: Record<string, true>
   onPlan: (product0: string, v: number | null) => void
   onExclude: (product0: string) => void
   onMatch: (product0: string, product: string) => void
+  onToggleProgress: (product0: string, value: boolean) => void
 }) {
   const [limit, setLimit] = useState(50)
   if (rows.length === 0)
@@ -117,13 +130,13 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
         <table className="w-full table-fixed">
           <thead className="sticky top-0 z-10 bg-ink-850">
             <tr>
-              <th className="th w-[20%]">Товар</th>
-              <th className="th w-[13%]">Ресторан</th>
-              <th className="th w-[13%] text-right">Закупка</th>
-              <th className="th w-[14%] text-right">План&nbsp;<InfoTip text="Задайте правильную плановую цену за единицу — позиция сразу уйдёт из списка и начнёт сравниваться." /></th>
-              <th className="th w-[10%] text-right">Факт</th>
-              <th className="th w-[8%] text-right">Δ%</th>
-              <th className="th w-[22%] text-center">Действие</th>
+              <th className="th w-[18%]">Товар</th>
+              <th className="th w-[12%]">Ресторан</th>
+              <th className="th w-[12%] text-right">Закупка</th>
+              <th className="th w-[13%] text-right">План&nbsp;<InfoTip text="Задайте правильную плановую цену за единицу — позиция сразу уйдёт из списка и начнёт сравниваться." /></th>
+              <th className="th w-[9%] text-right">Факт</th>
+              <th className="th w-[7%] text-right">Δ%</th>
+              <th className="th w-[29%] text-center">Действие</th>
             </tr>
           </thead>
           <tbody>
@@ -132,6 +145,9 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
                 <td className="td overflow-hidden">
                   <div className="flex min-w-0 items-center gap-1.5">
                     <HoverName text={r.product} className="min-w-0 flex-1 font-medium text-slate-100" />
+                    {kind !== 'inprogress' && inProgress[r.product0] && (
+                      <span className="shrink-0 chip border-transparent bg-brand-500/10 text-[10px] text-brand-300" title="Кто-то уже разбирает эту позицию">в работе</span>
+                    )}
                     {r.plan != null && (
                       <span className={`shrink-0 text-[10px] ${MATCH_KIND_META[r.matchKind ?? 'none'].color}`} title={MATCH_KIND_META[r.matchKind ?? 'none'].hint}>
                         ({MATCH_KIND_META[r.matchKind ?? 'none'].label})
@@ -152,10 +168,21 @@ function IssueTable({ rows, kind, planOverrides, onPlan, onExclude, onMatch }: {
                 </td>
                 <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
                 <td className="td text-right tabnum font-semibold">
-                  {r.diffPct != null ? <span className={kind === 'anomaly' ? 'text-purple-300' : 'text-sky-300'}>{pct(r.diffPct)}</span> : <span className="text-slate-600">—</span>}
+                  {r.diffPct != null ? <span className={r.status === 'anomaly' ? 'text-purple-300' : 'text-sky-300'}>{pct(r.diffPct)}</span> : <span className="text-slate-600">—</span>}
                 </td>
                 <td className="td">
                   <div className="flex items-center justify-center gap-1.5">
+                    <button
+                      onClick={() => onToggleProgress(r.product0, !inProgress[r.product0])}
+                      className={`btn h-7 w-7 shrink-0 justify-center border p-0 ${
+                        inProgress[r.product0]
+                          ? 'border-brand-500/50 bg-brand-500/15 text-brand-200'
+                          : 'border-ink-600 bg-ink-800/70 text-slate-400 hover:border-brand-500/50 hover:text-brand-200'
+                      }`}
+                      title={inProgress[r.product0] ? 'Снять отметку «в работе»' : 'Взять в работу — отметить, что вы уже разбираете эту позицию'}
+                    >
+                      <IClock width={13} height={13} />
+                    </button>
                     <button
                       onClick={() => onMatch(r.product0, r.product)}
                       className="btn border border-ink-600 bg-ink-800/70 px-2.5 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200"
@@ -229,11 +256,12 @@ function ResolvedTable({ items, onUndo }: {
 }
 
 function IssueCard({ color, icon, label, value, hint, delay }: {
-  color: 'sky' | 'warn' | 'purple' | 'good'; icon: React.ReactNode; label: string; value: string; hint: string; delay: number
+  color: 'sky' | 'warn' | 'purple' | 'good' | 'brand'; icon: React.ReactNode; label: string; value: string; hint: string; delay: number
 }) {
   const ic: Record<string, string> = {
     sky: 'bg-sky-400/10 text-sky-300', warn: 'bg-warn/10 text-warn',
     purple: 'bg-purple-400/10 text-purple-300', good: 'bg-good/10 text-good',
+    brand: 'bg-brand-500/10 text-brand-300',
   }
   return (
     <div className="card card-hover animate-fade-up p-5" style={{ animationDelay: `${delay}ms` }}>

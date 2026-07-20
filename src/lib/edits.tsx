@@ -16,6 +16,7 @@ function normalize(p: any): Edits {
     newProducts: p?.newProducts ?? {},
     newVenues: p?.newVenues ?? {},
     supplierMerges: p?.supplierMerges ?? {},
+    inProgress: p?.inProgress ?? {},
   }
 }
 
@@ -67,6 +68,8 @@ function syncUndoToServer(current: Edits, target: Edits) {
     target.supplierMerges[k]
       ? applyEditOp('mergeSupplier', { rawName: k, canonicalName: target.supplierMerges[k] })
       : applyEditOp('unmergeSupplier', { rawName: k })
+  for (const k of diffKeys(current.inProgress, target.inProgress))
+    applyEditOp('setInProgress', { product: k, value: !!target.inProgress[k] })
 }
 
 interface Ctx {
@@ -101,6 +104,7 @@ interface Ctx {
   removeVenue: (name: string) => void
   mergeSupplier: (rawName: string, canonicalName: string) => void
   unmergeSupplier: (rawName: string) => void
+  setInProgress: (originalProduct: string, value: boolean) => void
   reset: () => void
   replaceAll: (e: Edits) => void
   undo: () => void
@@ -226,6 +230,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       if (merged.city) cleaned.city = merged.city
       if (merged.brand) cleaned.brand = merged.brand
       if (merged.entity) cleaned.entity = merged.entity
+      if (merged.category) cleaned.category = merged.category
       if (Object.keys(cleaned).length === 0) delete next[restaurant]
       else next[restaurant] = cleaned
       return { ...e, venueOverrides: next }
@@ -271,7 +276,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       const po = { ...e.planOverrides }; delete po[name]
       const suffix = `::${name.trim().toLowerCase()}`
       const ppo = Object.fromEntries(Object.entries(e.planPairOverrides).filter(([k]) => !k.endsWith(suffix)))
-      return { ...e, newProducts: n, planOverrides: po, planPairOverrides: ppo }
+      const ip = { ...e.inProgress }; delete ip[name]
+      return { ...e, newProducts: n, planOverrides: po, planPairOverrides: ppo, inProgress: ip }
     })
     applyEditOp('removeProduct', { name })
   }, [updateEdits])
@@ -298,6 +304,18 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('unmergeSupplier', { rawName })
   }, [updateEdits])
 
+  // Метка «кто-то уже разбирает эту несостыковку» — не меняет статус/цену,
+  // просто координация между людьми в «Сверке», чтобы не делать одно и то же дважды.
+  const setInProgress = useCallback((originalProduct: string, value: boolean) => {
+    updateEdits((e) => {
+      const next = { ...e.inProgress }
+      if (value) next[originalProduct] = true
+      else delete next[originalProduct]
+      return { ...e, inProgress: next }
+    })
+    applyEditOp('setInProgress', { product: originalProduct, value })
+  }, [updateEdits])
+
   const reset = useCallback(() => {
     updateEdits(() => EMPTY_EDITS)
     applyEditOp('reset')
@@ -314,6 +332,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       newProducts: e.newProducts ?? {},
       newVenues: e.newVenues ?? {},
       supplierMerges: e.supplierMerges ?? {},
+      inProgress: e.inProgress ?? {},
     }
     updateEdits(() => next)
     saveEdits(next) // whole-blob PUT — Импорт is an explicit, deliberate replace-everything action
@@ -329,7 +348,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.newSuppliers).length +
     Object.keys(edits.newProducts).length +
     Object.keys(edits.newVenues).length +
-    Object.keys(edits.supplierMerges).length
+    Object.keys(edits.supplierMerges).length +
+    Object.keys(edits.inProgress).length
 
   const restaurants = useMemo(
     () => withNewVenues(applyVenueOverrides(parsed.restaurants, edits.venueOverrides), edits),
@@ -345,7 +365,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     backendOnline, status, syncing, refresh, reloadStatus,
     renameSupplier, renameProduct, setPlan, setPairPlan, setExcluded, setVenue,
     addSupplier, addProduct, addVenue, removeSupplier, removeProduct, removeVenue,
-    mergeSupplier, unmergeSupplier,
+    mergeSupplier, unmergeSupplier, setInProgress,
     reset, replaceAll, undo, canUndo,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>

@@ -122,7 +122,7 @@ export interface BaseRow {
 const MIN_TURNOVER = 1000
 
 /** Manual corrections to a venue's meta — for when auto-derived data is wrong. */
-export interface VenuePatch { city?: string; brand?: string; entity?: string }
+export interface VenuePatch { city?: string; brand?: string; entity?: string; category?: string }
 
 /**
  * User edits layered over the immutable base data so the project can run
@@ -140,10 +140,11 @@ export interface Edits {
   newProducts: Record<string, true>        // товары, добавленные вручную (план задаётся через planOverrides)
   newVenues: Record<string, true>          // точки, добавленные вручную (мета — через venueOverrides)
   supplierMerges: Record<string, string>   // iiko-имя, которого нет в справочнике -> существующий поставщик (тот же, что и...)
+  inProgress: Record<string, true>         // original product name -> кто-то уже разбирает эту несостыковку
 }
 export const EMPTY_EDITS: Edits = {
   supplierRenames: {}, productRenames: {}, planOverrides: {}, planPairOverrides: {}, excludedProducts: {}, venueOverrides: {},
-  newSuppliers: {}, newProducts: {}, newVenues: {}, supplierMerges: {},
+  newSuppliers: {}, newProducts: {}, newVenues: {}, supplierMerges: {}, inProgress: {},
 }
 
 /** Consistent key for a manual поставщик+товар price pin — mirrors matching.planPairs' own key format. */
@@ -179,7 +180,7 @@ export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta
     .filter((name) => !existing.has(name))
     .map((name): VenueMeta => {
       const patch = edits.venueOverrides[name] || {}
-      return { name, city: patch.city ?? '', brand: patch.brand ?? name, entity: patch.entity ?? '' }
+      return { name, city: patch.city ?? '', brand: patch.brand ?? name, entity: patch.entity ?? '', category: patch.category ?? '' }
     })
   return added.length ? [...restaurants, ...added] : restaurants
 }
@@ -247,7 +248,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const effect = status === 'overpay' || status === 'saving' ? c.effect * b.qty : 0
     return {
       id: b.id, restaurant: b.restaurant,
-      brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: b.category,
+      brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, product, product0: b.product0, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
       diff: c.diff, diffPct: c.diffPct, effect, status, abc: 'C', matchKind,
     }
@@ -285,7 +286,7 @@ export function assignABC(rows: Row[]) {
 
 export interface SupplierAgg { name: string; count: number; sum: number; isNew: boolean }
 export interface ProductAgg { name: string; count: number; sum: number; basePlan: number | null; inMatrix: boolean; planKind: MatchKind; restaurantCount: number }
-export interface VenueMeta { name: string; entity: string; brand: string; city: string }
+export interface VenueMeta { name: string; entity: string; brand: string; city: string; category: string }
 
 /** Everything derived from a dataset — parsed once, either from the bundle or the API. */
 export interface Parsed {
@@ -335,7 +336,7 @@ export function parseDataset(data: RawDataset): Parsed {
     base,
     suppliers: [...sm.values()].sort((a, b) => b.sum - a.sum),
     products: [...pm.values()].sort((a, b) => b.sum - a.sum),
-    restaurants: (data.restaurants || []).map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city })),
+    restaurants: (data.restaurants || []).map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category })),
     period: data.periodLabel,
     city: data.city,
     category: data.category,
@@ -356,7 +357,7 @@ export const MATCH_KIND_META: Record<NonNullable<MatchKind> | 'none', { label: s
 export function applyVenueOverrides(restaurants: VenueMeta[], overrides: Record<string, VenuePatch>): VenueMeta[] {
   return restaurants.map((r) => {
     const o = overrides[r.name]
-    return o ? { ...r, city: o.city ?? r.city, brand: o.brand ?? r.brand, entity: o.entity ?? r.entity } : r
+    return o ? { ...r, city: o.city ?? r.city, brand: o.brand ?? r.brand, entity: o.entity ?? r.entity, category: o.category ?? r.category } : r
   })
 }
 

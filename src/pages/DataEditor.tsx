@@ -32,12 +32,14 @@ export default function DataEditor() {
   const [newCity, setNewCity] = useState('')
   const [newBrand, setNewBrand] = useState('')
   const [newEntity, setNewEntity] = useState('')
+  const [newCategory, setNewCategory] = useState('')
   const [pairOn, setPairOn] = useState(false)
   const [pairName, setPairName] = useState('') // поставщик (products tab) или товар (suppliers tab)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const needle = q.trim().toLowerCase()
   const productSupplier = useMemo(() => supplierByProduct(rows), [rows])
+  const categories = useMemo(() => [...new Set(rows.map((r) => r.category))].filter(Boolean).sort(), [rows])
 
   const supplierCounts = useMemo(() => ({
     all: suppliersBase.length,
@@ -53,7 +55,7 @@ export default function DataEditor() {
   }, [needle, edits.supplierRenames, sFilter, suppliersBase])
 
   const resetAddForm = () => {
-    setNewName(''); setNewPlan(''); setNewCity(''); setNewBrand(''); setNewEntity('')
+    setNewName(''); setNewPlan(''); setNewCity(''); setNewBrand(''); setNewEntity(''); setNewCategory('')
     setPairOn(false); setPairName(''); setAddOpen(false)
   }
   const submitAdd = () => {
@@ -79,7 +81,10 @@ export default function DataEditor() {
         addProduct(name, price)
       }
     } else {
-      addVenue(name, { city: newCity.trim() || undefined, brand: newBrand.trim() || undefined, entity: newEntity.trim() || undefined })
+      addVenue(name, {
+        city: newCity.trim() || undefined, brand: newBrand.trim() || undefined,
+        entity: newEntity.trim() || undefined, category: newCategory.trim() || undefined,
+      })
     }
     resetAddForm()
   }
@@ -261,6 +266,15 @@ export default function DataEditor() {
                   <input value={newEntity} onChange={(e) => setNewEntity(e.target.value)}
                     className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
                 </div>
+                <div className="w-40">
+                  <label className="mb-1 block text-[11px] text-slate-500">Категория</label>
+                  <input list="category-suggestions" value={newCategory} onChange={(e) => setNewCategory(e.target.value)}
+                    placeholder="например, Кухня"
+                    className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                  <datalist id="category-suggestions">
+                    {categories.map((c) => <option key={c} value={c} />)}
+                  </datalist>
+                </div>
               </>
             )}
             <button onClick={submitAdd} disabled={!newName.trim()} className="btn border border-brand-500/50 bg-brand-500/15 px-3 py-1.5 text-xs text-brand-200 hover:bg-brand-500/25 disabled:opacity-40">
@@ -353,12 +367,13 @@ export default function DataEditor() {
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-[23%]">Точка</th>
-                  <th className="th w-[14%]">Город</th>
-                  <th className="th w-[16%]">Бренд</th>
-                  <th className="th w-[20%]">Юрлицо</th>
-                  <th className="th w-[13%] text-right">Закупка</th>
-                  <th className="th w-[14%] text-center">Действие</th>
+                  <th className="th w-[20%]">Точка</th>
+                  <th className="th w-[12%]">Город</th>
+                  <th className="th w-[14%]">Бренд</th>
+                  <th className="th w-[16%]">Юрлицо</th>
+                  <th className="th w-[13%]">Категория</th>
+                  <th className="th w-[12%] text-right">Закупка</th>
+                  <th className="th w-[13%] text-center">Действие</th>
                 </tr>
               )}
             </thead>
@@ -474,6 +489,7 @@ export default function DataEditor() {
                         <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[160px]" /></td>
                         <td className="td"><EditableText value={r.brand} onCommit={(v) => setVenue(r.name, { brand: v })} className="max-w-[180px]" /></td>
                         <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[200px]" /></td>
+                        <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[160px]" /></td>
                         <td className="td text-right tabnum text-slate-300">{moneyShort(venueSpend.get(r.name) ?? 0)}</td>
                         <td className="td text-center">
                           {manual && (

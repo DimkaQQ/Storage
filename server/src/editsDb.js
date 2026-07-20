@@ -32,11 +32,17 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS new_products     (org_id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, name));
   CREATE TABLE IF NOT EXISTS new_venues       (org_id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, name));
   CREATE TABLE IF NOT EXISTS supplier_merges  (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, canonical_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
+  CREATE TABLE IF NOT EXISTS in_progress_products (org_id TEXT NOT NULL, product TEXT NOT NULL, PRIMARY KEY (org_id, product));
 `)
+
+// venue_overrides predates the "Категория" field (ТЗ №8) — add the column
+// for orgs whose table was created before this migration.
+try { db.exec('ALTER TABLE venue_overrides ADD COLUMN category TEXT') } catch { /* already has it */ }
 
 const TABLES = [
   'supplier_renames', 'product_renames', 'plan_overrides', 'plan_pair_overrides',
   'excluded_products', 'venue_overrides', 'new_suppliers', 'new_products', 'new_venues', 'supplier_merges',
+  'in_progress_products',
 ]
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
@@ -54,11 +60,12 @@ export function getEditsForOrg(orgId) {
   const excludedProducts = Object.fromEntries(
     db.prepare('SELECT product FROM excluded_products WHERE org_id=?').all(orgId).map((r) => [r.product, true]))
   const venueOverrides = Object.fromEntries(
-    db.prepare('SELECT restaurant, city, brand, entity FROM venue_overrides WHERE org_id=?').all(orgId).map((r) => {
+    db.prepare('SELECT restaurant, city, brand, entity, category FROM venue_overrides WHERE org_id=?').all(orgId).map((r) => {
       const patch = {}
       if (r.city) patch.city = r.city
       if (r.brand) patch.brand = r.brand
       if (r.entity) patch.entity = r.entity
+      if (r.category) patch.category = r.category
       return [r.restaurant, patch]
     }))
   const newSuppliers = Object.fromEntries(
@@ -69,9 +76,11 @@ export function getEditsForOrg(orgId) {
     db.prepare('SELECT name FROM new_venues WHERE org_id=?').all(orgId).map((r) => [r.name, true]))
   const supplierMerges = Object.fromEntries(
     db.prepare('SELECT raw_name, canonical_name FROM supplier_merges WHERE org_id=?').all(orgId).map((r) => [r.raw_name, r.canonical_name]))
+  const inProgress = Object.fromEntries(
+    db.prepare('SELECT product FROM in_progress_products WHERE org_id=?').all(orgId).map((r) => [r.product, true]))
   return {
     supplierRenames, productRenames, planOverrides, planPairOverrides, excludedProducts,
-    venueOverrides, newSuppliers, newProducts, newVenues, supplierMerges,
+    venueOverrides, newSuppliers, newProducts, newVenues, supplierMerges, inProgress,
   }
 }
 
@@ -127,14 +136,14 @@ export function setExcluded(orgId, product, excluded) {
 }
 
 export function setVenue(orgId, restaurant, patch) {
-  const row = db.prepare('SELECT city, brand, entity FROM venue_overrides WHERE org_id=? AND restaurant=?').get(orgId, restaurant) || {}
+  const row = db.prepare('SELECT city, brand, entity, category FROM venue_overrides WHERE org_id=? AND restaurant=?').get(orgId, restaurant) || {}
   const merged = { ...row, ...(patch || {}) }
-  const city = merged.city || null, brand = merged.brand || null, entity = merged.entity || null
-  if (!city && !brand && !entity) db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, restaurant)
+  const city = merged.city || null, brand = merged.brand || null, entity = merged.entity || null, category = merged.category || null
+  if (!city && !brand && !entity && !category) db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, restaurant)
   else db.prepare(`
-    INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity) VALUES (?,?,?,?,?)
-    ON CONFLICT(org_id, restaurant) DO UPDATE SET city=excluded.city, brand=excluded.brand, entity=excluded.entity
-  `).run(orgId, restaurant, city, brand, entity)
+    INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(org_id, restaurant) DO UPDATE SET city=excluded.city, brand=excluded.brand, entity=excluded.entity, category=excluded.category
+  `).run(orgId, restaurant, city, brand, entity, category)
 }
 
 export function clearVenue(orgId, restaurant) {
@@ -171,6 +180,7 @@ export function removeProduct(orgId, name) {
     db.prepare('DELETE FROM new_products WHERE org_id=? AND name=?').run(orgId, name)
     db.prepare('DELETE FROM plan_overrides WHERE org_id=? AND product=?').run(orgId, name)
     db.prepare("DELETE FROM plan_pair_overrides WHERE org_id=? AND pair_key LIKE '%' || ?").run(orgId, suffix)
+    db.prepare('DELETE FROM in_progress_products WHERE org_id=? AND product=?').run(orgId, name)
   })
 }
 
@@ -189,6 +199,11 @@ export function mergeSupplier(orgId, rawName, canonicalName) {
 
 export function unmergeSupplier(orgId, rawName) {
   db.prepare('DELETE FROM supplier_merges WHERE org_id=? AND raw_name=?').run(orgId, rawName)
+}
+
+export function setInProgress(orgId, product, value) {
+  if (value) db.prepare('INSERT OR IGNORE INTO in_progress_products (org_id, product) VALUES (?,?)').run(orgId, product)
+  else db.prepare('DELETE FROM in_progress_products WHERE org_id=? AND product=?').run(orgId, product)
 }
 
 export function resetEdits(orgId) {
@@ -210,8 +225,8 @@ export function replaceAllEdits(orgId, e) {
     for (const product of Object.keys(e.excludedProducts || {}))
       db.prepare('INSERT INTO excluded_products (org_id, product) VALUES (?,?)').run(orgId, product)
     for (const [restaurant, patch] of Object.entries(e.venueOverrides || {}))
-      db.prepare('INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity) VALUES (?,?,?,?,?)')
-        .run(orgId, restaurant, patch.city || null, patch.brand || null, patch.entity || null)
+      db.prepare('INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category) VALUES (?,?,?,?,?,?)')
+        .run(orgId, restaurant, patch.city || null, patch.brand || null, patch.entity || null, patch.category || null)
     for (const name of Object.keys(e.newSuppliers || {}))
       db.prepare('INSERT INTO new_suppliers (org_id, name) VALUES (?,?)').run(orgId, name)
     for (const name of Object.keys(e.newProducts || {}))
@@ -220,5 +235,7 @@ export function replaceAllEdits(orgId, e) {
       db.prepare('INSERT INTO new_venues (org_id, name) VALUES (?,?)').run(orgId, name)
     for (const [rawName, canonicalName] of Object.entries(e.supplierMerges || {}))
       db.prepare('INSERT INTO supplier_merges (org_id, raw_name, canonical_name) VALUES (?,?,?)').run(orgId, rawName, canonicalName)
+    for (const name of Object.keys(e.inProgress || {}))
+      db.prepare('INSERT INTO in_progress_products (org_id, product) VALUES (?,?)').run(orgId, name)
   })
 }
