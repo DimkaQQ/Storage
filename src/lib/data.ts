@@ -20,6 +20,22 @@ export const BUNDLED_MATCHING: MatchingTable = matchingRaw as MatchingTable
 
 const norm = (s: string) => String(s || '').trim().toLowerCase()
 
+/**
+ * Фасовка в отчёте iiko и в матрице иногда набрана по-разному для одного и
+ * того же веса: запятая вместо точки в дроби ("1*0,500" vs "1*0.500"),
+ * лишняя точка-сокращение в конце ("500гр." vs "500гр"). Без этого такие
+ * пары не совпадают как строки — реальный матч теряется (тот же класс
+ * проблемы, что был у Ayakaz, только тут виновато форматирование текста,
+ * а не сборка данных). matching.json уже собран с этой же нормализацией
+ * фасовки, так что она обязана совпадать с extract.py дословно.
+ */
+const normPack = (s: string) => {
+  let p = norm(s)
+  p = p.replace(/(?<=\d),(?=\d)/g, '.')
+  p = p.replace(/\.$/, '')
+  return p
+}
+
 /** Raw purchase fact as extracted from the iiko report. */
 interface RawItem {
   s: string  // supplier (as in iiko)
@@ -165,7 +181,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
     : norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
   const restaurant = norm(b.restaurant)
   const product = norm(b.product0)
-  const pack = norm(b.pack)
+  const pack = normPack(b.pack)
 
   const pairKey = `${restaurant}::${supplierCanon}::${product}`
   if (pack) {
