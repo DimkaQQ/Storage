@@ -19,7 +19,7 @@ const isPrecisePack = (pack: string) => {
 
 const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'ok', label: 'По матрице' },
-  { id: 'wrongSupplier', label: 'Не тот поставщик' },
+  { id: 'wrongSupplier', label: 'Заказ не по матрице' },
   { id: 'nomatrix', label: 'Нет в матрице' },
 ]
 
@@ -77,7 +77,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       <div className="grid grid-cols-4 gap-4">
         <MiniStat delay={0} label="Позиций в срезе" value={fmt(filtered.length)} tone="slate" />
         <MiniStat delay={50} label="Совпадает с матрицей" value={pct(s.matchRate).replace('+', '')} tone="slate" />
-        <MiniStat delay={100} label="Не тот поставщик" value={fmt(s.wrongSupplierCount)} tone="bad" />
+        <MiniStat delay={100} label="Заказ не по матрице" value={fmt(s.wrongSupplierCount)} tone="bad" />
         <MiniStat delay={150} label="Нет в матрице" value={fmt(s.noMatrixCount)} tone="bad" />
       </div>
 

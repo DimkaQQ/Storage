@@ -2,8 +2,7 @@ import { lazy, Suspense, useMemo, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
-import { IGauge, IScale, ISpark, IHelp, IDatabase, ISync, IUser, ILogout, IPin, ILayers } from './components/icons'
-import HelpModal from './components/HelpModal'
+import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, IPin, ILayers } from './components/icons'
 import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
@@ -30,7 +29,6 @@ export default function App() {
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
-  const [help, setHelp] = useState(false)
   const { rows: allRows, period, restaurants } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
@@ -131,14 +129,6 @@ export default function App() {
                   <FilterDropdown label="Город" icon={IPin} value={cityFilter} options={cities} onChange={pickCity} />
                 )}
                 <ThemePicker />
-                <button
-                  onClick={() => setHelp(true)}
-                  className="btn border border-ink-600 bg-ink-800/80 text-slate-300 hover:border-brand-500/50 hover:text-white"
-                  title="Как читать этот отчёт"
-                >
-                  <IHelp width={16} height={16} className="text-brand-300" />
-                  Справка
-                </button>
                 {showFilters && (
                   <ScopePicker
                     options={venuesInCity.map((r) => r.name)}
@@ -166,8 +156,6 @@ export default function App() {
             Проверка закупочных цен · план (матрица) против факта (iiko) · {period}
           </footer>
         </div>
-
-        {help && <HelpModal onClose={() => setHelp(false)} />}
       </div>
 
       {/* Desktop-only guard */}
