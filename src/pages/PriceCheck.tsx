@@ -7,6 +7,16 @@ import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/i
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct'
 
+// Голая единица измерения ("кг", "шт", "л"…) ничего не уточняет — не показываем.
+// А вот "вишня", "бут. 1,5л.", конкретный бренд/объём — то самое более точное
+// обозначение, которое реально отличает товар (например разные вкусы одного
+// названия "Ягода с/м в асс").
+const BARE_UNITS = new Set(['кг', 'шт', 'л', 'г', 'мл', 'гр', 'уп', 'шт.', 'кор', 'бан', 'пач'])
+const isPrecisePack = (pack: string) => {
+  const p = pack.trim().toLowerCase().replace(/\.$/, '')
+  return p.length > 0 && !BARE_UNITS.has(p)
+}
+
 const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'overpay', label: 'Переплата' },
   { id: 'saving', label: 'Экономия' },
@@ -25,7 +35,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     const needle = q.trim().toLowerCase()
     let r = rows
     if (active.size) r = r.filter((x) => active.has(x.status))
-    if (needle) r = r.filter((x) => x.product.toLowerCase().includes(needle) || x.supplier.toLowerCase().includes(needle) || x.restaurant.toLowerCase().includes(needle))
+    if (needle) r = r.filter((x) => x.product.toLowerCase().includes(needle) || x.supplier.toLowerCase().includes(needle) || x.restaurant.toLowerCase().includes(needle) || x.pack.toLowerCase().includes(needle))
     const dir = sort.dir
     const key = sort.key
     return [...r].sort((a, b) => {
@@ -50,14 +60,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     setSort((s) => (s.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: -1 }))
 
   const exportExcel = () => {
-    const head = ['Ресторан', 'Поставщик', 'Товар', 'План цена', 'Факт цена', 'Δ%', 'Статус', 'Должны у']
+    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ%', 'Статус', 'Должны у']
     const lines = filtered.map((r) => [
-      r.restaurant, r.supplier, r.product,
+      r.restaurant, r.supplier, r.product, r.pack,
       r.plan ?? '', Math.round(r.unit), r.diffPct != null ? Number((r.diffPct * 100).toFixed(1)) : '',
       STATUS_META[r.status].label, r.designatedSuppliers.join(', '),
     ])
     const ws = XLSX.utils.aoa_to_sheet([head, ...lines])
-    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }]
+    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
     XLSX.writeFile(wb, 'proverka-cen.xlsx')
@@ -132,7 +142,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 <tr key={r.id} className="row-hover hover:bg-ink-800/40">
                   <td className="td overflow-hidden text-slate-400"><HoverName text={r.restaurant} /></td>
                   <td className="td overflow-hidden text-slate-300"><HoverName text={r.supplier} /></td>
-                  <td className="td overflow-hidden font-medium text-slate-100"><HoverName text={r.product} /></td>
+                  <td className="td overflow-hidden font-medium text-slate-100">
+                    <HoverName text={r.product} />
+                    {isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                  </td>
                   <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
                   <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
                   <td className="td text-right tabnum font-semibold">
