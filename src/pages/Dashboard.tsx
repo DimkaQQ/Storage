@@ -20,10 +20,10 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
   )
 
   const statusData = useMemo(() => {
-    const order: Status[] = ['saving', 'ok', 'overpay', 'wrongSupplier', 'nomatrix']
+    const order: Status[] = ['ok', 'wrongSupplier', 'nomatrix']
     const counts = new Map<Status, number>()
     for (const r of rows) counts.set(r.status, (counts.get(r.status) || 0) + 1)
-    const colors: Record<Status, string> = { saving: C.good, ok: '#64748b', overpay: C.bad, wrongSupplier: C.warn, nomatrix: C.purple }
+    const colors: Record<Status, string> = { ok: C.good, wrongSupplier: C.warn, nomatrix: C.purple }
     return order.map((st) => ({ st, name: STATUS_META[st].label, value: counts.get(st) || 0, color: colors[st] }))
       .filter((d) => d.value > 0)
   }, [rows])

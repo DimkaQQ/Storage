@@ -18,9 +18,7 @@ const isPrecisePack = (pack: string) => {
 }
 
 const STATUS_FILTERS: { id: Status; label: string }[] = [
-  { id: 'overpay', label: 'Переплата' },
-  { id: 'saving', label: 'Экономия' },
-  { id: 'ok', label: 'В норме' },
+  { id: 'ok', label: 'По матрице' },
   { id: 'wrongSupplier', label: 'Не тот поставщик' },
   { id: 'nomatrix', label: 'Нет в матрице' },
 ]
@@ -148,8 +146,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   </td>
                   <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
                   <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
-                  <td className="td text-right tabnum font-semibold">
-                    {r.diffPct != null ? <span className={r.status === 'overpay' ? 'text-bad' : r.status === 'saving' ? 'text-good' : 'text-slate-400'}>{pct(r.diffPct)}</span> : <span className="text-slate-600">—</span>}
+                  <td className="td text-right tabnum font-semibold text-slate-300">
+                    {r.diffPct != null ? pct(r.diffPct) : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="td overflow-hidden">
                     <StatusBadge status={r.status} />

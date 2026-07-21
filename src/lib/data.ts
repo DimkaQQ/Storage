@@ -44,7 +44,7 @@ interface RawDataset {
   restaurants: RawRestaurant[]
 }
 
-export type Status = 'ok' | 'overpay' | 'saving' | 'wrongSupplier' | 'nomatrix'
+export type Status = 'ok' | 'wrongSupplier' | 'nomatrix'
 
 export interface Row {
   id: string
@@ -61,13 +61,10 @@ export interface Row {
   sum: number
   unit: number
   plan: number | null
-  diffPct: number | null   // (unit - plan)/plan; + = overpay
+  diffPct: number | null   // (unit - plan)/plan — informational only, no overpay/saving concept
   status: Status
   designatedSuppliers: string[]  // only set for status === 'wrongSupplier' — who it should have been bought from
 }
-
-// A position is "in norm" when actual is within this band of the plan.
-const OK_BAND = 0.02
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
 const MIN_TURNOVER = 1000
@@ -132,20 +129,33 @@ interface Resolved { plan: number | null; status: Status; designatedSuppliers: s
  *      supplier — заказано не у того поставщика (расхождение, не цена)
  *   5. otherwise — товара нет в матрице для этого ресторана вообще
  */
-/** "restaurant::product" (norm) -> set of suppliers the matrix designates for it — built once per matching table, not per row. */
-function buildDesignatedIndex(matching: MatchingTable): Map<string, Set<string>> {
-  const idx = new Map<string, Set<string>>()
-  for (const key of Object.keys(matching.planPairs)) {
-    const [restaurant, supplier, product] = key.split('::')
-    const k = `${restaurant}::${product}`
-    const set = idx.get(k) ?? new Set<string>()
-    set.add(supplier)
-    idx.set(k, set)
-  }
-  return idx
+interface DesignatedIndex {
+  byPack: Map<string, Set<string>>     // "restaurant::product::pack" -> suppliers priced for exactly this variant
+  byProduct: Map<string, Set<string>>  // "restaurant::product" -> suppliers priced for this product, any pack
 }
 
-function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: Map<string, Set<string>>): Resolved {
+/** Built once per matching table, not per row. */
+function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
+  const byPack = new Map<string, Set<string>>()
+  const byProduct = new Map<string, Set<string>>()
+  const add = (map: Map<string, Set<string>>, k: string, supplier: string) => {
+    const set = map.get(k) ?? new Set<string>()
+    set.add(supplier)
+    map.set(k, set)
+  }
+  for (const key of Object.keys(matching.planPairs)) {
+    const [restaurant, supplier, product] = key.split('::')
+    add(byProduct, `${restaurant}::${product}`, supplier)
+  }
+  for (const key of Object.keys(matching.planPairsByPack)) {
+    const [restaurant, supplier, product, pack] = key.split('::')
+    add(byProduct, `${restaurant}::${product}`, supplier)
+    add(byPack, `${restaurant}::${product}::${pack}`, supplier)
+  }
+  return { byPack, byProduct }
+}
+
+function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
   const mergedTo = edits.supplierMerges[b.supplier0]
   // A merge target might itself be a raw iiko name with its own справочник alias
   // (not yet the true canonical matrix name) — resolve through the alias table
@@ -161,25 +171,27 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
-    if (plan != null) return { plan, status: classifyPrice(plan, b.unit), designatedSuppliers: [] }
+    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [] }
   }
   const plan = matching.planPairs[pairKey]
-  if (plan != null) return { plan, status: classifyPrice(plan, b.unit), designatedSuppliers: [] }
+  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [] }
 
-  // Not matched for THIS supplier — is the product in the matrix for this
-  // restaurant at all, just under someone else?
-  const designated = designatedIndex.get(`${restaurant}::${product}`)
+  // No price for THIS exact (supplier, pack) combo. Who's designated for
+  // THIS EXACT variant (pack included) matters — e.g. Ayakaz and Alga73 both
+  // price "Ягода импортная" for Сирена, but only for малина/голубика/ежевика;
+  // neither has клубника priced there. Checking product-level only would
+  // wrongly call that "wrong supplier" (Alga73!) instead of "not in the
+  // matrix at all for this variant". So: prefer the pack-specific designated
+  // set when a pack is given; only fall back to the product-level set for
+  // packless items.
+  const designated = pack
+    ? designatedIndex.byPack.get(`${restaurant}::${product}::${pack}`)
+    : designatedIndex.byProduct.get(`${restaurant}::${product}`)
   if (designated && designated.size > 0) {
-    return { plan: null, status: 'wrongSupplier', designatedSuppliers: [...designated] }
+    const others = [...designated].filter((s) => s !== supplierCanon)
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others }
   }
   return { plan: null, status: 'nomatrix', designatedSuppliers: [] }
-}
-
-function classifyPrice(plan: number, unit: number): Status {
-  const diffPct = (unit - plan) / plan
-  if (diffPct > OK_BAND) return 'overpay'
-  if (diffPct < -OK_BAND) return 'saving'
-  return 'ok'
 }
 
 /** Builds display rows by applying edits and resolving plan/status. */
@@ -271,9 +283,7 @@ export function applyVenueOverrides(restaurants: VenueMeta[], overrides: Record<
 }
 
 export const STATUS_META: Record<Status, { label: string; color: string; dot: string }> = {
-  overpay: { label: 'Переплата', color: 'text-bad', dot: 'bg-bad' },
-  saving: { label: 'Экономия', color: 'text-good', dot: 'bg-good' },
-  ok: { label: 'В норме', color: 'text-slate-300', dot: 'bg-slate-400' },
+  ok: { label: 'По матрице', color: 'text-good', dot: 'bg-good' },
   wrongSupplier: { label: 'Не тот поставщик', color: 'text-warn', dot: 'bg-warn' },
   nomatrix: { label: 'Нет в матрице', color: 'text-purple-300', dot: 'bg-purple-400' },
 }
