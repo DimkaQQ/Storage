@@ -61,9 +61,7 @@ export interface Row {
   sum: number
   unit: number
   plan: number | null
-  diff: number | null      // plan - unit (per unit); + = cheaper than plan
   diffPct: number | null   // (unit - plan)/plan; + = overpay
-  effect: number           // (plan - unit) * qty; + = saving, - = overpay
   status: Status
   designatedSuppliers: string[]  // only set for status === 'wrongSupplier' — who it should have been bought from
 }
@@ -194,14 +192,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
     const { plan, status, designatedSuppliers } = resolveRowPlan(b, edits, matching, designatedIndex)
-    const diff = plan != null ? plan - b.unit : null
     const diffPct = plan != null ? (b.unit - plan) / plan : null
-    const effect = plan != null ? diff! * b.qty : 0
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, product, product0: b.product0, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
-      diff, diffPct, effect, status, designatedSuppliers,
+      diffPct, status, designatedSuppliers,
     }
   })
 }
@@ -285,41 +281,25 @@ export const STATUS_META: Record<Status, { label: string; color: string; dot: st
 /* ---------- aggregation helpers ---------- */
 
 export interface Summary {
-  spend: number
   positions: number
   matched: number
   matchRate: number
-  overpaySum: number   // negative money lost
-  savingSum: number    // positive money saved
-  netEffect: number
-  overpayCount: number
-  savingCount: number
   wrongSupplierCount: number
   noMatrixCount: number
   openIssues: number   // всё, что требует внимания
 }
 
 export function summarize(rows: Row[]): Summary {
-  let spend = 0, overpaySum = 0, savingSum = 0, matched = 0
-  let overpayCount = 0, savingCount = 0, wrongSupplierCount = 0, noMatrixCount = 0
+  let matched = 0, wrongSupplierCount = 0, noMatrixCount = 0
   for (const r of rows) {
-    spend += r.sum
     if (r.status !== 'nomatrix' && r.status !== 'wrongSupplier') matched++
-    if (r.status === 'overpay') { overpaySum += r.effect; overpayCount++ }
-    else if (r.status === 'saving') { savingSum += r.effect; savingCount++ }
     else if (r.status === 'wrongSupplier') wrongSupplierCount++
     else if (r.status === 'nomatrix') noMatrixCount++
   }
   return {
-    spend,
     positions: rows.length,
     matched,
     matchRate: rows.length ? matched / rows.length : 0,
-    overpaySum,
-    savingSum,
-    netEffect: savingSum + overpaySum,
-    overpayCount,
-    savingCount,
     wrongSupplierCount,
     noMatrixCount,
     openIssues: wrongSupplierCount + noMatrixCount,

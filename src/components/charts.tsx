@@ -1,5 +1,4 @@
 import { ReactNode } from 'react'
-import { moneyShort } from '../lib/data'
 
 // Reads a themed accent from the CSS variable so charts follow the palette.
 function cssBrand(): string {
@@ -22,7 +21,7 @@ export const C = {
 
 export const SERIES = ['#5b8bff', '#2fd2a5', '#ffb547', '#a889ff', '#ff5d73', '#38bdf8', '#f472b6', '#84cc16']
 
-export function ChartTip({ active, payload, label, money = true }: any) {
+export function ChartTip({ active, payload, label }: any) {
   if (!active || !payload || !payload.length) return null
   return (
     <div className="rounded-lg border border-ink-600 bg-ink-850/95 px-3 py-2 shadow-xl backdrop-blur">
@@ -31,9 +30,7 @@ export function ChartTip({ active, payload, label, money = true }: any) {
         <div key={i} className="flex items-center gap-2 text-xs">
           <span className="h-2 w-2 rounded-full" style={{ background: p.color || p.fill }} />
           <span className="text-slate-400">{p.name}</span>
-          <span className="ml-auto font-semibold tabnum text-slate-100">
-            {money ? moneyShort(p.value) : p.value.toLocaleString('ru-RU')}
-          </span>
+          <span className="ml-auto font-semibold tabnum text-slate-100">{p.value.toLocaleString('ru-RU')}</span>
         </div>
       ))}
     </div>

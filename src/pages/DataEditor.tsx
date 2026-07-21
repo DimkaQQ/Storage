@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { fmt, moneyShort, plural, byRestaurant, BUNDLED_MATCHING } from '../lib/data'
+import { fmt, plural, BUNDLED_MATCHING } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
@@ -14,7 +14,7 @@ export default function DataEditor() {
   const {
     edits, editCount, renameSupplier, renameProduct, setVenue, reset, replaceAll,
     addVenue, removeVenue, mergeSupplier, unmergeSupplier, undo, canUndo,
-    suppliers: suppliersBase, products: productsBase, restaurants, rows,
+    suppliers: suppliersBase, products: productsBase, restaurants,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('suppliers')
   const [q, setQ] = useState('')
@@ -65,11 +65,6 @@ export default function DataEditor() {
     () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
     [needle, restaurants],
   )
-  const venueSpend = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const g of byRestaurant(rows)) m.set(g.name, g.summary.spend)
-    return m
-  }, [rows])
 
   const shown = tab === 'suppliers' ? suppliers.slice(0, limit) : tab === 'products' ? products.slice(0, limit) : venues.slice(0, limit)
   const total = tab === 'suppliers' ? suppliers.length : tab === 'products' ? products.length : venues.length
@@ -233,29 +228,26 @@ export default function DataEditor() {
             <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
                 <tr>
-                  <th className="th w-[27%]">Название (iiko)</th>
-                  <th className="th w-[26%]">Отображаемое имя</th>
-                  <th className="th w-[19%]">Справочник <InfoTip text="«Нет в справочнике» — iiko называет компанию иначе, чем матрица, и её позиции не сопоставляются. Нажмите «Объединить»." /></th>
-                  <th className="th w-[9%] text-right">Позиций</th>
-                  <th className="th w-[9%] text-right">Закупка</th>
-                  <th className="th w-[10%] text-center">Действие</th>
+                  <th className="th w-[30%]">Название (iiko)</th>
+                  <th className="th w-[28%]">Отображаемое имя</th>
+                  <th className="th w-[20%]">Справочник <InfoTip text="«Нет в справочнике» — iiko называет компанию иначе, чем матрица, и её позиции не сопоставляются. Нажмите «Объединить»." /></th>
+                  <th className="th w-[10%] text-right">Позиций</th>
+                  <th className="th w-[12%] text-center">Действие</th>
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-[32%]">Название (iiko)</th>
-                  <th className="th w-[32%]">Отображаемое имя</th>
-                  <th className="th w-[16%] text-right">Ресторанов</th>
-                  <th className="th w-[20%] text-right">Закупка</th>
+                  <th className="th w-[38%]">Название (iiko)</th>
+                  <th className="th w-[38%]">Отображаемое имя</th>
+                  <th className="th w-[24%] text-right">Ресторанов</th>
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-[23%]">Точка</th>
-                  <th className="th w-[13%]">Город</th>
-                  <th className="th w-[15%]">Бренд</th>
-                  <th className="th w-[19%]">Юрлицо</th>
-                  <th className="th w-[12%]">Категория</th>
-                  <th className="th w-[10%] text-right">Закупка</th>
-                  <th className="th w-[8%] text-center">Действие</th>
+                  <th className="th w-[25%]">Точка</th>
+                  <th className="th w-[14%]">Город</th>
+                  <th className="th w-[16%]">Бренд</th>
+                  <th className="th w-[21%]">Юрлицо</th>
+                  <th className="th w-[14%]">Категория</th>
+                  <th className="th w-[10%] text-center">Действие</th>
                 </tr>
               )}
             </thead>
@@ -276,7 +268,6 @@ export default function DataEditor() {
                             : <span className="chip border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>}
                         </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
-                        <td className="td text-right tabnum text-slate-300">{moneyShort(s.sum)}</td>
                         <td className="td text-center">
                           {mergedTo ? (
                             <button onClick={() => unmergeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-white" title="Отменить объединение">
@@ -297,7 +288,6 @@ export default function DataEditor() {
                       <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
                       <td className="td"><EditableText value={edits.productRenames[p.name] ?? p.name} onCommit={(v) => renameProduct(p.name, v)} /></td>
                       <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
-                      <td className="td text-right tabnum text-slate-300">{moneyShort(p.sum)}</td>
                     </tr>
                   ))
                 : (shown as typeof venues).map((r) => {
@@ -314,7 +304,6 @@ export default function DataEditor() {
                         <td className="td"><EditableText value={r.brand} onCommit={(v) => setVenue(r.name, { brand: v })} className="max-w-[160px]" /></td>
                         <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[180px]" /></td>
                         <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[140px]" /></td>
-                        <td className="td text-right tabnum text-slate-300">{moneyShort(venueSpend.get(r.name) ?? 0)}</td>
                         <td className="td text-center">
                           {manual && (
                             <button onClick={() => removeVenue(r.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Удалить добавленную вручную точку">
