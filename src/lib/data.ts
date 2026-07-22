@@ -70,6 +70,7 @@ export interface Row {
   entity: string
   category: string
   supplier: string
+  supplier0: string   // original supplier name, as recorded in iiko (edit key)
   product: string
   product0: string   // original product name (edit key)
   pack: string
@@ -224,7 +225,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
-      supplier, product, product0: b.product0, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
+      supplier, supplier0: b.supplier0, product, product0: b.product0, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
       diffPct, status, designatedSuppliers,
     }
   })

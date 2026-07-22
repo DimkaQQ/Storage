@@ -28,6 +28,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const [active, setActive] = useState<Set<Status>>(new Set())
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'restaurant', dir: -1 })
   const [limit, setLimit] = useState(60)
+  const [showIiko, setShowIiko] = useState(false)
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -93,6 +94,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
+          <label className="flex shrink-0 items-center gap-2 text-sm text-slate-400">
+            <input
+              type="checkbox"
+              checked={showIiko}
+              onChange={(e) => setShowIiko(e.target.checked)}
+              className="h-4 w-4 rounded border-ink-600 bg-ink-900/60 accent-brand-500"
+            />
+            Показывать название в iiko
+          </label>
           <button onClick={exportExcel} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750">
             <IDownload width={16} height={16} /> Excel
           </button>
@@ -122,8 +132,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
 
       {/* table */}
       <div className="card overflow-hidden p-0">
-        <div>
-          <table className="w-full table-fixed">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1000px] table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[16%]">Ресторан</Th>
@@ -139,10 +149,18 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               {shown.map((r) => (
                 <tr key={r.id} className="row-hover hover:bg-ink-800/40">
                   <td className="td overflow-hidden text-slate-400"><HoverName text={r.restaurant} /></td>
-                  <td className="td overflow-hidden text-slate-300"><HoverName text={r.supplier} /></td>
+                  <td className="td overflow-hidden text-slate-300">
+                    <HoverName text={r.supplier} />
+                    {showIiko && r.supplier0 !== r.supplier && (
+                      <HoverName text={`iiko: ${r.supplier0}`} className="mt-0.5 block text-[11px] font-normal text-slate-500" />
+                    )}
+                  </td>
                   <td className="td overflow-hidden font-medium text-slate-100">
                     <HoverName text={r.product} />
                     {isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                    {showIiko && r.product0 !== r.product && (
+                      <HoverName text={`iiko: ${r.product0}`} className="mt-0.5 block text-[11px] font-normal text-slate-500" />
+                    )}
                   </td>
                   <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
                   <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
