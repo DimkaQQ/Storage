@@ -175,7 +175,6 @@ app.put('/api/edits', requireAuth, (req, res) => {
 })
 
 const EDIT_OPS = {
-  renameSupplier: (orgId, { original, name }) => editsDb.renameSupplier(orgId, original, name),
   renameProduct: (orgId, { original, name }) => editsDb.renameProduct(orgId, original, name),
   setVenue: (orgId, { restaurant, patch }) => editsDb.setVenue(orgId, restaurant, patch),
   clearVenue: (orgId, { restaurant }) => editsDb.clearVenue(orgId, restaurant),
@@ -183,6 +182,8 @@ const EDIT_OPS = {
   removeVenue: (orgId, { name }) => editsDb.removeVenue(orgId, name),
   mergeSupplier: (orgId, { rawName, canonicalName }) => editsDb.mergeSupplier(orgId, rawName, canonicalName),
   unmergeSupplier: (orgId, { rawName }) => editsDb.unmergeSupplier(orgId, rawName),
+  acknowledgeSupplier: (orgId, { rawName }) => editsDb.acknowledgeSupplier(orgId, rawName),
+  unacknowledgeSupplier: (orgId, { rawName }) => editsDb.unacknowledgeSupplier(orgId, rawName),
   reset: (orgId) => editsDb.resetEdits(orgId),
 }
 

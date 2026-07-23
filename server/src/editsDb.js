@@ -19,21 +19,19 @@ function tx(fn) {
 }
 
 db.exec(`
-  CREATE TABLE IF NOT EXISTS supplier_renames (org_id TEXT NOT NULL, original TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, original));
   CREATE TABLE IF NOT EXISTS product_renames  (org_id TEXT NOT NULL, original TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, original));
   CREATE TABLE IF NOT EXISTS venue_overrides  (org_id TEXT NOT NULL, restaurant TEXT NOT NULL, city TEXT, brand TEXT, entity TEXT, category TEXT, PRIMARY KEY (org_id, restaurant));
   CREATE TABLE IF NOT EXISTS new_venues       (org_id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, name));
   CREATE TABLE IF NOT EXISTS supplier_merges  (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, canonical_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
+  CREATE TABLE IF NOT EXISTS acknowledged_suppliers (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
 `)
 
-const TABLES = ['supplier_renames', 'product_renames', 'venue_overrides', 'new_venues', 'supplier_merges']
+const TABLES = ['product_renames', 'venue_overrides', 'new_venues', 'supplier_merges', 'acknowledged_suppliers']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
 export function getEditsForOrg(orgId) {
   migrateLegacyJsonIfNeeded(orgId)
-  const supplierRenames = Object.fromEntries(
-    db.prepare('SELECT original, name FROM supplier_renames WHERE org_id=?').all(orgId).map((r) => [r.original, r.name]))
   const productRenames = Object.fromEntries(
     db.prepare('SELECT original, name FROM product_renames WHERE org_id=?').all(orgId).map((r) => [r.original, r.name]))
   const venueOverrides = Object.fromEntries(
@@ -49,7 +47,9 @@ export function getEditsForOrg(orgId) {
     db.prepare('SELECT name FROM new_venues WHERE org_id=?').all(orgId).map((r) => [r.name, true]))
   const supplierMerges = Object.fromEntries(
     db.prepare('SELECT raw_name, canonical_name FROM supplier_merges WHERE org_id=?').all(orgId).map((r) => [r.raw_name, r.canonical_name]))
-  return { supplierRenames, productRenames, venueOverrides, newVenues, supplierMerges }
+  const acknowledgedSuppliers = Object.fromEntries(
+    db.prepare('SELECT raw_name FROM acknowledged_suppliers WHERE org_id=?').all(orgId).map((r) => [r.raw_name, true]))
+  return { productRenames, venueOverrides, newVenues, supplierMerges, acknowledgedSuppliers }
 }
 
 function hasAnyRows(orgId) {
@@ -72,12 +72,6 @@ function migrateLegacyJsonIfNeeded(orgId) {
 }
 
 /* ---------- writes: one targeted operation per call — safe under concurrent editors ---------- */
-
-export function renameSupplier(orgId, original, name) {
-  const v = String(name || '').trim()
-  if (!v || v === original) db.prepare('DELETE FROM supplier_renames WHERE org_id=? AND original=?').run(orgId, original)
-  else db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?) ON CONFLICT(org_id, original) DO UPDATE SET name=excluded.name').run(orgId, original, v)
-}
 
 export function renameProduct(orgId, original, name) {
   const v = String(name || '').trim()
@@ -124,6 +118,14 @@ export function unmergeSupplier(orgId, rawName) {
   db.prepare('DELETE FROM supplier_merges WHERE org_id=? AND raw_name=?').run(orgId, rawName)
 }
 
+export function acknowledgeSupplier(orgId, rawName) {
+  db.prepare('INSERT OR IGNORE INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, rawName)
+}
+
+export function unacknowledgeSupplier(orgId, rawName) {
+  db.prepare('DELETE FROM acknowledged_suppliers WHERE org_id=? AND raw_name=?').run(orgId, rawName)
+}
+
 export function resetEdits(orgId) {
   tx(() => { for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId) })
 }
@@ -132,8 +134,6 @@ export function resetEdits(orgId) {
 export function replaceAllEdits(orgId, e) {
   tx(() => {
     for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId)
-    for (const [original, name] of Object.entries(e.supplierRenames || {}))
-      db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, original, name)
     for (const [original, name] of Object.entries(e.productRenames || {}))
       db.prepare('INSERT INTO product_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, original, name)
     for (const [restaurant, patch] of Object.entries(e.venueOverrides || {}))
@@ -143,5 +143,7 @@ export function replaceAllEdits(orgId, e) {
       db.prepare('INSERT INTO new_venues (org_id, name) VALUES (?,?)').run(orgId, name)
     for (const [rawName, canonicalName] of Object.entries(e.supplierMerges || {}))
       db.prepare('INSERT INTO supplier_merges (org_id, raw_name, canonical_name) VALUES (?,?,?)').run(orgId, rawName, canonicalName)
+    for (const rawName of Object.keys(e.acknowledgedSuppliers || {}))
+      db.prepare('INSERT INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, rawName)
   })
 }

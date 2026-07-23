@@ -6,9 +6,9 @@ const KEY = 'pricecheck-edits-v2'
 
 function normalize(p: any): Edits {
   return {
-    supplierRenames: p?.supplierRenames ?? {},
     productRenames: p?.productRenames ?? {},
     supplierMerges: p?.supplierMerges ?? {},
+    acknowledgedSuppliers: p?.acknowledgedSuppliers ?? {},
     venueOverrides: p?.venueOverrides ?? {},
     newVenues: p?.newVenues ?? {},
   }
@@ -36,8 +36,6 @@ function diffKeys<T>(current: Record<string, T>, target: Record<string, T>): str
  * categories actually changed between `current` and `target`.
  */
 function syncUndoToServer(current: Edits, target: Edits) {
-  for (const k of diffKeys(current.supplierRenames, target.supplierRenames))
-    applyEditOp('renameSupplier', { original: k, name: target.supplierRenames[k] ?? '' })
   for (const k of diffKeys(current.productRenames, target.productRenames))
     applyEditOp('renameProduct', { original: k, name: target.productRenames[k] ?? '' })
   for (const k of diffKeys(current.venueOverrides, target.venueOverrides)) {
@@ -50,6 +48,8 @@ function syncUndoToServer(current: Edits, target: Edits) {
     target.supplierMerges[k]
       ? applyEditOp('mergeSupplier', { rawName: k, canonicalName: target.supplierMerges[k] })
       : applyEditOp('unmergeSupplier', { rawName: k })
+  for (const k of diffKeys(current.acknowledgedSuppliers, target.acknowledgedSuppliers))
+    applyEditOp(target.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k })
 }
 
 interface Ctx {
@@ -70,13 +70,14 @@ interface Ctx {
   refresh: () => Promise<void>
   reloadStatus: () => Promise<void>
   // edits
-  renameSupplier: (original: string, name: string) => void
   renameProduct: (original: string, name: string) => void
   setVenue: (restaurant: string, patch: VenuePatch) => void
   addVenue: (name: string, patch?: VenuePatch) => void
   removeVenue: (name: string) => void
   mergeSupplier: (rawName: string, canonicalName: string) => void
   unmergeSupplier: (rawName: string) => void
+  acknowledgeSupplier: (rawName: string) => void
+  unacknowledgeSupplier: (rawName: string) => void
   reset: () => void
   replaceAll: (e: Edits) => void
   undo: () => void
@@ -146,20 +147,16 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const rows = useMemo(() => computeRows(parsed.base, edits), [parsed, edits])
 
   // Set a map entry, or delete it when the value clears / equals the original.
-  const setMap = useCallback((field: 'supplierRenames' | 'productRenames') =>
-    (original: string, name: string) => {
-      const v = name.trim()
-      updateEdits((e) => {
-        const next = { ...e[field] }
-        if (!v || v === original) delete next[original]
-        else next[original] = v
-        return { ...e, [field]: next }
-      })
-      applyEditOp(field === 'supplierRenames' ? 'renameSupplier' : 'renameProduct', { original, name: v })
-    }, [updateEdits])
-
-  const renameSupplier = useMemo(() => setMap('supplierRenames'), [setMap])
-  const renameProduct = useMemo(() => setMap('productRenames'), [setMap])
+  const renameProduct = useCallback((original: string, name: string) => {
+    const v = name.trim()
+    updateEdits((e) => {
+      const next = { ...e.productRenames }
+      if (!v || v === original) delete next[original]
+      else next[original] = v
+      return { ...e, productRenames: next }
+    })
+    applyEditOp('renameProduct', { original, name: v })
+  }, [updateEdits])
 
   const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
     updateEdits((e) => {
@@ -210,15 +207,25 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('unmergeSupplier', { rawName })
   }, [updateEdits])
 
+  // «Добавить» — отмечаем, что это реально новый поставщик (не опечатка/дубликат).
+  const acknowledgeSupplier = useCallback((rawName: string) => {
+    updateEdits((e) => ({ ...e, acknowledgedSuppliers: { ...e.acknowledgedSuppliers, [rawName]: true } }))
+    applyEditOp('acknowledgeSupplier', { rawName })
+  }, [updateEdits])
+  const unacknowledgeSupplier = useCallback((rawName: string) => {
+    updateEdits((e) => { const n = { ...e.acknowledgedSuppliers }; delete n[rawName]; return { ...e, acknowledgedSuppliers: n } })
+    applyEditOp('unacknowledgeSupplier', { rawName })
+  }, [updateEdits])
+
   const reset = useCallback(() => {
     updateEdits(() => EMPTY_EDITS)
     applyEditOp('reset')
   }, [updateEdits])
   const replaceAll = useCallback((e: Edits) => {
     const next: Edits = {
-      supplierRenames: e.supplierRenames ?? {},
       productRenames: e.productRenames ?? {},
       supplierMerges: e.supplierMerges ?? {},
+      acknowledgedSuppliers: e.acknowledgedSuppliers ?? {},
       venueOverrides: e.venueOverrides ?? {},
       newVenues: e.newVenues ?? {},
     }
@@ -227,9 +234,9 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   }, [updateEdits])
 
   const editCount =
-    Object.keys(edits.supplierRenames).length +
     Object.keys(edits.productRenames).length +
     Object.keys(edits.supplierMerges).length +
+    Object.keys(edits.acknowledgedSuppliers).length +
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newVenues).length
 
@@ -243,9 +250,10 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
-    renameSupplier, renameProduct, setVenue,
+    renameProduct, setVenue,
     addVenue, removeVenue,
     mergeSupplier, unmergeSupplier,
+    acknowledgeSupplier, unacknowledgeSupplier,
     reset, replaceAll, undo, canUndo,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>

@@ -178,14 +178,14 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
  * re-implementing price entry.
  */
 export interface Edits {
-  supplierRenames: Record<string, string>  // original supplier name -> display name
   productRenames: Record<string, string>   // original product name -> display name
   supplierMerges: Record<string, string>   // iiko-имя, которого нет в справочнике -> существующий поставщик (тот же, что и...)
+  acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
 }
 export const EMPTY_EDITS: Edits = {
-  supplierRenames: {}, productRenames: {}, supplierMerges: {}, venueOverrides: {}, newVenues: {},
+  productRenames: {}, supplierMerges: {}, acknowledgedSuppliers: {}, venueOverrides: {}, newVenues: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -370,16 +370,14 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
 export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {
   const designatedIndex = buildDesignatedIndex(matching)
   return base.map((b) => {
+    // Основное название — всегда как поставщик записан в самом отчёте iiko.
+    // Их название компании из матрицы (колонка C) — отдельная серая подпись
+    // снизу, так же, как название товара из матрицы под самим товаром.
+    // Ручное объединение («это тот же поставщик, что и...») в приоритете
+    // над авто-сопоставлением, ровно как в Справочниках.
     const mergedTo = edits.supplierMerges[b.supplier0]
-    const supplierDisplay = mergedTo ?? b.supplier0
-    // Основное название — как поставщик записан в самом отчёте iiko (плюс
-    // ручное переименование в Справочниках, если оно есть, в приоритете).
-    // Их же название компании из матрицы (колонка C) идёт отдельной серой
-    // подписью снизу — так же, как названия товара из матрицы под самим
-    // товаром. Сопоставление цен (resolveRowPlan) через тот же справочник
-    // не меняется — это только про то, что видно на экране.
-    const supplier = edits.supplierRenames[supplierDisplay] ?? supplierDisplay
-    const supplierCanonical = matching.supplierAlias[norm(supplierDisplay)] ?? null
+    const supplier = b.supplier0
+    const supplierCanonical = mergedTo ?? matching.supplierAlias[norm(b.supplier0)] ?? null
     const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
