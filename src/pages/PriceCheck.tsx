@@ -51,7 +51,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ%', 'Статус', 'Должны у']
     const lines = filtered.map((r) => [
       r.restaurant, r.supplier, r.product, r.pack,
-      r.plan ?? '', Math.round(r.unit), r.diffPct != null ? Number((r.diffPct * 100).toFixed(1)) : '',
+      r.plan ?? '', r.unit, r.diffPct != null ? Number((r.diffPct * 100).toFixed(1)) : '',
       STATUS_META[r.status].label, r.designatedSuppliers.join(', '),
     ])
     const ws = XLSX.utils.aoa_to_sheet([head, ...lines])

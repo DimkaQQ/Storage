@@ -16,7 +16,6 @@ export interface MatchingTable {
   planPairs: Record<string, number>           // "restaurant::supplier::product" (norm) -> plan price
   planPairsByPack: Record<string, number>     // "restaurant::supplier::product::pack" (norm) -> plan price
   productLabels: Record<string, string>       // same keys as planPairs/planPairsByPack -> их собственное "Наименование товара" (колонка I)
-  unpriced: Record<string, string[]>          // "restaurant::supplier" -> их описания (колонка I) товаров БЕЗ цены в матрице вообще
   noPriceExact: Record<string, true>          // same keys as planPairs/planPairsByPack -> связь с iiko прописана точно, но цены (H) просто нет
 }
 export const BUNDLED_MATCHING: MatchingTable = matchingRaw as MatchingTable
@@ -46,58 +45,6 @@ const BARE_UNITS = new Set(['кг', 'шт', 'л', 'г', 'мл', 'гр', 'уп', 
 export const isPrecisePack = (pack: string) => {
   const p = normPack(pack)
   return p.length > 0 && !BARE_UNITS.has(p)
-}
-
-/**
- * Слова, слишком общие, чтобы что-то доказывать при сравнении названий
- * ("рыба", "1кг", "весовой" встречаются в сотнях разных позиций) — нужны
- * для bare-unit-fallback выше и для fuzzy-сопоставления с их же описанием
- * товара из матрицы (см. resolveRowPlan/unpriced ниже). Оставляем только
- * содержательные слова: собственно название продукта, бренд, вкус/сорт.
- */
-const GENERIC_WORDS = new Set([
-  'для', 'без', 'из', 'в', 'на', 'с', 'со', 'по', 'от', 'до', 'и', 'или', 'не', 'за', 'под', 'над', 'при', 'об', 'о',
-  'банка', 'бут', 'коробка', 'пачка', 'пакет', 'ведро', 'ящик', 'мешок', 'бидон', 'канистра',
-  'кг', 'гр', 'г', 'мл', 'л', 'литр', 'литра', 'шт', 'штук', 'уп', 'кор', 'бан', 'пач',
-  'вес', 'весовой', 'весовая', 'чистый', 'чистая', 'фасовка', 'ассортименте', 'ассорти', 'ассортимент',
-  'стафф', 'айсер', 'алель', 'охлажденка', 'охлажденный', 'охлажденная', 'премиум',
-  'россия', 'италия', 'китай', 'франция', 'испания', 'бельгия', 'турция', 'польша', 'германия',
-  // Родовые названия категории товара — сами по себе ничего не доказывают:
-  // "мука" не отличает пшеничную от фундуковой, "соус" не отличает рыбный
-  // от кетчупа, "тушка"/"стейк" — это форма разделки, а не сорт/вид. Из-за
-  // этого при первой попытке словосравнение подтягивало явно разные товары
-  // ("Рибай стейк" -> "Стейк Тибон", "Мука пшеничная" -> "Мука фундуковая").
-  'рыба', 'мясо', 'говядина', 'курица', 'свинина', 'баранина', 'конина',
-  'морепродукты', 'соус', 'мука', 'паста', 'крупа', 'тушка', 'стейк', 'филе', 'колбаски', 'специи', 'приправа',
-  'ягода', 'овощи', 'фрукты', 'зелень', 'молоко', 'потрошеный', 'потрошенный', 'непотрашеный', 'разделка', 'бесплатно',
-])
-// Русская морфология даёт много форм одного родового слова ("куриный/куриная
-// /куриное/куриные/куриного…") — точным списком все не перечислить, поэтому
-// отсекаем ещё и по началу слова (длина проверена, чтобы не задеть похожие
-// по началу, но другие по смыслу слова вроде "курага").
-const GENERIC_STEMS = ['курин', 'куриц', 'рыбн', 'мясн', 'говяж', 'свин', 'баран', 'конин']
-/** Значимые слова строки для сравнения "похоже по смыслу" — короткие/числовые/служебные не считаются. */
-function meaningfulWords(s: string): Set<string> {
-  const words = norm(s).replace(/[^a-zа-я0-9]+/g, ' ').split(' ')
-  return new Set(words.filter((w) =>
-    w.length >= 4 && !/^\d+$/.test(w) && !GENERIC_WORDS.has(w) && !GENERIC_STEMS.some((stem) => w.startsWith(stem)),
-  ))
-}
-
-/**
- * Общее слово ("оливки") ещё не значит "тот же товар" — "б/к" (без кости/
- * косточки) и "с костью" прямо противоречат друг другу, а совпадение по
- * словам это не ловит. Явное противоречие — сильнее любого совпадения слов,
- * отменяет матч, даже если остальные слова совпали.
- */
-function boneMarker(s: string): 'boneless' | 'bone' | null {
-  // \b не работает с кириллицей в JS-регексах (word-boundary завязан на
-  // ASCII \w) — поэтому просто ищем подстроку, "б/к" достаточно самобытная
-  // аббревиатура, чтобы не всплыть случайно внутри другого слова.
-  const t = norm(s)
-  if (t.includes('б/к') || /без\s+кост/.test(t)) return 'boneless'
-  if (/с\s+кост/.test(t) || /на\s+кост/.test(t)) return 'bone'
-  return null
 }
 
 /** Raw purchase fact as extracted from the iiko report. */
@@ -309,29 +256,6 @@ function resolveRowPlan(b: BaseRow, matching: MatchingTable, designatedIndex: De
     return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true }
   }
 
-  // Поставщик числится в их матрице (столбец C) и там есть строка с описанием
-  // именно такого товара (столбец I) — просто без цены вообще (у King Fresh
-  // так записан лосось при Рене: цена плавает каждую неделю, статичной цены
-  // никогда и не было). Раз ресторан явно заказал у ИХ ЖЕ поставщика то, что
-  // ИХ ЖЕ описание называет тем же товаром — это заказ по матрице, только без
-  // плановой цены для сравнения. Сравниваем по значимым словам (без стоп-слов
-  // вроде единиц/тары/страны) — единственное совпадение на общем слове вроде
-  // "рыба" ничего не докажет, поэтому такие слова в сравнении не участвуют.
-  const unpricedCandidates = matching.unpriced[`${restaurant}::${supplierCanon}`]
-  if (unpricedCandidates && unpricedCandidates.length > 0) {
-    const productWords = meaningfulWords(b.product0)
-    const productBone = boneMarker(b.product0)
-    if (productWords.size > 0) {
-      for (const candidate of unpricedCandidates) {
-        if (productBone && boneMarker(candidate) && productBone !== boneMarker(candidate)) continue
-        const candidateWords = meaningfulWords(candidate)
-        if ([...productWords].some((w) => candidateWords.has(w))) {
-          return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: candidate, unpricedMatch: true }
-        }
-      }
-    }
-  }
-
   // No price for THIS exact (supplier, pack) combo. Who's designated for
   // THIS EXACT variant (pack included) matters — e.g. Ayakaz and Alga73 both
   // price "Ягода импортная" for Сирена, but only for малина/голубика/ежевика;
@@ -518,10 +442,13 @@ export function groupBy(rows: Row[], key: (r: Row) => string) {
 
 const nf = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
+// План/факт — точная сумма как есть, без округления до целого тенге
+// (округляем только когда сумма и так целая — 2 знака максимум, не всегда).
+const nfMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
 
 export const fmt = (n: number) => nf.format(Math.round(n))
 export const fmt1 = (n: number) => nf1.format(n)
-export const money = (n: number) => nf.format(Math.round(n)) + ' ₸'
+export const money = (n: number) => nfMoney.format(n) + ' ₸'
 export const pct = (n: number) => (n >= 0 ? '+' : '') + nf1.format(n * 100) + '%'
 
 /** Russian plural selector: plural(n, 'правка', 'правки', 'правок'). */
