@@ -17,6 +17,7 @@ export interface MatchingTable {
   planPairsByPack: Record<string, number>     // "restaurant::supplier::product::pack" (norm) -> plan price
   productLabels: Record<string, string>       // same keys as planPairs/planPairsByPack -> их собственное "Наименование товара" (колонка I)
   unpriced: Record<string, string[]>          // "restaurant::supplier" -> их описания (колонка I) товаров БЕЗ цены в матрице вообще
+  noPriceExact: Record<string, true>          // same keys as planPairs/planPairsByPack -> связь с iiko прописана точно, но цены (H) просто нет
 }
 export const BUNDLED_MATCHING: MatchingTable = matchingRaw as MatchingTable
 
@@ -134,6 +135,7 @@ export interface Row {
   entity: string
   category: string
   supplier: string
+  supplierLabel: string | null  // их название компании из матрицы (колонка C), когда отличается от того, что пишет iiko
   product: string
   productLabel: string | null  // их собственное "Наименование товара" из матрицы (только когда status === 'ok')
   pack: string
@@ -214,7 +216,8 @@ const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены �
  */
 interface DesignatedIndex {
   byPack: Map<string, Set<string>>     // "restaurant::product::pack" -> suppliers priced for exactly this variant
-  byProduct: Map<string, Set<string>>  // "restaurant::product" -> suppliers priced for this product, any pack
+  byProduct: Map<string, Set<string>>  // "restaurant::product" -> suppliers priced for this product, any pack — used when the FACT itself has no pack to be precise about
+  byProductFlatOnly: Map<string, Set<string>>  // "restaurant::product" -> suppliers designated WITHOUT a specific pack (matrix never split them by fasovka) — genuinely pack-agnostic, unlike byProduct which also includes pack-specific suppliers
   bySupplierProduct: Map<string, Set<string>>  // "restaurant::supplier::product" -> pack variants THIS supplier has priced
 }
 
@@ -222,6 +225,7 @@ interface DesignatedIndex {
 function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
   const byPack = new Map<string, Set<string>>()
   const byProduct = new Map<string, Set<string>>()
+  const byProductFlatOnly = new Map<string, Set<string>>()
   const bySupplierProduct = new Map<string, Set<string>>()
   const add = (map: Map<string, Set<string>>, k: string, v: string) => {
     const set = map.get(k) ?? new Set<string>()
@@ -231,6 +235,7 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
   for (const key of Object.keys(matching.planPairs)) {
     const [restaurant, supplier, product] = key.split('::')
     add(byProduct, `${restaurant}::${product}`, supplier)
+    add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
   }
   for (const key of Object.keys(matching.planPairsByPack)) {
     const [restaurant, supplier, product, pack] = key.split('::')
@@ -238,7 +243,20 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
     add(byPack, `${restaurant}::${product}::${pack}`, supplier)
     add(bySupplierProduct, `${restaurant}::${supplier}::${product}`, pack)
   }
-  return { byPack, byProduct, bySupplierProduct }
+  // Поставщик с точной iiko-привязкой, но без цены (см. noPriceExact в
+  // resolveRowPlan) — всё равно признанный, назначенный поставщик для этого
+  // товара, так что должен попадать в список "должны" наравне с
+  // прайсованными. НЕ добавляем его в bySupplierProduct — та карта только
+  // про прайсованные варианты фасовки, иначе можно случайно испортить
+  // bare-pack-фолбэк выше (посчитать вариантов больше, чем реально прайсовано).
+  for (const key of Object.keys(matching.noPriceExact)) {
+    const parts = key.split('::')
+    const [restaurant, supplier, product, pack] = parts
+    add(byProduct, `${restaurant}::${product}`, supplier)
+    if (parts.length === 4) add(byPack, `${restaurant}::${product}::${pack}`, supplier)
+    else add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
+  }
+  return { byPack, byProduct, byProductFlatOnly, bySupplierProduct }
 }
 
 function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
@@ -262,24 +280,40 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const plan = matching.planPairs[pairKey]
   if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[pairKey] ?? null, unpricedMatch: false }
 
-  // iiko иногда пишет для факта голую единицу ("л", "кг"…), а в матрице этот
-  // же товар у этого же поставщика продаётся только под одной фасовкой, где
-  // помимо размера ещё и бренд ("«чудское озеро» 1л" вместо просто "л" —
-  // Fresh Frozen продаёт при Рене только эти сливки). Раз у поставщика тут
-  // ровно ОДИН вариант фасовки — гадать не нужно, это может быть только он,
-  // но только если цена сошлась ТОЧНО: это и есть доказательство, а не
-  // совпадение. Малейшее расхождение в цене — не совпадение, оставляем как
-  // есть, а не подгоняем (ровно то, из-за чего был баг с Ayakaz).
-  if (pack && BARE_UNITS.has(pack)) {
+  // Текст фасовки у факта и у матрицы может не совпасть буквально по кучe
+  // причин, которые не про разный товар: iiko иногда пишет голую единицу
+  // ("л", "кг") вместо полной фасовки с брендом ("«чудское озеро» 1л"), а для
+  // весовых товаров (сыр, колбаса) конкретный вес куска каждый раз свой
+  // ("1*1.328" против "1*.886") — но цена всё равно за кг, поэтому она
+  // одинаковая. Раз у поставщика тут ровно ОДИН вариант фасовки — гадать не
+  // нужно, это может быть только он, но только если цена сошлась ТОЧНО: это
+  // и есть доказательство, а не совпадение. Малейшее расхождение в цене — не
+  // совпадение, оставляем как есть, а не подгоняем (ровно то, из-за чего был
+  // баг с Ayakaz). Сравниваем В ПРОЦЕНТАХ, а не в тенге: округление qty/sum
+  // при делении на количество даёт разницу в доли тенге даже для той же самой
+  // цены (16305 против 16305.88 — это те же самые оливки, просто округление),
+  // а фиксированный порог в тенге ломается на дорогих позициях.
+  if (pack) {
     const variants = designatedIndex.bySupplierProduct.get(pairKey)
     if (variants && variants.size === 1) {
       const onlyPack = [...variants][0]
       const candidateKey = `${pairKey}::${onlyPack}`
       const candidatePlan = matching.planPairsByPack[candidateKey]
-      if (candidatePlan != null && Math.abs(candidatePlan - b.unit) < 0.01) {
+      if (candidatePlan != null && Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
         return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[candidateKey] ?? null, unpricedMatch: false }
       }
     }
+  }
+
+  // Связь с iiko прописана в матрице ТОЧНО (их же название поставщика и
+  // товара), просто цена (H) не заполнена — например "Агрофирма Курминское
+  // яйцо" продаёт им "Яйцо куриное" один в один как в iiko, только без
+  // цены. Точное совпадение имени — не нужно гадать по словам, как ниже.
+  if (pack && matching.noPriceExact[`${pairKey}::${pack}`]) {
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true }
+  }
+  if (matching.noPriceExact[pairKey]) {
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true }
   }
 
   // Поставщик числится в их матрице (столбец C) и там есть строка с описанием
@@ -310,12 +344,21 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // price "Ягода импортная" for Сирена, but only for малина/голубика/ежевика;
   // neither has клубника priced there. Checking product-level only would
   // wrongly call that "wrong supplier" (Alga73!) instead of "not in the
-  // matrix at all for this variant". So: prefer the pack-specific designated
-  // set when a pack is given; only fall back to the product-level set for
-  // packless items.
-  const designated = pack
-    ? designatedIndex.byPack.get(`${restaurant}::${product}::${pack}`)
-    : designatedIndex.byProduct.get(`${restaurant}::${product}`)
+  // matrix at all for this variant". So: for a packed fact, use ONLY the
+  // pack-specific set, unioned with suppliers who are genuinely pack-agnostic
+  // in the matrix (byProductFlatOnly — e.g. "Агрофирма Курминское яйцо"
+  // never got split by fasovka at all, so they're designated regardless of
+  // what pack this particular purchase happens to show) — but never suppliers
+  // who are ONLY priced for some *other specific* pack. Packless facts fall
+  // back to the broad byProduct set, same as before.
+  let designated: Set<string> | undefined
+  if (pack) {
+    const packSpecific = designatedIndex.byPack.get(`${restaurant}::${product}::${pack}`)
+    const flatOnly = designatedIndex.byProductFlatOnly.get(`${restaurant}::${product}`)
+    if (packSpecific || flatOnly) designated = new Set([...(packSpecific ?? []), ...(flatOnly ?? [])])
+  } else {
+    designated = designatedIndex.byProduct.get(`${restaurant}::${product}`)
+  }
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
     if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false }
@@ -329,12 +372,15 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
   return base.map((b) => {
     const mergedTo = edits.supplierMerges[b.supplier0]
     const supplierDisplay = mergedTo ?? b.supplier0
-    // По умолчанию показываем название так, как оно записано в их матрице
-    // (колонка C, "Наименование поставщика основного"), а не как в iiko —
-    // ручное переименование в Справочниках, если оно есть, всё равно в
-    // приоритете. Сопоставление цен (resolveRowPlan) через тот же справочник
+    // Основное название — как поставщик записан в самом отчёте iiko (плюс
+    // ручное переименование в Справочниках, если оно есть, в приоритете).
+    // Их же название компании из матрицы (колонка C) идёт отдельной серой
+    // подписью снизу — так же, как названия товара из матрицы под самим
+    // товаром. Сопоставление цен (resolveRowPlan) через тот же справочник
     // не меняется — это только про то, что видно на экране.
-    const supplier = edits.supplierRenames[supplierDisplay] ?? matching.supplierAlias[norm(supplierDisplay)] ?? supplierDisplay
+    const supplier = edits.supplierRenames[supplierDisplay] ?? supplierDisplay
+    const supplierCanonical = matching.supplierAlias[norm(supplierDisplay)] ?? null
+    const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
     const { plan, status, designatedSuppliers, productLabel, unpricedMatch } = resolveRowPlan(b, edits, matching, designatedIndex)
@@ -346,7 +392,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
-      supplier, product, productLabel, pack: b.pack, qty: b.qty, unit: b.unit, plan,
+      supplier, supplierLabel, product, productLabel, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers, note,
     }
   })

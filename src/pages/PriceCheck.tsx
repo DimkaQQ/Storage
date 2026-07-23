@@ -129,8 +129,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               {shown.map((r) => (
                 <tr key={r.id} className="row-hover hover:bg-ink-800/40">
                   <td className="td overflow-hidden px-2 text-slate-400"><HoverName text={r.restaurant} /></td>
-                  <td className="td overflow-hidden px-2 text-slate-300">
+                  <td className="td overflow-hidden px-2 font-medium text-slate-100">
                     <HoverName text={r.supplier} />
+                    {r.supplierLabel && <HoverName text={r.supplierLabel} className="block text-[11px] font-normal text-slate-500" />}
                   </td>
                   <td className="td overflow-hidden px-2 font-medium text-slate-100">
                     <HoverName text={r.product} />
@@ -146,12 +147,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     {r.diffPct != null ? pct(r.diffPct) : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="td overflow-hidden">
-                    <span className="inline-flex items-center gap-1.5">
-                      <StatusBadge status={r.status} />
-                      {r.note && <InfoTip text={r.note} align="left" />}
-                    </span>
+                    <StatusBadge status={r.status} />
                     {r.status === 'wrongSupplier' && r.designatedSuppliers.length > 0 && (
                       <HoverName text={`должны: ${r.designatedSuppliers.join(', ')}`} className="mt-0.5 block text-[11px] text-slate-500" />
+                    )}
+                    {r.note && (
+                      <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
+                        <InfoTip text={r.note} align="left" />
+                        <span>комментарий</span>
+                      </div>
                     )}
                   </td>
                 </tr>
