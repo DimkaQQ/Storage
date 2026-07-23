@@ -83,6 +83,22 @@ function meaningfulWords(s: string): Set<string> {
   ))
 }
 
+/**
+ * Общее слово ("оливки") ещё не значит "тот же товар" — "б/к" (без кости/
+ * косточки) и "с костью" прямо противоречат друг другу, а совпадение по
+ * словам это не ловит. Явное противоречие — сильнее любого совпадения слов,
+ * отменяет матч, даже если остальные слова совпали.
+ */
+function boneMarker(s: string): 'boneless' | 'bone' | null {
+  // \b не работает с кириллицей в JS-регексах (word-boundary завязан на
+  // ASCII \w) — поэтому просто ищем подстроку, "б/к" достаточно самобытная
+  // аббревиатура, чтобы не всплыть случайно внутри другого слова.
+  const t = norm(s)
+  if (t.includes('б/к') || /без\s+кост/.test(t)) return 'boneless'
+  if (/с\s+кост/.test(t) || /на\s+кост/.test(t)) return 'bone'
+  return null
+}
+
 /** Raw purchase fact as extracted from the iiko report. */
 interface RawItem {
   s: string  // supplier (as in iiko)
@@ -277,8 +293,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const unpricedCandidates = matching.unpriced[`${restaurant}::${supplierCanon}`]
   if (unpricedCandidates && unpricedCandidates.length > 0) {
     const productWords = meaningfulWords(b.product0)
+    const productBone = boneMarker(b.product0)
     if (productWords.size > 0) {
       for (const candidate of unpricedCandidates) {
+        if (productBone && boneMarker(candidate) && productBone !== boneMarker(candidate)) continue
         const candidateWords = meaningfulWords(candidate)
         if ([...productWords].some((w) => candidateWords.has(w))) {
           return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: candidate, unpricedMatch: true }
