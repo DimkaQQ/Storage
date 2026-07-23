@@ -248,11 +248,22 @@ export interface Parsed {
   category: string
 }
 
+/**
+ * Временное ограничение: пока в приложении включена и хорошо перепроверена
+ * только Рене — остальные точки скрыты везде (Обзор, Проверка цен,
+ * Справочники), пока их так же не перепроверят. Чтобы вернуть все точки,
+ * достаточно поставить сюда null.
+ */
+const RESTAURANT_SCOPE: string[] | null = ['Рене']
+
 /** Parses a raw dataset (bundled seed or fresh from the backend) into app structures. */
 export function parseDataset(data: RawDataset): Parsed {
   let seq = 0
   const base: BaseRow[] = []
-  for (const r of data.restaurants || []) {
+  const restaurantsIn = RESTAURANT_SCOPE
+    ? (data.restaurants || []).filter((r) => RESTAURANT_SCOPE.includes(r.name))
+    : (data.restaurants || [])
+  for (const r of restaurantsIn) {
     for (const it of r.items || []) {
       if (it.m < MIN_TURNOVER || it.q <= 0) continue
       base.push({
@@ -281,7 +292,7 @@ export function parseDataset(data: RawDataset): Parsed {
     base,
     suppliers: [...sm.values()].sort((a, b) => b.sum - a.sum),
     products: [...pm.values()].sort((a, b) => b.sum - a.sum),
-    restaurants: (data.restaurants || []).map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category })),
+    restaurants: restaurantsIn.map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category })),
     period: data.periodLabel,
     city: data.city,
     category: data.category,
