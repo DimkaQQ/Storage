@@ -1,21 +1,11 @@
 import { useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Row, Status, STATUS_META, money, pct, fmt, summarize } from '../lib/data'
+import { Row, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
 import { StatusBadge } from '../components/ui'
 import HoverName from '../components/HoverName'
 import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct'
-
-// Голая единица измерения ("кг", "шт", "л"…) ничего не уточняет — не показываем.
-// А вот "вишня", "бут. 1,5л.", конкретный бренд/объём — то самое более точное
-// обозначение, которое реально отличает товар (например разные вкусы одного
-// названия "Ягода с/м в асс").
-const BARE_UNITS = new Set(['кг', 'шт', 'л', 'г', 'мл', 'гр', 'уп', 'шт.', 'кор', 'бан', 'пач'])
-const isPrecisePack = (pack: string) => {
-  const p = pack.trim().toLowerCase().replace(/\.$/, '')
-  return p.length > 0 && !BARE_UNITS.has(p)
-}
 
 const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'ok', label: 'По матрице' },

@@ -37,6 +37,15 @@ const normPack = (s: string) => {
   return p
 }
 
+// Голая единица измерения ("кг", "шт", "л"…) ничего не уточняет — ни для
+// показа (не выносим её отдельной строкой под товаром), ни для сопоставления
+// (см. bare-unit fallback в resolveRowPlan ниже).
+const BARE_UNITS = new Set(['кг', 'шт', 'л', 'г', 'мл', 'гр', 'уп', 'кор', 'бан', 'пач'])
+export const isPrecisePack = (pack: string) => {
+  const p = normPack(pack)
+  return p.length > 0 && !BARE_UNITS.has(p)
+}
+
 /** Raw purchase fact as extracted from the iiko report. */
 interface RawItem {
   s: string  // supplier (as in iiko)
@@ -148,15 +157,17 @@ interface Resolved { plan: number | null; status: Status; designatedSuppliers: s
 interface DesignatedIndex {
   byPack: Map<string, Set<string>>     // "restaurant::product::pack" -> suppliers priced for exactly this variant
   byProduct: Map<string, Set<string>>  // "restaurant::product" -> suppliers priced for this product, any pack
+  bySupplierProduct: Map<string, Set<string>>  // "restaurant::supplier::product" -> pack variants THIS supplier has priced
 }
 
 /** Built once per matching table, not per row. */
 function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
   const byPack = new Map<string, Set<string>>()
   const byProduct = new Map<string, Set<string>>()
-  const add = (map: Map<string, Set<string>>, k: string, supplier: string) => {
+  const bySupplierProduct = new Map<string, Set<string>>()
+  const add = (map: Map<string, Set<string>>, k: string, v: string) => {
     const set = map.get(k) ?? new Set<string>()
-    set.add(supplier)
+    set.add(v)
     map.set(k, set)
   }
   for (const key of Object.keys(matching.planPairs)) {
@@ -167,8 +178,9 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
     const [restaurant, supplier, product, pack] = key.split('::')
     add(byProduct, `${restaurant}::${product}`, supplier)
     add(byPack, `${restaurant}::${product}::${pack}`, supplier)
+    add(bySupplierProduct, `${restaurant}::${supplier}::${product}`, pack)
   }
-  return { byPack, byProduct }
+  return { byPack, byProduct, bySupplierProduct }
 }
 
 function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
@@ -191,6 +203,26 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   }
   const plan = matching.planPairs[pairKey]
   if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[pairKey] ?? null }
+
+  // iiko иногда пишет для факта голую единицу ("л", "кг"…), а в матрице этот
+  // же товар у этого же поставщика продаётся только под одной фасовкой, где
+  // помимо размера ещё и бренд ("«чудское озеро» 1л" вместо просто "л" —
+  // Fresh Frozen продаёт при Рене только эти сливки). Раз у поставщика тут
+  // ровно ОДИН вариант фасовки — гадать не нужно, это может быть только он,
+  // но только если цена сошлась ТОЧНО: это и есть доказательство, а не
+  // совпадение. Малейшее расхождение в цене — не совпадение, оставляем как
+  // есть, а не подгоняем (ровно то, из-за чего был баг с Ayakaz).
+  if (pack && BARE_UNITS.has(pack)) {
+    const variants = designatedIndex.bySupplierProduct.get(pairKey)
+    if (variants && variants.size === 1) {
+      const onlyPack = [...variants][0]
+      const candidateKey = `${pairKey}::${onlyPack}`
+      const candidatePlan = matching.planPairsByPack[candidateKey]
+      if (candidatePlan != null && Math.abs(candidatePlan - b.unit) < 0.01) {
+        return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[candidateKey] ?? null }
+      }
+    }
+  }
 
   // No price for THIS exact (supplier, pack) combo. Who's designated for
   // THIS EXACT variant (pack included) matters — e.g. Ayakaz and Alga73 both
