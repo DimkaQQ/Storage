@@ -37,7 +37,7 @@ export default function DataEditor() {
   const mergeCandidates = useMemo(() => {
     const byName = new Map(suppliersBase.map((s) => [s.name, s]))
     for (const canon of new Set(Object.values(BUNDLED_MATCHING.supplierAlias)))
-      if (!byName.has(canon)) byName.set(canon, { name: canon, count: 0, sum: 0, isNew: false })
+      if (!byName.has(canon)) byName.set(canon, { name: canon, count: 0, isNew: false })
     return [...byName.values()]
   }, [suppliersBase])
 

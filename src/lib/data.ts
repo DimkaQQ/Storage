@@ -75,7 +75,6 @@ export interface Row {
   product0: string   // original product name (edit key)
   pack: string
   qty: number
-  sum: number
   unit: number
   plan: number | null
   diffPct: number | null   // (unit - plan)/plan — informational only, no overpay/saving concept
@@ -225,7 +224,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
-      supplier, supplier0: b.supplier0, product, product0: b.product0, pack: b.pack, qty: b.qty, sum: b.sum, unit: b.unit, plan,
+      supplier, supplier0: b.supplier0, product, product0: b.product0, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers,
     }
   })
@@ -233,8 +232,8 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
 
 /* ---------- reference lists for the editor ---------- */
 
-export interface SupplierAgg { name: string; count: number; sum: number; isNew: boolean }
-export interface ProductAgg { name: string; count: number; sum: number; restaurantCount: number }
+export interface SupplierAgg { name: string; count: number; isNew: boolean }
+export interface ProductAgg { name: string; count: number; restaurantCount: number }
 export interface VenueMeta { name: string; entity: string; brand: string; city: string; category: string }
 
 /** Everything derived from a dataset — parsed once, either from the bundle or the API. */
@@ -278,10 +277,10 @@ export function parseDataset(data: RawDataset): Parsed {
   const pm = new Map<string, ProductAgg>()
   const prm = new Map<string, Set<string>>()
   for (const b of base) {
-    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, sum: 0, isNew: BUNDLED_MATCHING.supplierAlias[norm(b.supplier0)] == null }
-    s.count++; s.sum += b.sum; sm.set(b.supplier0, s)
-    const p = pm.get(b.product0) || { name: b.product0, count: 0, sum: 0, restaurantCount: 0 }
-    p.count++; p.sum += b.sum
+    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, isNew: BUNDLED_MATCHING.supplierAlias[norm(b.supplier0)] == null }
+    s.count++; sm.set(b.supplier0, s)
+    const p = pm.get(b.product0) || { name: b.product0, count: 0, restaurantCount: 0 }
+    p.count++
     pm.set(b.product0, p)
     const rset = prm.get(b.product0) || new Set<string>()
     rset.add(b.restaurant)
@@ -290,8 +289,8 @@ export function parseDataset(data: RawDataset): Parsed {
   for (const p of pm.values()) p.restaurantCount = prm.get(p.name)?.size ?? 0
   return {
     base,
-    suppliers: [...sm.values()].sort((a, b) => b.sum - a.sum),
-    products: [...pm.values()].sort((a, b) => b.sum - a.sum),
+    suppliers: [...sm.values()].sort((a, b) => b.count - a.count),
+    products: [...pm.values()].sort((a, b) => b.count - a.count),
     restaurants: restaurantsIn.map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category })),
     period: data.periodLabel,
     city: data.city,
@@ -367,13 +366,6 @@ const nf1 = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
 export const fmt = (n: number) => nf.format(Math.round(n))
 export const fmt1 = (n: number) => nf1.format(n)
 export const money = (n: number) => nf.format(Math.round(n)) + ' ₸'
-export function moneyShort(n: number) {
-  const a = Math.abs(n)
-  const sign = n < 0 ? '−' : ''
-  if (a >= 1_000_000) return `${sign}${nf1.format(a / 1_000_000)} млн ₸`
-  if (a >= 1_000) return `${sign}${nf.format(Math.round(a / 1000))} тыс ₸`
-  return `${sign}${nf.format(Math.round(a))} ₸`
-}
 export const pct = (n: number) => (n >= 0 ? '+' : '') + nf1.format(n * 100) + '%'
 
 /** Russian plural selector: plural(n, 'правка', 'правки', 'правок'). */

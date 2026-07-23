@@ -7,7 +7,7 @@ import { IClose, ISearch, ISpark } from './icons'
 /** «Это тот же поставщик, что и...» — объединить неопознанную компанию с уже известной. */
 export default function SupplierMergeModal({ target, suppliers, onClose, onPick }: {
   target: { name: string }
-  suppliers: { name: string; count: number; sum: number }[]
+  suppliers: { name: string; count: number }[]
   onClose: () => void
   onPick: (canonicalName: string) => void
 }) {
