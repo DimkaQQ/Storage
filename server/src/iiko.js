@@ -21,7 +21,7 @@ function mockFacts() {
   const facts = []
   for (const r of seed.restaurants || [])
     for (const it of r.items || [])
-      facts.push({ restaurant: r.name, supplier: it.s, product: it.p, pack: it.k, qty: it.q, sum: it.m })
+      facts.push({ restaurant: r.name, supplier: it.s, product: it.p, pack: it.k, qty: it.q, sum: it.m, comment: it.c })
   return facts
 }
 

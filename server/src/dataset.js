@@ -29,6 +29,7 @@ export function buildDataset(facts, venues) {
         k: f.pack || '',
         q: Math.round(f.qty * 1000) / 1000,
         m: Math.round(f.sum * 100) / 100,
+        ...(f.comment ? { c: f.comment } : {}),
       })),
     }
   })
