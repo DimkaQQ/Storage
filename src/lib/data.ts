@@ -47,6 +47,35 @@ export const isPrecisePack = (pack: string) => {
   return p.length > 0 && !BARE_UNITS.has(p)
 }
 
+/**
+ * Их же описание товара (столбец I) — просто человекочитаемый текст и
+ * иногда противоречит их же названию из iiko (D/E): например факт "Рыба
+ * лосось... с/м." (свежемороженая), а их описание — "охлажденка"; или факт
+ * "оливки б/к." (без косточки), а их описание — "с косточкой". Привязка
+ * (D/E) при этом точная, так что план верный, но показывать противоречащую
+ * подпись под товаром — вводить в заблуждение, лучше вообще без подписи.
+ */
+function freezeState(s: string): 'frozen' | 'chilled' | null {
+  const t = norm(s)
+  if (t.includes('с/м') || t.includes('свежемороже') || t.includes('заморож')) return 'frozen'
+  if (t.includes('охлажд')) return 'chilled'
+  return null
+}
+function boneState(s: string): 'boneless' | 'bone' | null {
+  const t = norm(s)
+  if (t.includes('б/к') || /без\s+кост/.test(t)) return 'boneless'
+  if (/с\s+кост/.test(t) || /на\s+кост/.test(t)) return 'bone'
+  return null
+}
+function safeLabel(product: string, label: string | null | undefined): string | null {
+  if (!label) return null
+  const pf = freezeState(product), lf = freezeState(label)
+  if (pf && lf && pf !== lf) return null
+  const pb = boneState(product), lb = boneState(label)
+  if (pb && lb && pb !== lb) return null
+  return label
+}
+
 /** Raw purchase fact as extracted from the iiko report. */
 interface RawItem {
   s: string  // supplier (as in iiko)
@@ -215,10 +244,10 @@ function resolveRowPlan(b: BaseRow, matching: MatchingTable, designatedIndex: De
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
-    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[tripleKey] ?? null, unpricedMatch: false }
+    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false }
   }
   const plan = matching.planPairs[pairKey]
-  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[pairKey] ?? null, unpricedMatch: false }
+  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false }
 
   // Текст фасовки у факта и у матрицы может не совпасть буквально по кучe
   // причин, которые не про разный товар: iiko иногда пишет голую единицу
@@ -240,7 +269,7 @@ function resolveRowPlan(b: BaseRow, matching: MatchingTable, designatedIndex: De
       const candidateKey = `${pairKey}::${onlyPack}`
       const candidatePlan = matching.planPairsByPack[candidateKey]
       if (candidatePlan != null && Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
-        return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[candidateKey] ?? null, unpricedMatch: false }
+        return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false }
       }
     }
   }
