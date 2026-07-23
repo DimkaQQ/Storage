@@ -15,6 +15,7 @@ export interface MatchingTable {
   supplierAlias: Record<string, string>       // iiko supplier name (norm) -> canonical supplier name
   planPairs: Record<string, number>           // "restaurant::supplier::product" (norm) -> plan price
   planPairsByPack: Record<string, number>     // "restaurant::supplier::product::pack" (norm) -> plan price
+  productLabels: Record<string, string>       // same keys as planPairs/planPairsByPack -> их собственное "Наименование товара" (колонка I)
 }
 export const BUNDLED_MATCHING: MatchingTable = matchingRaw as MatchingTable
 
@@ -71,6 +72,7 @@ export interface Row {
   category: string
   supplier: string
   product: string
+  productLabel: string | null  // их собственное "Наименование товара" из матрицы (только когда status === 'ok')
   pack: string
   qty: number
   unit: number
@@ -131,7 +133,7 @@ export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta
   return added.length ? [...restaurants, ...added] : restaurants
 }
 
-interface Resolved { plan: number | null; status: Status; designatedSuppliers: string[] }
+interface Resolved { plan: number | null; status: Status; designatedSuppliers: string[]; productLabel: string | null }
 
 /**
  * Resolves plan + status for one purchased line, entirely client-side:
@@ -185,10 +187,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
-    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [] }
+    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[tripleKey] ?? null }
   }
   const plan = matching.planPairs[pairKey]
-  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [] }
+  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[pairKey] ?? null }
 
   // No price for THIS exact (supplier, pack) combo. Who's designated for
   // THIS EXACT variant (pack included) matters — e.g. Ayakaz and Alga73 both
@@ -203,9 +205,9 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
     : designatedIndex.byProduct.get(`${restaurant}::${product}`)
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [] }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null }
 }
 
 /** Builds display rows by applying edits and resolving plan/status. */
@@ -222,12 +224,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplier = edits.supplierRenames[supplierDisplay] ?? matching.supplierAlias[norm(supplierDisplay)] ?? supplierDisplay
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers, productLabel } = resolveRowPlan(b, edits, matching, designatedIndex)
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
-      supplier, product, pack: b.pack, qty: b.qty, unit: b.unit, plan,
+      supplier, product, productLabel, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers,
     }
   })

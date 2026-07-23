@@ -144,7 +144,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   </td>
                   <td className="td overflow-hidden px-2 font-medium text-slate-100">
                     <HoverName text={r.product} />
-                    {isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                    {r.productLabel ? (
+                      <HoverName text={r.productLabel} className="block text-[11px] font-normal text-slate-500" />
+                    ) : (
+                      isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />
+                    )}
                   </td>
                   <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
                   <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
