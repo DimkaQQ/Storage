@@ -179,13 +179,12 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
  */
 export interface Edits {
   productRenames: Record<string, string>   // original product name -> display name
-  supplierMerges: Record<string, string>   // iiko-имя, которого нет в справочнике -> существующий поставщик (тот же, что и...)
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
 }
 export const EMPTY_EDITS: Edits = {
-  productRenames: {}, supplierMerges: {}, acknowledgedSuppliers: {}, venueOverrides: {}, newVenues: {},
+  productRenames: {}, acknowledgedSuppliers: {}, venueOverrides: {}, newVenues: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -259,14 +258,8 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
   return { byPack, byProduct, byProductFlatOnly, bySupplierProduct }
 }
 
-function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
-  const mergedTo = edits.supplierMerges[b.supplier0]
-  // A merge target might itself be a raw iiko name with its own справочник alias
-  // (not yet the true canonical matrix name) — resolve through the alias table
-  // either way, so merging to *either* form reaches the same matrix bucket.
-  const supplierCanon = mergedTo
-    ? norm(matching.supplierAlias[norm(mergedTo)] ?? mergedTo)
-    : norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
+function resolveRowPlan(b: BaseRow, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
+  const supplierCanon = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
   const restaurant = norm(b.restaurant)
   const product = norm(b.product0)
   const pack = normPack(b.pack)
@@ -373,15 +366,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     // Основное название — всегда как поставщик записан в самом отчёте iiko.
     // Их название компании из матрицы (колонка C) — отдельная серая подпись
     // снизу, так же, как название товара из матрицы под самим товаром.
-    // Ручное объединение («это тот же поставщик, что и...») в приоритете
-    // над авто-сопоставлением, ровно как в Справочниках.
-    const mergedTo = edits.supplierMerges[b.supplier0]
     const supplier = b.supplier0
-    const supplierCanonical = mergedTo ?? matching.supplierAlias[norm(b.supplier0)] ?? null
+    const supplierCanonical = matching.supplierAlias[norm(b.supplier0)] ?? null
     const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers, productLabel, unpricedMatch } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers, productLabel, unpricedMatch } = resolveRowPlan(b, matching, designatedIndex)
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
     // независимо от статуса. Если комментария нет, но статус выставлен через

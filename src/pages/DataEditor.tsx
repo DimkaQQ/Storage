@@ -3,9 +3,8 @@ import { fmt, plural, BUNDLED_MATCHING } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
-import SupplierMergeModal from '../components/SupplierMergeModal'
 import HoverName from '../components/HoverName'
-import { ISearch, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, ILink, IPlus, ITrash, ICheck } from '../components/icons'
+import { ISearch, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
 type SupplierFilter = 'all' | 'new'
@@ -13,7 +12,7 @@ type SupplierFilter = 'all' | 'new'
 export default function DataEditor() {
   const {
     edits, editCount, renameProduct, setVenue, reset, replaceAll,
-    addVenue, removeVenue, mergeSupplier, unmergeSupplier,
+    addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, undo, canUndo,
     suppliers: suppliersBase, products: productsBase, restaurants,
   } = useEdits()
@@ -21,7 +20,6 @@ export default function DataEditor() {
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
   const [sFilter, setSFilter] = useState<SupplierFilter>('all')
-  const [mergeFor, setMergeFor] = useState<{ name: string } | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newCity, setNewCity] = useState('')
@@ -33,30 +31,21 @@ export default function DataEditor() {
   const needle = q.trim().toLowerCase()
   const norm = (s: string) => s.trim().toLowerCase()
 
-  // Canonical (matrix-side) supplier names available as merge targets, even
-  // when they've never shown up as a raw iiko supplier themselves.
-  const mergeCandidates = useMemo(() => {
-    const byName = new Map(suppliersBase.map((s) => [s.name, s]))
-    for (const canon of new Set(Object.values(BUNDLED_MATCHING.supplierAlias)))
-      if (!byName.has(canon)) byName.set(canon, { name: canon, count: 0, isNew: false })
-    return [...byName.values()]
-  }, [suppliersBase])
-
-  // «Нет в справочнике» — учитываем ручные правки: объединили или отметили
-  // «это новый поставщик» — строка больше не считается нерешённой.
+  // «Нет в справочнике» — учитываем ручную правку: отметили «это новый
+  // поставщик» — строка больше не считается нерешённой.
   const isUnresolved = (name: string) =>
-    !edits.supplierMerges[name] && !BUNDLED_MATCHING.supplierAlias[norm(name)] && !edits.acknowledgedSuppliers[name]
+    !BUNDLED_MATCHING.supplierAlias[norm(name)] && !edits.acknowledgedSuppliers[name]
 
   const supplierCounts = useMemo(() => ({
     all: suppliersBase.length,
     new: suppliersBase.filter((s) => isUnresolved(s.name)).length,
-  }), [suppliersBase, edits.supplierMerges, edits.acknowledgedSuppliers])
+  }), [suppliersBase, edits.acknowledgedSuppliers])
 
   const suppliers = useMemo(() => {
     let list = needle ? suppliersBase.filter((s) => s.name.toLowerCase().includes(needle)) : suppliersBase
     if (sFilter === 'new') list = list.filter((s) => isUnresolved(s.name))
     return list
-  }, [needle, edits.supplierMerges, edits.acknowledgedSuppliers, sFilter, suppliersBase])
+  }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBase])
 
   const products = useMemo(
     () => (needle
@@ -106,7 +95,6 @@ export default function DataEditor() {
   }
 
   return (
-    <>
     <div className="space-y-5">
       {/* intro + actions */}
       <div className="card flex flex-wrap items-center justify-between gap-4 p-4">
@@ -118,8 +106,8 @@ export default function DataEditor() {
               <InfoTip text="Компании и товары приходят из iiko. Плановые цены и матрица остаются в вашем Excel-файле — здесь только сопоставление названий и список точек." />
             </div>
             <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
-              Если компания в iiko называется иначе, чем в матрице — «Объединить». Если это действительно новый
-              поставщик, которого ещё нет в матрице — «Добавить». Правки сохраняются автоматически.
+              Если компании нет в матрице — «Добавить», чтобы отметить, что это действительно новый поставщик.
+              Правки сохраняются автоматически.
             </p>
           </div>
         </div>
@@ -234,7 +222,7 @@ export default function DataEditor() {
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-[42%]">Название (iiko)</th>
-                  <th className="th w-[28%]">Справочник <InfoTip text="«Нет в справочнике» — iiko называет компанию иначе, чем матрица, и её позиции не сопоставляются. Нажмите «Объединить», если это опечатка/дубликат, или «Добавить», если это действительно новый поставщик." /></th>
+                  <th className="th w-[28%]">Справочник <InfoTip text="«Нет в справочнике» — этой компании нет в матрице. Если это действительно новый поставщик — нажмите «Добавить»." /></th>
                   <th className="th w-[12%] text-right">Позиций</th>
                   <th className="th w-[18%] text-center">Действие</th>
                 </tr>
@@ -258,8 +246,7 @@ export default function DataEditor() {
             <tbody>
               {tab === 'suppliers'
                 ? (shown as typeof suppliersBase).map((s) => {
-                    const mergedTo = edits.supplierMerges[s.name]
-                    const canon = mergedTo ?? BUNDLED_MATCHING.supplierAlias[norm(s.name)]
+                    const canon = BUNDLED_MATCHING.supplierAlias[norm(s.name)]
                     const acknowledged = edits.acknowledgedSuppliers[s.name] === true
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
@@ -268,30 +255,21 @@ export default function DataEditor() {
                         </td>
                         <td className="td overflow-hidden">
                           {canon
-                            ? <HoverName text={mergedTo ? `объединено: ${canon}` : canon} className="text-[11px] text-good" />
+                            ? <HoverName text={canon} className="text-[11px] text-good" />
                             : acknowledged
                             ? <span className="chip border-transparent bg-ink-700 text-[11px] text-slate-400">новый поставщик</span>
                             : <span className="chip border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>}
                         </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
                         <td className="td text-center">
-                          {mergedTo ? (
-                            <button onClick={() => unmergeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-white" title="Отменить объединение">
-                              <IReset width={13} height={13} />
-                            </button>
-                          ) : acknowledged ? (
+                          {acknowledged ? (
                             <button onClick={() => unacknowledgeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-white" title="Отменить отметку">
                               <IReset width={13} height={13} />
                             </button>
                           ) : !canon ? (
-                            <span className="flex items-center justify-center gap-1.5">
-                              <button onClick={() => setMergeFor({ name: s.name })} className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-brand-300 hover:border-brand-500/50 hover:text-brand-200" title="Это тот же поставщик, что и...?">
-                                <ILink width={12} height={12} /> Объединить
-                              </button>
-                              <button onClick={() => acknowledgeSupplier(s.name)} className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:border-good/50 hover:text-good" title="Это действительно новый поставщик">
-                                <IPlus width={12} height={12} /> Добавить
-                              </button>
-                            </span>
+                            <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:border-good/50 hover:text-good" title="Это действительно новый поставщик">
+                              <IPlus width={12} height={12} /> Добавить
+                            </button>
                           ) : null}
                         </td>
                       </tr>
@@ -341,15 +319,5 @@ export default function DataEditor() {
         )}
       </Section>
     </div>
-
-    {mergeFor && (
-      <SupplierMergeModal
-        target={mergeFor}
-        suppliers={mergeCandidates}
-        onClose={() => setMergeFor(null)}
-        onPick={(canonicalName) => { mergeSupplier(mergeFor.name, canonicalName); setMergeFor(null) }}
-      />
-    )}
-    </>
   )
 }

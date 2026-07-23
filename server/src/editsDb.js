@@ -22,11 +22,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS product_renames  (org_id TEXT NOT NULL, original TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, original));
   CREATE TABLE IF NOT EXISTS venue_overrides  (org_id TEXT NOT NULL, restaurant TEXT NOT NULL, city TEXT, brand TEXT, entity TEXT, category TEXT, PRIMARY KEY (org_id, restaurant));
   CREATE TABLE IF NOT EXISTS new_venues       (org_id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, name));
-  CREATE TABLE IF NOT EXISTS supplier_merges  (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, canonical_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
   CREATE TABLE IF NOT EXISTS acknowledged_suppliers (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
 `)
 
-const TABLES = ['product_renames', 'venue_overrides', 'new_venues', 'supplier_merges', 'acknowledged_suppliers']
+const TABLES = ['product_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -45,11 +44,9 @@ export function getEditsForOrg(orgId) {
     }))
   const newVenues = Object.fromEntries(
     db.prepare('SELECT name FROM new_venues WHERE org_id=?').all(orgId).map((r) => [r.name, true]))
-  const supplierMerges = Object.fromEntries(
-    db.prepare('SELECT raw_name, canonical_name FROM supplier_merges WHERE org_id=?').all(orgId).map((r) => [r.raw_name, r.canonical_name]))
   const acknowledgedSuppliers = Object.fromEntries(
     db.prepare('SELECT raw_name FROM acknowledged_suppliers WHERE org_id=?').all(orgId).map((r) => [r.raw_name, true]))
-  return { productRenames, venueOverrides, newVenues, supplierMerges, acknowledgedSuppliers }
+  return { productRenames, venueOverrides, newVenues, acknowledgedSuppliers }
 }
 
 function hasAnyRows(orgId) {
@@ -108,16 +105,6 @@ export function removeVenue(orgId, name) {
   })
 }
 
-export function mergeSupplier(orgId, rawName, canonicalName) {
-  const v = String(canonicalName || '').trim()
-  if (!v || v === rawName) return
-  db.prepare('INSERT INTO supplier_merges (org_id, raw_name, canonical_name) VALUES (?,?,?) ON CONFLICT(org_id, raw_name) DO UPDATE SET canonical_name=excluded.canonical_name').run(orgId, rawName, v)
-}
-
-export function unmergeSupplier(orgId, rawName) {
-  db.prepare('DELETE FROM supplier_merges WHERE org_id=? AND raw_name=?').run(orgId, rawName)
-}
-
 export function acknowledgeSupplier(orgId, rawName) {
   db.prepare('INSERT OR IGNORE INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, rawName)
 }
@@ -141,8 +128,6 @@ export function replaceAllEdits(orgId, e) {
         .run(orgId, restaurant, patch.city || null, patch.brand || null, patch.entity || null, patch.category || null)
     for (const name of Object.keys(e.newVenues || {}))
       db.prepare('INSERT INTO new_venues (org_id, name) VALUES (?,?)').run(orgId, name)
-    for (const [rawName, canonicalName] of Object.entries(e.supplierMerges || {}))
-      db.prepare('INSERT INTO supplier_merges (org_id, raw_name, canonical_name) VALUES (?,?,?)').run(orgId, rawName, canonicalName)
     for (const rawName of Object.keys(e.acknowledgedSuppliers || {}))
       db.prepare('INSERT INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, rawName)
   })
