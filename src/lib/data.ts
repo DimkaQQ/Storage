@@ -70,9 +70,7 @@ export interface Row {
   entity: string
   category: string
   supplier: string
-  supplier0: string   // original supplier name, as recorded in iiko (edit key)
   product: string
-  product0: string   // original product name (edit key)
   pack: string
   qty: number
   unit: number
@@ -216,7 +214,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
   return base.map((b) => {
     const mergedTo = edits.supplierMerges[b.supplier0]
     const supplierDisplay = mergedTo ?? b.supplier0
-    const supplier = edits.supplierRenames[supplierDisplay] ?? supplierDisplay
+    // По умолчанию показываем название так, как оно записано в их матрице
+    // (колонка C, "Наименование поставщика основного"), а не как в iiko —
+    // ручное переименование в Справочниках, если оно есть, всё равно в
+    // приоритете. Сопоставление цен (resolveRowPlan) через тот же справочник
+    // не меняется — это только про то, что видно на экране.
+    const supplier = edits.supplierRenames[supplierDisplay] ?? matching.supplierAlias[norm(supplierDisplay)] ?? supplierDisplay
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
     const { plan, status, designatedSuppliers } = resolveRowPlan(b, edits, matching, designatedIndex)
@@ -224,7 +227,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
-      supplier, supplier0: b.supplier0, product, product0: b.product0, pack: b.pack, qty: b.qty, unit: b.unit, plan,
+      supplier, product, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers,
     }
   })
