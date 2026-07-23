@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { Row, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
-import { StatusBadge } from '../components/ui'
+import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
 import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/icons'
 
@@ -146,7 +146,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     {r.diffPct != null ? pct(r.diffPct) : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="td overflow-hidden">
-                    <StatusBadge status={r.status} />
+                    <span className="inline-flex items-center gap-1.5">
+                      <StatusBadge status={r.status} />
+                      {r.note && <InfoTip text={r.note} align="left" />}
+                    </span>
                     {r.status === 'wrongSupplier' && r.designatedSuppliers.length > 0 && (
                       <HoverName text={`должны: ${r.designatedSuppliers.join(', ')}`} className="mt-0.5 block text-[11px] text-slate-500" />
                     )}

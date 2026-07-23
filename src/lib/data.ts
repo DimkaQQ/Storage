@@ -16,6 +16,7 @@ export interface MatchingTable {
   planPairs: Record<string, number>           // "restaurant::supplier::product" (norm) -> plan price
   planPairsByPack: Record<string, number>     // "restaurant::supplier::product::pack" (norm) -> plan price
   productLabels: Record<string, string>       // same keys as planPairs/planPairsByPack -> их собственное "Наименование товара" (колонка I)
+  unpriced: Record<string, string[]>          // "restaurant::supplier" -> их описания (колонка I) товаров БЕЗ цены в матрице вообще
 }
 export const BUNDLED_MATCHING: MatchingTable = matchingRaw as MatchingTable
 
@@ -46,6 +47,42 @@ export const isPrecisePack = (pack: string) => {
   return p.length > 0 && !BARE_UNITS.has(p)
 }
 
+/**
+ * Слова, слишком общие, чтобы что-то доказывать при сравнении названий
+ * ("рыба", "1кг", "весовой" встречаются в сотнях разных позиций) — нужны
+ * для bare-unit-fallback выше и для fuzzy-сопоставления с их же описанием
+ * товара из матрицы (см. resolveRowPlan/unpriced ниже). Оставляем только
+ * содержательные слова: собственно название продукта, бренд, вкус/сорт.
+ */
+const GENERIC_WORDS = new Set([
+  'для', 'без', 'из', 'в', 'на', 'с', 'со', 'по', 'от', 'до', 'и', 'или', 'не', 'за', 'под', 'над', 'при', 'об', 'о',
+  'банка', 'бут', 'коробка', 'пачка', 'пакет', 'ведро', 'ящик', 'мешок', 'бидон', 'канистра',
+  'кг', 'гр', 'г', 'мл', 'л', 'литр', 'литра', 'шт', 'штук', 'уп', 'кор', 'бан', 'пач',
+  'вес', 'весовой', 'весовая', 'чистый', 'чистая', 'фасовка', 'ассортименте', 'ассорти', 'ассортимент',
+  'стафф', 'айсер', 'алель', 'охлажденка', 'охлажденный', 'охлажденная', 'премиум',
+  'россия', 'италия', 'китай', 'франция', 'испания', 'бельгия', 'турция', 'польша', 'германия',
+  // Родовые названия категории товара — сами по себе ничего не доказывают:
+  // "мука" не отличает пшеничную от фундуковой, "соус" не отличает рыбный
+  // от кетчупа, "тушка"/"стейк" — это форма разделки, а не сорт/вид. Из-за
+  // этого при первой попытке словосравнение подтягивало явно разные товары
+  // ("Рибай стейк" -> "Стейк Тибон", "Мука пшеничная" -> "Мука фундуковая").
+  'рыба', 'мясо', 'говядина', 'курица', 'свинина', 'баранина', 'конина',
+  'морепродукты', 'соус', 'мука', 'паста', 'крупа', 'тушка', 'стейк', 'филе', 'колбаски', 'специи', 'приправа',
+  'ягода', 'овощи', 'фрукты', 'зелень', 'молоко', 'потрошеный', 'потрошенный', 'непотрашеный', 'разделка', 'бесплатно',
+])
+// Русская морфология даёт много форм одного родового слова ("куриный/куриная
+// /куриное/куриные/куриного…") — точным списком все не перечислить, поэтому
+// отсекаем ещё и по началу слова (длина проверена, чтобы не задеть похожие
+// по началу, но другие по смыслу слова вроде "курага").
+const GENERIC_STEMS = ['курин', 'куриц', 'рыбн', 'мясн', 'говяж', 'свин', 'баран', 'конин']
+/** Значимые слова строки для сравнения "похоже по смыслу" — короткие/числовые/служебные не считаются. */
+function meaningfulWords(s: string): Set<string> {
+  const words = norm(s).replace(/[^a-zа-я0-9]+/g, ' ').split(' ')
+  return new Set(words.filter((w) =>
+    w.length >= 4 && !/^\d+$/.test(w) && !GENERIC_WORDS.has(w) && !GENERIC_STEMS.some((stem) => w.startsWith(stem)),
+  ))
+}
+
 /** Raw purchase fact as extracted from the iiko report. */
 interface RawItem {
   s: string  // supplier (as in iiko)
@@ -53,6 +90,7 @@ interface RawItem {
   k: string  // packaging
   q: number  // quantity
   m: number  // total sum, тг
+  c?: string // их же комментарий к этой строке закупки в iiko-отчёте (если есть)
 }
 interface RawRestaurant {
   name: string
@@ -89,6 +127,7 @@ export interface Row {
   diffPct: number | null   // (unit - plan)/plan — informational only, no overpay/saving concept
   status: Status
   designatedSuppliers: string[]  // only set for status === 'wrongSupplier' — who it should have been bought from
+  note: string | null  // их комментарий к этой закупке в iiko, либо пояснение "нет плановой цены" для unpriced-совпадений
 }
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
@@ -108,6 +147,7 @@ export interface BaseRow {
   qty: number
   sum: number
   unit: number
+  comment: string | null
 }
 
 /** Manual corrections to a venue's meta — for when auto-derived data is wrong. */
@@ -142,7 +182,9 @@ export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta
   return added.length ? [...restaurants, ...added] : restaurants
 }
 
-interface Resolved { plan: number | null; status: Status; designatedSuppliers: string[]; productLabel: string | null }
+interface Resolved { plan: number | null; status: Status; designatedSuppliers: string[]; productLabel: string | null; unpricedMatch: boolean }
+
+const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
 
 /**
  * Resolves plan + status for one purchased line, entirely client-side:
@@ -199,10 +241,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
-    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[tripleKey] ?? null }
+    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[tripleKey] ?? null, unpricedMatch: false }
   }
   const plan = matching.planPairs[pairKey]
-  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[pairKey] ?? null }
+  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[pairKey] ?? null, unpricedMatch: false }
 
   // iiko иногда пишет для факта голую единицу ("л", "кг"…), а в матрице этот
   // же товар у этого же поставщика продаётся только под одной фасовкой, где
@@ -219,7 +261,28 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
       const candidateKey = `${pairKey}::${onlyPack}`
       const candidatePlan = matching.planPairsByPack[candidateKey]
       if (candidatePlan != null && Math.abs(candidatePlan - b.unit) < 0.01) {
-        return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[candidateKey] ?? null }
+        return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: matching.productLabels[candidateKey] ?? null, unpricedMatch: false }
+      }
+    }
+  }
+
+  // Поставщик числится в их матрице (столбец C) и там есть строка с описанием
+  // именно такого товара (столбец I) — просто без цены вообще (у King Fresh
+  // так записан лосось при Рене: цена плавает каждую неделю, статичной цены
+  // никогда и не было). Раз ресторан явно заказал у ИХ ЖЕ поставщика то, что
+  // ИХ ЖЕ описание называет тем же товаром — это заказ по матрице, только без
+  // плановой цены для сравнения. Сравниваем по значимым словам (без стоп-слов
+  // вроде единиц/тары/страны) — единственное совпадение на общем слове вроде
+  // "рыба" ничего не докажет, поэтому такие слова в сравнении не участвуют.
+  const unpricedCandidates = matching.unpriced[`${restaurant}::${supplierCanon}`]
+  if (unpricedCandidates && unpricedCandidates.length > 0) {
+    const productWords = meaningfulWords(b.product0)
+    if (productWords.size > 0) {
+      for (const candidate of unpricedCandidates) {
+        const candidateWords = meaningfulWords(candidate)
+        if ([...productWords].some((w) => candidateWords.has(w))) {
+          return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: candidate, unpricedMatch: true }
+        }
       }
     }
   }
@@ -237,9 +300,9 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
     : designatedIndex.byProduct.get(`${restaurant}::${product}`)
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false }
 }
 
 /** Builds display rows by applying edits and resolving plan/status. */
@@ -256,13 +319,17 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplier = edits.supplierRenames[supplierDisplay] ?? matching.supplierAlias[norm(supplierDisplay)] ?? supplierDisplay
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers, productLabel } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers, productLabel, unpricedMatch } = resolveRowPlan(b, edits, matching, designatedIndex)
     const diffPct = plan != null ? (b.unit - plan) / plan : null
+    // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
+    // независимо от статуса. Если комментария нет, но статус выставлен через
+    // unpriced-fallback (по матрице, но без цены) — поясняем почему нет цены.
+    const note = b.comment ?? (unpricedMatch ? NO_PLAN_PRICE_NOTE : null)
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, product, productLabel, pack: b.pack, qty: b.qty, unit: b.unit, plan,
-      diffPct, status, designatedSuppliers,
+      diffPct, status, designatedSuppliers, note,
     }
   })
 }
@@ -306,7 +373,7 @@ export function parseDataset(data: RawDataset): Parsed {
         id: 'r' + seq++,
         restaurant: r.name, brand: r.brand, city: r.city || 'Алматы', entity: r.entity, category: r.category,
         supplier0: it.s, product0: it.p, pack: it.k,
-        qty: it.q, sum: it.m, unit: it.m / it.q,
+        qty: it.q, sum: it.m, unit: it.m / it.q, comment: it.c ?? null,
       })
     }
   }
