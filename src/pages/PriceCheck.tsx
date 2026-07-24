@@ -48,10 +48,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     setSort((s) => (s.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: -1 }))
 
   const exportExcel = () => {
-    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ%', 'Статус', 'Должны у']
+    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у']
     const lines = filtered.map((r) => [
       r.restaurant, r.supplier, r.product, r.pack,
-      r.plan ?? '', r.unit, r.diffPct != null ? Number((r.diffPct * 100).toFixed(1)) : '',
+      r.plan ?? '', r.unit, r.plan != null ? r.unit - r.plan : '',
       STATUS_META[r.status].label, r.designatedSuppliers.join(', '),
     ])
     const ws = XLSX.utils.aoa_to_sheet([head, ...lines])
@@ -116,12 +116,12 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           <table className="w-full max-w-[1060px] table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[14%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[20%]" tight>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[26%]" tight>Товар</Th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[12%]" tight>Ресторан</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[18%]" tight>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[23%]" tight>Товар</Th>
                 <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[10%]">План</Th>
-                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[10%]">Факт</Th>
-                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[8%]">Δ%</Th>
+                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[14%]">Факт</Th>
+                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[11%]">Δ</Th>
                 <th className="th w-[12%]">Статус</th>
               </tr>
             </thead>
@@ -144,7 +144,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
                   <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
                   <td className="td text-right tabnum font-semibold text-slate-300">
-                    {r.diffPct != null ? pct(r.diffPct) : <span className="text-slate-600">—</span>}
+                    {r.plan != null ? (r.unit - r.plan >= 0 ? '+' : '') + money(r.unit - r.plan) : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="td overflow-hidden">
                     <StatusBadge status={r.status} />
