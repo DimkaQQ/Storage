@@ -6,6 +6,7 @@ import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, IPin, ILayers
 import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
+import PeriodPicker from './components/PeriodPicker'
 
 // Pages are code-split: only the open page's code is downloaded.
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -29,7 +30,7 @@ export default function App() {
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
-  const { rows: allRows, period, restaurants } = useEdits()
+  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
@@ -51,6 +52,7 @@ export default function App() {
 
   const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
+  const showPeriodPicker = page !== 'iiko' && page !== 'users'
 
   return (
     <>
@@ -122,6 +124,7 @@ export default function App() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
+                {showPeriodPicker && <PeriodPicker periods={periods} value={periodKey} onChange={setPeriod} />}
                 {showFilters && categories.length > 1 && (
                   <FilterDropdown label="Категория закупок" icon={ILayers} value={categoryFilter} options={categories} onChange={setCategoryFilter} />
                 )}

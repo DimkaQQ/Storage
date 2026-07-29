@@ -3,13 +3,12 @@ const MIN_TURNOVER = 0 // фильтр оборота применяется н�
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
 /**
- * Демо-данные — фиксированный снимок конкретного месяца, не «текущий
- * месяц» сервера. Для реального провайдера период берём из настроек
- * синхронизации, а не из даты сервера — иначе на "prev-month" подпись
- * всё равно покажет текущий.
+ * Only for the real iiko providers (mock has fixed, known periods baked into
+ * its seed files — the caller picks one of those explicitly instead). Period
+ * comes from sync settings (current/prev month), not the server's clock at
+ * запрос time — иначе "prev-month" всё равно подписывался бы текущим.
  */
-function resolvePeriod(settings) {
-  if (!settings || settings.provider === 'mock') return { period: '2026-06-01', periodLabel: 'Июнь 2026' }
+export function resolveLivePeriod(settings) {
   const now = new Date()
   const base = settings.period === 'prev-month' ? new Date(now.getFullYear(), now.getMonth() - 1, 1) : now
   return { period: base.toISOString().slice(0, 10), periodLabel: `${MONTHS[base.getMonth()]} ${base.getFullYear()}` }
@@ -21,7 +20,7 @@ function resolvePeriod(settings) {
  * itself from the bundled restaurant-scoped matrix (src/data/matching.json),
  * so the server's only job is grouping facts by restaurant.
  */
-export function buildDataset(facts, venues, settings) {
+export function buildDataset(facts, venues, periodMeta) {
   const meta = new Map(venues.map((v) => [v.name, v]))
   const byVenue = new Map()
   for (const f of facts) {
@@ -49,7 +48,8 @@ export function buildDataset(facts, venues, settings) {
     }
   })
   return {
-    ...resolvePeriod(settings),
+    period: periodMeta.period,
+    periodLabel: periodMeta.periodLabel,
     city: 'Алматы',
     category: 'Кухня',
     restaurants,

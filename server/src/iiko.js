@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { getSeed } from './store.js'
+import { getSeedPeriods, getSeedPeriod } from './store.js'
 
 const sha1 = (s) => createHash('sha1').update(s).digest('hex')
 
@@ -15,9 +15,9 @@ const withTimeout = async (url, opts = {}, ms = 20000) => {
  *   { restaurant, supplier, product, pack, qty, sum }
  * ------------------------------------------------------------------ */
 
-/** Demo provider — returns the seed data, so the whole loop works without iiko. */
-function mockFacts() {
-  const seed = getSeed()
+/** Demo provider — returns the bundled snapshot for one period, so the whole loop works without iiko. */
+function mockFacts(period) {
+  const seed = getSeedPeriod(period) ?? getSeedPeriods().at(-1) ?? { restaurants: [] }
   const facts = []
   for (const r of seed.restaurants || [])
     for (const it of r.items || [])
@@ -100,9 +100,9 @@ async function iikoCloudToken({ apiLogin }) {
 
 /* ------------------------------------------------------------------ */
 
-export async function fetchFacts(settings) {
+export async function fetchFacts(settings, period) {
   switch (settings.provider) {
-    case 'mock': return mockFacts()
+    case 'mock': return mockFacts(period)
     case 'iikoserver': return iikoServerFacts(settings, settings.period)
     case 'iikocloud':
       // Отчёты о закупках по складам берутся из iikoServer; iikoCloud (transport)

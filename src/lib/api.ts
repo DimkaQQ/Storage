@@ -36,7 +36,10 @@ async function get<T>(path: string): Promise<T | null> {
   }
 }
 
-export const fetchDataset = () => get<any>('/api/data')
+export interface PeriodMeta { period: string; periodLabel: string }
+
+export const fetchDataset = (period?: string) => get<any>(period ? `/api/data?period=${encodeURIComponent(period)}` : '/api/data')
+export const fetchPeriods = () => get<PeriodMeta[]>('/api/periods')
 export const fetchStatus = () => get<SyncStatus>('/api/status')
 export const fetchSettings = () => get<IikoSettings>('/api/settings')
 export const fetchEdits = () => get<any>('/api/edits')

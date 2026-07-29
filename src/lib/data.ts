@@ -1,5 +1,11 @@
-import raw from '../data/dataset.json'
+import datasetMay from '../data/dataset-2026-05.json'
+import datasetJune from '../data/dataset-2026-06.json'
 import matchingRaw from '../data/matching.json'
+
+// Один и тот же снимок матрицы применяется ко всем периодам — она не
+// версионируется по месяцам, только факт закупок (Q:U) меняется помесячно.
+const BUNDLED_DATASETS = ([datasetMay, datasetJune] as unknown as RawDataset[]).sort((a, b) => a.period.localeCompare(b.period))
+export const BUNDLED_PERIODS = BUNDLED_DATASETS.map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
 
 /**
  * The plan matrix — the same справочник (supplier alias dictionary) and
@@ -418,8 +424,13 @@ export function parseDataset(data: RawDataset): Parsed {
   }
 }
 
-/** Bundled snapshot — used until the backend responds (or if it's offline). */
-export const BUNDLED = parseDataset(raw as unknown as RawDataset)
+/** Bundled snapshot for one period — falls back to the latest if not found/omitted. */
+export function bundledDataset(period?: string | null): RawDataset {
+  return (period && BUNDLED_DATASETS.find((d) => d.period === period)) || BUNDLED_DATASETS[BUNDLED_DATASETS.length - 1]
+}
+
+/** Bundled snapshot (latest period) — used until the backend responds (or if it's offline). */
+export const BUNDLED = parseDataset(bundledDataset())
 
 /** Restaurant list with any manual venue corrections applied. */
 export function applyVenueOverrides(restaurants: VenueMeta[], overrides: Record<string, VenuePatch>): VenueMeta[] {

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
-import { fetchDataset, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus } from './api'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
+import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 
@@ -53,6 +53,9 @@ interface Ctx {
   editCount: number
   // dataset (bundled fallback → replaced by backend data when available)
   period: string
+  periodKey: string
+  periods: PeriodMeta[]
+  setPeriod: (period: string) => void
   city: string
   category: string
   restaurants: VenueMeta[]
@@ -82,6 +85,8 @@ const EditsContext = createContext<Ctx | null>(null)
 export function EditsProvider({ children }: { children: ReactNode }) {
   const [edits, setEdits] = useState<Edits>(load)
   const [parsed, setParsed] = useState<Parsed>(BUNDLED)
+  const [periodKey, setPeriodKey] = useState<string>(BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period)
+  const [periods, setPeriods] = useState<PeriodMeta[]>(BUNDLED_PERIODS)
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [backendOnline, setBackendOnline] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -115,9 +120,15 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
   }, [edits])
 
-  const loadData = useCallback(async () => {
-    const data = await fetchDataset()
+  const loadData = useCallback(async (period: string) => {
+    const data = await fetchDataset(period)
     if (data && data.restaurants) { setParsed(parseDataset(data)); setBackendOnline(true) }
+    else setParsed(parseDataset(bundledDataset(period)))
+  }, [])
+  const loadPeriods = useCallback(async () => {
+    const list = await fetchPeriods()
+    if (list && list.length) { setPeriods(list); setBackendOnline(true) }
+    return list
   }, [])
   const reloadStatus = useCallback(async () => {
     const st = await fetchStatus()
@@ -128,14 +139,32 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     if (data) { setEdits(normalize(data)); setBackendOnline(true) }
   }, [])
 
-  // On mount: pull the live dataset + status + shared corrections from the backend (if present).
-  useEffect(() => { loadData(); reloadStatus(); loadEdits() }, [loadData, reloadStatus, loadEdits])
+  // On mount: pull the list of available periods + status + shared
+  // corrections from the backend (if present), then the latest period's
+  // data — defaults to the newest available period, same as before periods existed.
+  useEffect(() => {
+    reloadStatus()
+    loadEdits()
+    loadPeriods().then((list) => {
+      const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
+      setPeriodKey(initial)
+      loadData(initial)
+    })
+  }, [])
 
+  const setPeriod = useCallback((period: string) => {
+    setPeriodKey(period)
+    loadData(period)
+  }, [loadData])
+
+  // «Обновление» держит текущий выбранный период — просто пересобирает то,
+  // на что уже смотрит пользователь, плюс подтягивает список периодов
+  // заново (вдруг появился новый).
   const refresh = useCallback(async () => {
     setSyncing(true)
-    try { await triggerSync(); await loadData(); await reloadStatus() }
+    try { await triggerSync(); await loadPeriods(); await loadData(periodKey); await reloadStatus() }
     finally { setSyncing(false) }
-  }, [loadData, reloadStatus])
+  }, [loadData, loadPeriods, reloadStatus, periodKey])
 
   const rows = useMemo(() => computeRows(parsed.base, edits), [parsed, edits])
 
@@ -225,7 +254,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     edits, rows, editCount,
-    period: parsed.period, city: parsed.city, category: parsed.category,
+    period: parsed.period, periodKey, periods, setPeriod, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
     renameProduct, setVenue,

@@ -1,11 +1,11 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', 'data')
-const SEED = join(__dirname, '..', 'seed', 'dataset.json')
+const SEED_DIR = join(__dirname, '..', 'seed')
 
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
 
@@ -89,10 +89,10 @@ function orgPaths(orgId) {
   return {
     settings: join(dir, 'settings.json'),
     status: join(dir, 'status.json'),
-    dataset: join(dir, 'dataset.json'),
     venues: join(dir, 'venues.json'),
   }
 }
+const orgDatasetPath = (orgId, period) => join(orgDir(orgId), `dataset-${period}.json`)
 
 export const DEFAULT_SETTINGS = {
   provider: 'mock',            // 'mock' | 'iikoserver' | 'iikocloud'
@@ -110,19 +110,36 @@ export const DEFAULT_SETTINGS = {
 }
 
 /**
+ * Bundled demo data ships as one file per month (server/seed/dataset-<period>.json)
+ * so a new month is just another file — no code change to add one. Scanned
+ * fresh each call since these are tiny and only read at bootstrap/sync time.
+ */
+export function getSeedPeriods() {
+  if (!existsSync(SEED_DIR)) return []
+  return readdirSync(SEED_DIR)
+    .filter((f) => /^dataset-.+\.json$/.test(f))
+    .map((f) => read(join(SEED_DIR, f), null))
+    .filter(Boolean)
+    .sort((a, b) => a.period.localeCompare(b.period))
+}
+export const getSeedPeriod = (period) => getSeedPeriods().find((d) => d.period === period) || null
+
+/**
  * The very first org ever created gets the bundled demo/seed dataset
- * (the real Кухня export this project shipped with). Any org created
- * afterwards starts empty — a different business's data has no business
- * seeing another org's demo numbers.
+ * (the real Кухня export this project shipped with) — one file per period.
+ * Any org created afterwards starts empty — a different business's data has
+ * no business seeing another org's demo numbers.
  */
 export function bootstrapOrgData(orgId, { withSeed }) {
   const paths = orgPaths(orgId)
-  if (existsSync(paths.dataset)) return
-  const seed = withSeed ? read(SEED, { restaurants: [] }) : { restaurants: [] }
-  write(paths.dataset, seed)
-  const venues = (seed.restaurants || []).map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category }))
-  write(paths.venues, venues)
-  write(paths.status, seed.restaurants?.length
+  if (existsSync(paths.venues)) return
+  const periods = withSeed ? getSeedPeriods() : []
+  for (const d of periods) write(orgDatasetPath(orgId, d.period), d)
+  const venueMap = new Map()
+  for (const d of periods) for (const r of d.restaurants || [])
+    venueMap.set(r.name, { name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category })
+  write(paths.venues, [...venueMap.values()])
+  write(paths.status, periods.length
     ? { lastSync: null, lastResult: 'seed', source: 'seed', message: 'Стартовые данные (демо)' }
     : { lastSync: null, lastResult: null, source: null, message: 'Данных пока нет — настройте подключение к iiko' })
 }
@@ -131,9 +148,17 @@ export const getSettings = (orgId) => ({ ...DEFAULT_SETTINGS, ...read(orgPaths(o
 export const saveSettings = (orgId, s) => { const next = { ...getSettings(orgId), ...s }; write(orgPaths(orgId).settings, next); return next }
 export const getStatus = (orgId) => read(orgPaths(orgId).status, { lastSync: null, lastResult: null, source: null })
 export const saveStatus = (orgId, s) => { write(orgPaths(orgId).status, s); return s }
-export const getDataset = (orgId) => read(orgPaths(orgId).dataset, { restaurants: [] })
-export const saveDataset = (orgId, d) => write(orgPaths(orgId).dataset, d)
+export const getDataset = (orgId, period) => read(orgDatasetPath(orgId, period), { restaurants: [] })
+export const saveDataset = (orgId, period, d) => write(orgDatasetPath(orgId, period), d)
 export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])
 
-/** The bundled demo dataset — used by the 'mock' provider regardless of org. */
-export const getSeed = () => read(SEED, { restaurants: [] })
+/** Available periods for this org, oldest first, read straight off the stored dataset files. */
+export function listDatasetPeriods(orgId) {
+  const dir = orgDir(orgId)
+  return readdirSync(dir)
+    .filter((f) => /^dataset-.+\.json$/.test(f))
+    .map((f) => read(join(dir, f), null))
+    .filter(Boolean)
+    .map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
+    .sort((a, b) => a.period.localeCompare(b.period))
+}

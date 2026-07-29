@@ -2,13 +2,13 @@ import express from 'express'
 import cron from 'node-cron'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
-  getDataset, saveDataset, getVenues,
+  getDataset, saveDataset, getVenues, listDatasetPeriods, getSeedPeriods,
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection } from './iiko.js'
-import { buildDataset } from './dataset.js'
+import { buildDataset, resolveLivePeriod } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
 const app = express()
@@ -46,23 +46,39 @@ bootstrap()
 
 let syncing = {}
 
-/** Pulls facts from the configured provider and rebuilds the dataset for one org. */
+/**
+ * Pulls facts from the configured provider and rebuilds the dataset for one
+ * org. 'mock' has no live "current period" of its own — it's a set of fixed
+ * monthly snapshots baked into the seed files — so a sync re-fetches ALL of
+ * them, one dataset per period. Real providers only ever fetch the single
+ * period their settings point at (current/prev month), leaving whatever
+ * other periods are already stored untouched.
+ */
 async function runSync(orgId, trigger) {
   if (syncing[orgId]) return { ok: false, message: 'Обновление уже выполняется' }
   syncing[orgId] = true
   const settings = getSettings(orgId)
   try {
-    const facts = await fetchFacts(settings)
-    if (!facts.length) throw new Error('Провайдер вернул пустой список закупок')
-    const dataset = buildDataset(facts, getVenues(orgId), settings)
-    saveDataset(orgId, dataset)
+    const venues = getVenues(orgId)
+    const targets = settings.provider === 'mock'
+      ? getSeedPeriods().map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
+      : [resolveLivePeriod(settings)]
+    if (!targets.length) throw new Error('Нет ни одного периода для загрузки')
+    let positions = 0
+    for (const periodMeta of targets) {
+      const facts = await fetchFacts(settings, periodMeta.period)
+      if (!facts.length) continue
+      saveDataset(orgId, periodMeta.period, buildDataset(facts, venues, periodMeta))
+      positions += facts.length
+    }
+    if (!positions) throw new Error('Провайдер вернул пустой список закупок')
     const status = {
       lastSync: new Date().toISOString(),
       lastResult: 'ok',
       source: settings.provider,
       trigger,
-      positions: facts.length,
-      message: `Загружено ${facts.length} позиций`,
+      positions,
+      message: `Загружено ${positions} позиций`,
     }
     saveStatus(orgId, status)
     return { ok: true, ...status }
@@ -132,7 +148,14 @@ app.delete('/api/auth/users/:id', requireAuth, requireAdmin, (req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
-app.get('/api/data', requireAuth, (req, res) => res.json(getDataset(req.auth.orgId)))
+app.get('/api/periods', requireAuth, (req, res) => res.json(listDatasetPeriods(req.auth.orgId)))
+
+app.get('/api/data', requireAuth, (req, res) => {
+  const periods = listDatasetPeriods(req.auth.orgId)
+  const period = req.query.period || periods.at(-1)?.period
+  if (!period) return res.json({ restaurants: [] })
+  res.json(getDataset(req.auth.orgId, period))
+})
 
 app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId) }))
 
