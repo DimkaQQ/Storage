@@ -1,9 +1,8 @@
 import datasetMay from '../data/dataset-2026-05.json'
 import datasetJune from '../data/dataset-2026-06.json'
-import matchingRaw from '../data/matching.json'
+import matchingMay from '../data/matching-2026-05.json'
+import matchingJune from '../data/matching-2026-06.json'
 
-// Один и тот же снимок матрицы применяется ко всем периодам — она не
-// версионируется по месяцам, только факт закупок (Q:U) меняется помесячно.
 const BUNDLED_DATASETS = ([datasetMay, datasetJune] as unknown as RawDataset[]).sort((a, b) => a.period.localeCompare(b.period))
 export const BUNDLED_PERIODS = BUNDLED_DATASETS.map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
 
@@ -16,6 +15,11 @@ export const BUNDLED_PERIODS = BUNDLED_DATASETS.map((d) => ({ period: d.period, 
  * поставщик+товар can have a different negotiated price at different points
  * (confirmed straight from their matrix: one item priced differently across
  * three restaurant tabs for the same supplier).
+ *
+ * The matrix itself is versioned per period too, same as the facts — prices
+ * genuinely move month to month (verified: 244 pack-level prices differ
+ * between the May and June exports), so May's facts must be checked against
+ * May's matrix, not whichever month was uploaded last.
  */
 export interface MatchingTable {
   supplierAlias: Record<string, string>       // iiko supplier name (norm) -> canonical supplier name
@@ -24,7 +28,15 @@ export interface MatchingTable {
   productLabels: Record<string, string>       // same keys as planPairs/planPairsByPack -> их собственное "Наименование товара" (колонка I)
   noPriceExact: Record<string, true>          // same keys as planPairs/planPairsByPack -> связь с iiko прописана точно, но цены (H) просто нет
 }
-export const BUNDLED_MATCHING: MatchingTable = matchingRaw as MatchingTable
+const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
+  '2026-05': matchingMay as MatchingTable,
+  '2026-06': matchingJune as MatchingTable,
+}
+export function bundledMatching(period?: string | null): MatchingTable {
+  return (period && BUNDLED_MATCHINGS[period]) || BUNDLED_MATCHINGS[BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period]
+}
+/** Latest period's matrix — used wherever a period isn't in scope (e.g. default fn params). */
+export const BUNDLED_MATCHING: MatchingTable = bundledMatching()
 
 const norm = (s: string) => String(s || '').trim().toLowerCase()
 
@@ -382,7 +394,7 @@ export interface Parsed {
 const RESTAURANT_SCOPE: string[] | null = ['Рене']
 
 /** Parses a raw dataset (bundled seed or fresh from the backend) into app structures. */
-export function parseDataset(data: RawDataset): Parsed {
+export function parseDataset(data: RawDataset, matching: MatchingTable = bundledMatching(data.period)): Parsed {
   let seq = 0
   const base: BaseRow[] = []
   const restaurantsIn = RESTAURANT_SCOPE
@@ -403,7 +415,7 @@ export function parseDataset(data: RawDataset): Parsed {
   const pm = new Map<string, ProductAgg>()
   const prm = new Map<string, Set<string>>()
   for (const b of base) {
-    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, isNew: BUNDLED_MATCHING.supplierAlias[norm(b.supplier0)] == null }
+    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, isNew: matching.supplierAlias[norm(b.supplier0)] == null }
     s.count++; sm.set(b.supplier0, s)
     const p = pm.get(b.product0) || { name: b.product0, count: 0, restaurantCount: 0 }
     p.count++

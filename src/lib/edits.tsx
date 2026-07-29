@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -56,6 +56,7 @@ interface Ctx {
   periodKey: string
   periods: PeriodMeta[]
   setPeriod: (period: string) => void
+  matching: MatchingTable
   city: string
   category: string
   restaurants: VenueMeta[]
@@ -166,7 +167,11 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     finally { setSyncing(false) }
   }, [loadData, loadPeriods, reloadStatus, periodKey])
 
-  const rows = useMemo(() => computeRows(parsed.base, edits), [parsed, edits])
+  // Матрица версионирована по периодам так же, как факты — цены реально
+  // отличаются месяц к месяцу, так что план всегда должен браться из
+  // матрицы ТОГО ЖЕ периода, что и просматриваемые факты.
+  const matching = useMemo(() => bundledMatching(periodKey), [periodKey])
+  const rows = useMemo(() => computeRows(parsed.base, edits, matching), [parsed, edits, matching])
 
   // Set a map entry, or delete it when the value clears / equals the original.
   const renameProduct = useCallback((original: string, name: string) => {
@@ -254,7 +259,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     edits, rows, editCount,
-    period: parsed.period, periodKey, periods, setPeriod, city: parsed.city, category: parsed.category,
+    period: parsed.period, periodKey, periods, setPeriod, matching, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
     renameProduct, setVenue,

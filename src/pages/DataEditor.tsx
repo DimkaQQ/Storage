@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { fmt, plural, BUNDLED_MATCHING } from '../lib/data'
+import { fmt, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
@@ -14,7 +14,7 @@ export default function DataEditor() {
     edits, editCount, renameProduct, setVenue, reset, replaceAll,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, undo, canUndo,
-    suppliers: suppliersBase, products: productsBase, restaurants,
+    suppliers: suppliersBase, products: productsBase, restaurants, matching,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('suppliers')
   const [q, setQ] = useState('')
@@ -34,18 +34,18 @@ export default function DataEditor() {
   // «Нет в справочнике» — учитываем ручную правку: отметили «это новый
   // поставщик» — строка больше не считается нерешённой.
   const isUnresolved = (name: string) =>
-    !BUNDLED_MATCHING.supplierAlias[norm(name)] && !edits.acknowledgedSuppliers[name]
+    !matching.supplierAlias[norm(name)] && !edits.acknowledgedSuppliers[name]
 
   const supplierCounts = useMemo(() => ({
     all: suppliersBase.length,
     new: suppliersBase.filter((s) => isUnresolved(s.name)).length,
-  }), [suppliersBase, edits.acknowledgedSuppliers])
+  }), [suppliersBase, edits.acknowledgedSuppliers, matching])
 
   const suppliers = useMemo(() => {
     let list = needle ? suppliersBase.filter((s) => s.name.toLowerCase().includes(needle)) : suppliersBase
     if (sFilter === 'new') list = list.filter((s) => isUnresolved(s.name))
     return list
-  }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBase])
+  }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBase, matching])
 
   const products = useMemo(
     () => (needle
@@ -246,7 +246,7 @@ export default function DataEditor() {
             <tbody>
               {tab === 'suppliers'
                 ? (shown as typeof suppliersBase).map((s) => {
-                    const canon = BUNDLED_MATCHING.supplierAlias[norm(s.name)]
+                    const canon = matching.supplierAlias[norm(s.name)]
                     const acknowledged = edits.acknowledgedSuppliers[s.name] === true
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
