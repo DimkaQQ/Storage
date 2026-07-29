@@ -3,12 +3,13 @@ const MIN_TURNOVER = 0 // фильтр оборота применяется н�
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
 /**
- * Демо-данные — фиксированный майский снимок, не «текущий месяц» сервера.
- * Для реального провайдера период берём из настроек синхронизации, а не из
- * даты сервера — иначе на "prev-month" подпись всё равно покажет текущий.
+ * Демо-данные — фиксированный снимок конкретного месяца, не «текущий
+ * месяц» сервера. Для реального провайдера период берём из настроек
+ * синхронизации, а не из даты сервера — иначе на "prev-month" подпись
+ * всё равно покажет текущий.
  */
 function resolvePeriod(settings) {
-  if (!settings || settings.provider === 'mock') return { period: '2026-05-01', periodLabel: 'Май 2026' }
+  if (!settings || settings.provider === 'mock') return { period: '2026-06-01', periodLabel: 'Июнь 2026' }
   const now = new Date()
   const base = settings.period === 'prev-month' ? new Date(now.getFullYear(), now.getMonth() - 1, 1) : now
   return { period: base.toISOString().slice(0, 10), periodLabel: `${MONTHS[base.getMonth()]} ${base.getFullYear()}` }
