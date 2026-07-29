@@ -268,8 +268,19 @@ function resolveRowPlan(b: BaseRow, matching: MatchingTable, designatedIndex: De
       const onlyPack = [...variants][0]
       const candidateKey = `${pairKey}::${onlyPack}`
       const candidatePlan = matching.planPairsByPack[candidateKey]
-      if (candidatePlan != null && Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
-        return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false }
+      if (candidatePlan != null) {
+        // Если их собственная фасовка (F) в матрице сама голая ("кг") — это
+        // значит, что цена в матрице и так за килограмм, вне зависимости от
+        // того, как именно расфасовано у поставщика (Креветки 16/20: у них
+        // "кг", у факта конкретный блок "1.8кг" — это тот же самый товар, а
+        // не другой). Раз в матрице всего ОДИН такой товар и он без деления
+        // по фасовке — совпадение цены тут ничего не доказывает и не нужно,
+        // само название уже точное доказательство. Порог по цене остаётся
+        // только там, где у матрицы своя фасовка конкретная (голубика/малина
+        // и т.п. — там угадывать по названию нельзя, только по цене).
+        if (!isPrecisePack(onlyPack) || Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
+          return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false }
+        }
       }
     }
   }

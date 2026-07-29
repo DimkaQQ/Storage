@@ -54,7 +54,7 @@ async function runSync(orgId, trigger) {
   try {
     const facts = await fetchFacts(settings)
     if (!facts.length) throw new Error('Провайдер вернул пустой список закупок')
-    const dataset = buildDataset(facts, getVenues(orgId))
+    const dataset = buildDataset(facts, getVenues(orgId), settings)
     saveDataset(orgId, dataset)
     const status = {
       lastSync: new Date().toISOString(),
