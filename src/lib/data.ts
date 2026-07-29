@@ -174,11 +174,12 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
 export interface Edits {
   productRenames: Record<string, string>   // original product name -> display name
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
+  productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). Ручной override автоматики (см. resolveRowPlan)
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
 }
 export const EMPTY_EDITS: Edits = {
-  productRenames: {}, acknowledgedSuppliers: {}, venueOverrides: {}, newVenues: {},
+  productRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, venueOverrides: {}, newVenues: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -252,7 +253,7 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
   return { byPack, byProduct, byProductFlatOnly, bySupplierProduct }
 }
 
-function resolveRowPlan(b: BaseRow, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
+function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
   const supplierCanon = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
   const restaurant = norm(b.restaurant)
   const product = norm(b.product0)
@@ -295,8 +296,11 @@ function resolveRowPlan(b: BaseRow, matching: MatchingTable, designatedIndex: De
         // по фасовке — совпадение цены тут ничего не доказывает и не нужно,
         // само название уже точное доказательство. Порог по цене остаётся
         // только там, где у матрицы своя фасовка конкретная (голубика/малина
-        // и т.п. — там угадывать по названию нельзя, только по цене).
-        if (!isPrecisePack(onlyPack) || Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
+        // и т.п. — там угадывать по названию нельзя, только по цене). Это
+        // автоматическое правило можно переопределить вручную в Справочниках
+        // (Товары → «Фасовка»), если для конкретного товара оно не подходит.
+        const packMatters = edits.productPackOverride[b.product0] ?? isPrecisePack(onlyPack)
+        if (!packMatters || Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
           return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false }
         }
       }
@@ -353,7 +357,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers, productLabel, unpricedMatch } = resolveRowPlan(b, matching, designatedIndex)
+    const { plan, status, designatedSuppliers, productLabel, unpricedMatch } = resolveRowPlan(b, edits, matching, designatedIndex)
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
     // независимо от статуса. Если комментария нет, но статус выставлен через

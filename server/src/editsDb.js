@@ -23,9 +23,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS venue_overrides  (org_id TEXT NOT NULL, restaurant TEXT NOT NULL, city TEXT, brand TEXT, entity TEXT, category TEXT, PRIMARY KEY (org_id, restaurant));
   CREATE TABLE IF NOT EXISTS new_venues       (org_id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, name));
   CREATE TABLE IF NOT EXISTS acknowledged_suppliers (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
+  CREATE TABLE IF NOT EXISTS product_pack_override (org_id TEXT NOT NULL, product TEXT NOT NULL, pack_matters INTEGER NOT NULL, PRIMARY KEY (org_id, product));
 `)
 
-const TABLES = ['product_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers']
+const TABLES = ['product_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -46,7 +47,9 @@ export function getEditsForOrg(orgId) {
     db.prepare('SELECT name FROM new_venues WHERE org_id=?').all(orgId).map((r) => [r.name, true]))
   const acknowledgedSuppliers = Object.fromEntries(
     db.prepare('SELECT raw_name FROM acknowledged_suppliers WHERE org_id=?').all(orgId).map((r) => [r.raw_name, true]))
-  return { productRenames, venueOverrides, newVenues, acknowledgedSuppliers }
+  const productPackOverride = Object.fromEntries(
+    db.prepare('SELECT product, pack_matters FROM product_pack_override WHERE org_id=?').all(orgId).map((r) => [r.product, !!r.pack_matters]))
+  return { productRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride }
 }
 
 function hasAnyRows(orgId) {
@@ -113,6 +116,13 @@ export function unacknowledgeSupplier(orgId, rawName) {
   db.prepare('DELETE FROM acknowledged_suppliers WHERE org_id=? AND raw_name=?').run(orgId, rawName)
 }
 
+/** value: true = фасовка обязательна (строгое совпадение), false = не важна, null = вернуть к автоматике. */
+export function setProductPackOverride(orgId, product, value) {
+  if (value === null || value === undefined) db.prepare('DELETE FROM product_pack_override WHERE org_id=? AND product=?').run(orgId, product)
+  else db.prepare('INSERT INTO product_pack_override (org_id, product, pack_matters) VALUES (?,?,?) ON CONFLICT(org_id, product) DO UPDATE SET pack_matters=excluded.pack_matters')
+    .run(orgId, product, value ? 1 : 0)
+}
+
 export function resetEdits(orgId) {
   tx(() => { for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId) })
 }
@@ -130,5 +140,7 @@ export function replaceAllEdits(orgId, e) {
       db.prepare('INSERT INTO new_venues (org_id, name) VALUES (?,?)').run(orgId, name)
     for (const rawName of Object.keys(e.acknowledgedSuppliers || {}))
       db.prepare('INSERT INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, rawName)
+    for (const [product, matters] of Object.entries(e.productPackOverride || {}))
+      db.prepare('INSERT INTO product_pack_override (org_id, product, pack_matters) VALUES (?,?,?)').run(orgId, product, matters ? 1 : 0)
   })
 }

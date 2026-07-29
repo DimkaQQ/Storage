@@ -8,6 +8,7 @@ function normalize(p: any): Edits {
   return {
     productRenames: p?.productRenames ?? {},
     acknowledgedSuppliers: p?.acknowledgedSuppliers ?? {},
+    productPackOverride: p?.productPackOverride ?? {},
     venueOverrides: p?.venueOverrides ?? {},
     newVenues: p?.newVenues ?? {},
   }
@@ -45,6 +46,8 @@ function syncUndoToServer(current: Edits, target: Edits) {
     applyEditOp(target.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k })
   for (const k of diffKeys(current.acknowledgedSuppliers, target.acknowledgedSuppliers))
     applyEditOp(target.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k })
+  for (const k of diffKeys(current.productPackOverride, target.productPackOverride))
+    applyEditOp('setProductPackOverride', { product: k, value: target.productPackOverride[k] ?? null })
 }
 
 interface Ctx {
@@ -75,6 +78,7 @@ interface Ctx {
   removeVenue: (name: string) => void
   acknowledgeSupplier: (rawName: string) => void
   unacknowledgeSupplier: (rawName: string) => void
+  setProductPackOverride: (product: string, value: boolean | null) => void
   reset: () => void
   replaceAll: (e: Edits) => void
   undo: () => void
@@ -231,6 +235,18 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('unacknowledgeSupplier', { rawName })
   }, [updateEdits])
 
+  // Ручной override того, важна ли фасовка для сопоставления этого товара —
+  // null возвращает к автоматике (см. resolveRowPlan/isPrecisePack).
+  const setProductPackOverride = useCallback((product: string, value: boolean | null) => {
+    updateEdits((e) => {
+      const next = { ...e.productPackOverride }
+      if (value === null) delete next[product]
+      else next[product] = value
+      return { ...e, productPackOverride: next }
+    })
+    applyEditOp('setProductPackOverride', { product, value })
+  }, [updateEdits])
+
   const reset = useCallback(() => {
     updateEdits(() => EMPTY_EDITS)
     applyEditOp('reset')
@@ -239,6 +255,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const next: Edits = {
       productRenames: e.productRenames ?? {},
       acknowledgedSuppliers: e.acknowledgedSuppliers ?? {},
+      productPackOverride: e.productPackOverride ?? {},
       venueOverrides: e.venueOverrides ?? {},
       newVenues: e.newVenues ?? {},
     }
@@ -249,6 +266,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const editCount =
     Object.keys(edits.productRenames).length +
     Object.keys(edits.acknowledgedSuppliers).length +
+    Object.keys(edits.productPackOverride).length +
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newVenues).length
 
@@ -264,7 +282,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     backendOnline, status, syncing, refresh, reloadStatus,
     renameProduct, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride,
     reset, replaceAll, undo, canUndo,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>

@@ -13,7 +13,7 @@ export default function DataEditor() {
   const {
     edits, editCount, renameProduct, setVenue, reset, replaceAll,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, undo, canUndo,
     suppliers: suppliersBase, products: productsBase, restaurants, matching,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('suppliers')
@@ -228,9 +228,10 @@ export default function DataEditor() {
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-[38%]">Название (iiko)</th>
-                  <th className="th w-[38%]">Отображаемое имя</th>
-                  <th className="th w-[24%] text-right">Ресторанов</th>
+                  <th className="th w-[32%]">Название (iiko)</th>
+                  <th className="th w-[32%]">Отображаемое имя</th>
+                  <th className="th w-[20%]">Фасовка <InfoTip text="Важна ли фасовка для сопоставления с матрицей. «Авто» — определяется автоматически по тому, как записана фасовка в матрице. Поставьте вручную, если автоматика ошибается." /></th>
+                  <th className="th w-[16%] text-right">Ресторанов</th>
                 </tr>
               ) : (
                 <tr>
@@ -276,13 +277,27 @@ export default function DataEditor() {
                     )
                   })
                 : tab === 'products'
-                ? (shown as typeof productsBase).map((p) => (
-                    <tr key={p.name} className="row-hover hover:bg-ink-800/40">
-                      <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
-                      <td className="td"><EditableText value={edits.productRenames[p.name] ?? p.name} onCommit={(v) => renameProduct(p.name, v)} /></td>
-                      <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
-                    </tr>
-                  ))
+                ? (shown as typeof productsBase).map((p) => {
+                    const override = edits.productPackOverride[p.name]
+                    return (
+                      <tr key={p.name} className="row-hover hover:bg-ink-800/40">
+                        <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
+                        <td className="td"><EditableText value={edits.productRenames[p.name] ?? p.name} onCommit={(v) => renameProduct(p.name, v)} /></td>
+                        <td className="td">
+                          <select
+                            value={override === undefined ? 'auto' : override ? 'yes' : 'no'}
+                            onChange={(e) => setProductPackOverride(p.name, e.target.value === 'auto' ? null : e.target.value === 'yes')}
+                            className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-xs text-slate-200 focus:border-brand-500 focus:outline-none"
+                          >
+                            <option value="auto">Авто</option>
+                            <option value="yes">Важна</option>
+                            <option value="no">Не важна</option>
+                          </select>
+                        </td>
+                        <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
+                      </tr>
+                    )
+                  })
                 : (shown as typeof venues).map((r) => {
                     const manual = edits.newVenues[r.name] === true
                     return (

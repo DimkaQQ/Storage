@@ -205,6 +205,7 @@ const EDIT_OPS = {
   removeVenue: (orgId, { name }) => editsDb.removeVenue(orgId, name),
   acknowledgeSupplier: (orgId, { rawName }) => editsDb.acknowledgeSupplier(orgId, rawName),
   unacknowledgeSupplier: (orgId, { rawName }) => editsDb.unacknowledgeSupplier(orgId, rawName),
+  setProductPackOverride: (orgId, { product, value }) => editsDb.setProductPackOverride(orgId, product, value),
   reset: (orgId) => editsDb.resetEdits(orgId),
 }
 
