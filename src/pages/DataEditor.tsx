@@ -3,6 +3,7 @@ import { fmt, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
+import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
 import { ISearch, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck } from '../components/icons'
 
@@ -54,22 +55,33 @@ export default function DataEditor() {
     [needle, edits.productRenames, productsBase],
   )
 
+  // Проперкейсовое название поставщика по нормализованному (ключи в
+  // matching.productLabels хранят поставщика в норм-виде) — берём из
+  // значений supplierAlias, они уже как надо записаны (столбец C матрицы).
+  const canonicalSupplierByNorm = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const canon of Object.values(matching.supplierAlias)) map.set(norm(canon), canon)
+    return map
+  }, [matching])
+
   // Их собственное название товара (столбец I матрицы) — как якорь берём
   // название из iiko (D/E), а тут собираем ВСЕ варианты их описания, что
   // встречались по этому товару у разных поставщиков/точек: один и тот же
   // товар из iiko может называться у них по-разному в зависимости от того,
-  // кто его поставляет, так что подсказок может быть несколько.
+  // кто его поставляет, так что подсказок может быть несколько, и у каждой
+  // подсказки виден свой поставщик.
   const productLabelSuggestions = useMemo(() => {
-    const map = new Map<string, string[]>()
+    const map = new Map<string, { label: string; supplier: string }[]>()
     for (const [key, label] of Object.entries(matching.productLabels)) {
-      const product = key.split('::')[2]
+      const [, supplierNorm, product] = key.split('::')
       if (!product) continue
+      const supplier = canonicalSupplierByNorm.get(supplierNorm) ?? supplierNorm
       const list = map.get(product) ?? []
-      if (!list.includes(label)) list.push(label)
+      if (!list.some((x) => x.label === label && x.supplier === supplier)) list.push({ label, supplier })
       map.set(product, list)
     }
     return map
-  }, [matching])
+  }, [matching, canonicalSupplierByNorm])
 
   const venues = useMemo(
     () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
@@ -294,24 +306,18 @@ export default function DataEditor() {
                     )
                   })
                 : tab === 'products'
-                ? (shown as typeof productsBase).map((p, i) => {
+                ? (shown as typeof productsBase).map((p) => {
                     const override = edits.productPackOverride[p.name]
                     const suggestions = productLabelSuggestions.get(norm(p.name)) ?? []
-                    const datalistId = `product-labels-${i}`
                     return (
                       <tr key={p.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
                         <td className="td">
-                          <EditableText
-                            value={edits.productRenames[p.name] ?? suggestions[0] ?? p.name}
+                          <ProductLabelSuggest
+                            value={edits.productRenames[p.name] ?? suggestions[0]?.label ?? p.name}
+                            suggestions={suggestions}
                             onCommit={(v) => renameProduct(p.name, v)}
-                            list={suggestions.length ? datalistId : undefined}
                           />
-                          {suggestions.length > 0 && (
-                            <datalist id={datalistId}>
-                              {suggestions.map((s) => <option key={s} value={s} />)}
-                            </datalist>
-                          )}
                         </td>
                         <td className="td">
                           <select
