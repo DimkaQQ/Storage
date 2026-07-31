@@ -132,16 +132,26 @@ export const getSeedPeriod = (period) => getSeedPeriods().find((d) => d.period =
  */
 export function bootstrapOrgData(orgId, { withSeed }) {
   const paths = orgPaths(orgId)
-  if (existsSync(paths.venues)) return
-  const periods = withSeed ? getSeedPeriods() : []
-  for (const d of periods) write(orgDatasetPath(orgId, d.period), d)
-  const venueMap = new Map()
-  for (const d of periods) for (const r of d.restaurants || [])
-    venueMap.set(r.name, { name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category })
-  write(paths.venues, [...venueMap.values()])
-  write(paths.status, periods.length
-    ? { lastSync: null, lastResult: 'seed', source: 'seed', message: 'Стартовые данные (демо)' }
-    : { lastSync: null, lastResult: null, source: null, message: 'Данных пока нет — настройте подключение к iiko' })
+  if (!existsSync(paths.venues)) {
+    const periods = withSeed ? getSeedPeriods() : []
+    for (const d of periods) write(orgDatasetPath(orgId, d.period), d)
+    const venueMap = new Map()
+    for (const d of periods) for (const r of d.restaurants || [])
+      venueMap.set(r.name, { name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category })
+    write(paths.venues, [...venueMap.values()])
+    write(paths.status, periods.length
+      ? { lastSync: null, lastResult: 'seed', source: 'seed', message: 'Стартовые данные (демо)' }
+      : { lastSync: null, lastResult: null, source: null, message: 'Данных пока нет — настройте подключение к iiko' })
+    return
+  }
+  // Already-bootstrapped org (e.g. predates a since-added seed period, or the
+  // old single-file dataset format): backfill any seed period files that
+  // aren't on disk yet, without touching existing data/venues/status.
+  if (withSeed) {
+    for (const d of getSeedPeriods()) {
+      if (!existsSync(orgDatasetPath(orgId, d.period))) write(orgDatasetPath(orgId, d.period), d)
+    }
+  }
 }
 
 export const getSettings = (orgId) => ({ ...DEFAULT_SETTINGS, ...read(orgPaths(orgId).settings, {}) })

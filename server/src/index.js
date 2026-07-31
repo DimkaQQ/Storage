@@ -39,8 +39,11 @@ function bootstrap() {
     console.log(`  Пароль: ${ADMIN_PASSWORD}`)
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   }
-  // Any org that predates multi-tenancy or was created without data yet.
-  for (const org of listOrgs()) bootstrapOrgData(org.id, { withSeed: false })
+  // Any org that predates multi-tenancy, was created without data yet, or is
+  // missing a since-added seed period. Only orgs still on the demo/mock
+  // provider get backfilled with seed data — a real iiko-connected org's
+  // missing periods mean "not synced yet", not "needs demo numbers".
+  for (const org of listOrgs()) bootstrapOrgData(org.id, { withSeed: getSettings(org.id).provider === 'mock' })
 }
 bootstrap()
 
