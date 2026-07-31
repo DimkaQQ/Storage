@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 
 /** Text input that commits on blur / Enter; syncs when the external value changes. */
-export function EditableText({ value, onCommit, className = '' }: {
-  value: string; onCommit: (v: string) => void; className?: string
+export function EditableText({ value, onCommit, className = '', list }: {
+  value: string; onCommit: (v: string) => void; className?: string; list?: string
 }) {
   const [v, setV] = useState(value)
   useEffect(() => setV(value), [value])
@@ -10,6 +10,7 @@ export function EditableText({ value, onCommit, className = '' }: {
     <input
       value={v}
       title={v}
+      list={list}
       onChange={(e) => setV(e.target.value)}
       onBlur={() => onCommit(v)}
       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}

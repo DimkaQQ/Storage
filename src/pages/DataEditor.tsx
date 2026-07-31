@@ -54,6 +54,23 @@ export default function DataEditor() {
     [needle, edits.productRenames, productsBase],
   )
 
+  // Их собственное название товара (столбец I матрицы) — как якорь берём
+  // название из iiko (D/E), а тут собираем ВСЕ варианты их описания, что
+  // встречались по этому товару у разных поставщиков/точек: один и тот же
+  // товар из iiko может называться у них по-разному в зависимости от того,
+  // кто его поставляет, так что подсказок может быть несколько.
+  const productLabelSuggestions = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const [key, label] of Object.entries(matching.productLabels)) {
+      const product = key.split('::')[2]
+      if (!product) continue
+      const list = map.get(product) ?? []
+      if (!list.includes(label)) list.push(label)
+      map.set(product, list)
+    }
+    return map
+  }, [matching])
+
   const venues = useMemo(
     () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
     [needle, restaurants],
@@ -229,7 +246,7 @@ export default function DataEditor() {
               ) : tab === 'products' ? (
                 <tr>
                   <th className="th w-[32%]">Название (iiko)</th>
-                  <th className="th w-[32%]">Отображаемое имя</th>
+                  <th className="th w-[32%]">Их название <InfoTip text="Как этот товар называют они сами (столбец I матрицы), если известно — можно поправить или выбрать другой вариант из подсказок, если у разных поставщиков он называется по-разному. Название из iiko при этом не трогается, остаётся якорем." /></th>
                   <th className="th w-[20%]">Фасовка <InfoTip text="Важна ли фасовка для сопоставления с матрицей. «Авто» — определяется автоматически по тому, как записана фасовка в матрице. Поставьте вручную, если автоматика ошибается." /></th>
                   <th className="th w-[16%] text-right">Ресторанов</th>
                 </tr>
@@ -277,12 +294,25 @@ export default function DataEditor() {
                     )
                   })
                 : tab === 'products'
-                ? (shown as typeof productsBase).map((p) => {
+                ? (shown as typeof productsBase).map((p, i) => {
                     const override = edits.productPackOverride[p.name]
+                    const suggestions = productLabelSuggestions.get(norm(p.name)) ?? []
+                    const datalistId = `product-labels-${i}`
                     return (
                       <tr key={p.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
-                        <td className="td"><EditableText value={edits.productRenames[p.name] ?? p.name} onCommit={(v) => renameProduct(p.name, v)} /></td>
+                        <td className="td">
+                          <EditableText
+                            value={edits.productRenames[p.name] ?? suggestions[0] ?? p.name}
+                            onCommit={(v) => renameProduct(p.name, v)}
+                            list={suggestions.length ? datalistId : undefined}
+                          />
+                          {suggestions.length > 0 && (
+                            <datalist id={datalistId}>
+                              {suggestions.map((s) => <option key={s} value={s} />)}
+                            </datalist>
+                          )}
+                        </td>
                         <td className="td">
                           <select
                             value={override === undefined ? 'auto' : override ? 'yes' : 'no'}
