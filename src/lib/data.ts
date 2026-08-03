@@ -119,7 +119,7 @@ interface RawDataset {
   restaurants: RawRestaurant[]
 }
 
-export type Status = 'ok' | 'wrongSupplier' | 'nomatrix'
+export type Status = 'ok' | 'wrongSupplier' | 'nomatrix' | 'notPurchased'
 
 export interface Row {
   id: string
@@ -134,7 +134,7 @@ export interface Row {
   productLabel: string | null  // их собственное "Наименование товара" из матрицы (только когда status === 'ok')
   pack: string
   qty: number
-  unit: number
+  unit: number | null  // null только для status === 'notPurchased' — позиция из матрицы, которую в этом периоде вообще не покупали
   plan: number | null
   diffPct: number | null   // (unit - plan)/plan — informational only, no overpay/saving concept
   status: Status
@@ -194,7 +194,14 @@ export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta
   return added.length ? [...restaurants, ...added] : restaurants
 }
 
-interface Resolved { plan: number | null; status: Status; designatedSuppliers: string[]; productLabel: string | null; unpricedMatch: boolean }
+interface Resolved {
+  plan: number | null
+  status: Status
+  designatedSuppliers: string[]
+  productLabel: string | null
+  unpricedMatch: boolean
+  matchedKey: string | null  // the planPairs/planPairsByPack key this purchase consumed, if any — lets computeRows tell purchased matrix slots apart from ones nobody bought yet
+}
 
 const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
 
@@ -263,10 +270,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
-    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false }
+    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false, matchedKey: tripleKey }
   }
   const plan = matching.planPairs[pairKey]
-  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false }
+  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey }
 
   // Текст фасовки у факта и у матрицы может не совпасть буквально по кучe
   // причин, которые не про разный товар: iiko иногда пишет голую единицу
@@ -301,7 +308,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
         // (Товары → «Фасовка»), если для конкретного товара оно не подходит.
         const packMatters = edits.productPackOverride[b.product0] ?? isPrecisePack(onlyPack)
         if (!packMatters || Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
-          return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false }
+          return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false, matchedKey: candidateKey }
         }
       }
     }
@@ -312,10 +319,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // яйцо" продаёт им "Яйцо куриное" один в один как в iiko, только без
   // цены. Точное совпадение имени — не нужно гадать по словам, как ниже.
   if (pack && matching.noPriceExact[`${pairKey}::${pack}`]) {
-    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true }
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null }
   }
   if (matching.noPriceExact[pairKey]) {
-    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true }
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null }
   }
 
   // No price for THIS exact (supplier, pack) combo. Who's designated for
@@ -340,15 +347,32 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   }
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null }
 }
+
+const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
+
+const NOT_PURCHASED_NOTE = 'Есть в матрице, но в этом периоде не закупали.'
 
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {
   const designatedIndex = buildDesignatedIndex(matching)
-  return base.map((b) => {
+  const consumed = new Set<string>()
+  // Restaurants actually present in this dataset (post RESTAURANT_SCOPE), so
+  // matrix entries for restaurants we don't even show don't spawn rows here.
+  // First occurrence per restaurant carries the venue meta (brand/city/...)
+  // to reuse for its "not purchased yet" rows below.
+  const venueByRestaurant = new Map<string, BaseRow>()
+  for (const b of base) {
+    const key = norm(b.restaurant)
+    if (!venueByRestaurant.has(key)) venueByRestaurant.set(key, b)
+  }
+  const supplierDisplayByNorm = new Map<string, string>()
+  for (const canon of Object.values(matching.supplierAlias)) supplierDisplayByNorm.set(norm(canon), canon)
+
+  const rows: Row[] = base.map((b) => {
     // Основное название — всегда как поставщик записан в самом отчёте iiko.
     // Их название компании из матрицы (колонка C) — отдельная серая подпись
     // снизу, так же, как название товара из матрицы под самим товаром.
@@ -357,7 +381,8 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
     const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers, productLabel, unpricedMatch } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers, productLabel, unpricedMatch, matchedKey } = resolveRowPlan(b, edits, matching, designatedIndex)
+    if (matchedKey) consumed.add(matchedKey)
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
     // независимо от статуса. Если комментария нет, но статус выставлен через
@@ -370,6 +395,47 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
       diffPct, status, designatedSuppliers, note,
     }
   })
+
+  // Matrix slots nobody bought this period — the flip side of the table:
+  // "what's priced for this restaurant that just didn't get ordered". Only
+  // for matrix keys with an actual plan price (planPairs/planPairsByPack) —
+  // noPriceExact entries have nothing to show a price for, so skipping those
+  // avoids adding noise. Where a product has BOTH a flat planPairs price AND
+  // per-pack breakdowns, only the per-pack entries are shown — the flat price
+  // there is just a fallback resolveRowPlan itself would only use once no
+  // pack-specific price exists, so listing both would double-count the item.
+  const packBrokenDownPairKeys = new Set(
+    Object.keys(matching.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
+  )
+  let seq = 0
+  const addPlanOnlyRow = (key: string, restaurantNorm: string, product: string, pack: string, plan: number) => {
+    const venueRow = venueByRestaurant.get(restaurantNorm)
+    if (!venueRow || consumed.has(key)) return
+    const [, supplierNorm] = key.split('::')
+    const supplierDisplay = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
+    const label = matching.productLabels[key] ?? null
+    rows.push({
+      id: 'np' + seq++, restaurant: venueRow.restaurant,
+      brand: venueRow.brand, city: venueRow.city, entity: venueRow.entity, category: venueRow.category,
+      supplier: supplierDisplay, supplierLabel: null,
+      product: label ?? capitalize(product), productLabel: pack || null,
+      pack, qty: 0, unit: null, plan,
+      diffPct: null, status: 'notPurchased', designatedSuppliers: [], note: NOT_PURCHASED_NOTE,
+    })
+  }
+  for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
+    const [restaurant, , product, pack] = key.split('::')
+    if (!venueByRestaurant.has(restaurant)) continue
+    addPlanOnlyRow(key, restaurant, product, pack, plan)
+  }
+  for (const [key, plan] of Object.entries(matching.planPairs)) {
+    if (packBrokenDownPairKeys.has(key)) continue
+    const [restaurant, , product] = key.split('::')
+    if (!venueByRestaurant.has(restaurant)) continue
+    addPlanOnlyRow(key, restaurant, product, '', plan)
+  }
+
+  return rows
 }
 
 /* ---------- reference lists for the editor ---------- */
@@ -460,6 +526,7 @@ export const STATUS_META: Record<Status, { label: string; color: string; dot: st
   ok: { label: 'По матрице', color: 'text-good', dot: 'bg-good' },
   wrongSupplier: { label: 'Заказ не по матрице', color: 'text-warn', dot: 'bg-warn' },
   nomatrix: { label: 'Нет в матрице', color: 'text-purple-300', dot: 'bg-purple-400' },
+  notPurchased: { label: 'Не закуплено', color: 'text-slate-400', dot: 'bg-slate-500' },
 }
 
 /* ---------- aggregation helpers ---------- */
@@ -470,22 +537,29 @@ export interface Summary {
   matchRate: number
   wrongSupplierCount: number
   noMatrixCount: number
+  notPurchasedCount: number  // в матрице есть, но в этом периоде не покупали — отдельно от "проблем" ниже
   openIssues: number   // всё, что требует внимания
 }
 
+// notPurchased-строки — не реальные закупки, поэтому не участвуют в
+// "позиций проверено" / matchRate / openIssues — те метрики про то, что
+// реально купили и насколько это сошлось с планом.
 export function summarize(rows: Row[]): Summary {
-  let matched = 0, wrongSupplierCount = 0, noMatrixCount = 0
+  let matched = 0, wrongSupplierCount = 0, noMatrixCount = 0, notPurchasedCount = 0
   for (const r of rows) {
+    if (r.status === 'notPurchased') { notPurchasedCount++; continue }
     if (r.status !== 'nomatrix' && r.status !== 'wrongSupplier') matched++
     else if (r.status === 'wrongSupplier') wrongSupplierCount++
     else if (r.status === 'nomatrix') noMatrixCount++
   }
+  const purchased = rows.length - notPurchasedCount
   return {
-    positions: rows.length,
+    positions: purchased,
     matched,
-    matchRate: rows.length ? matched / rows.length : 0,
+    matchRate: purchased ? matched / purchased : 0,
     wrongSupplierCount,
     noMatrixCount,
+    notPurchasedCount,
     openIssues: wrongSupplierCount + noMatrixCount,
   }
 }

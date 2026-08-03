@@ -11,6 +11,7 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'ok', label: 'По матрице' },
   { id: 'wrongSupplier', label: 'Заказ не по матрице' },
   { id: 'nomatrix', label: 'Нет в матрице' },
+  { id: 'notPurchased', label: 'Не закуплено' },
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
@@ -28,8 +29,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     const key = sort.key
     return [...r].sort((a, b) => {
       let av: any = a[key], bv: any = b[key]
-      if (av == null) av = key === 'plan' || key === 'diffPct' ? -Infinity : ''
-      if (bv == null) bv = key === 'plan' || key === 'diffPct' ? -Infinity : ''
+      if (av == null) av = key === 'plan' || key === 'diffPct' || key === 'unit' ? -Infinity : ''
+      if (bv == null) bv = key === 'plan' || key === 'diffPct' || key === 'unit' ? -Infinity : ''
       if (typeof av === 'string') return av.localeCompare(bv) * dir
       return (av - bv) * dir
     })
@@ -51,7 +52,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у']
     const lines = filtered.map((r) => [
       r.restaurant, r.supplier, r.product, r.pack,
-      r.plan ?? '', r.unit, r.plan != null ? r.unit - r.plan : '',
+      r.plan ?? '', r.unit ?? '', r.plan != null && r.unit != null ? r.unit - r.plan : '',
       STATUS_META[r.status].label, r.designatedSuppliers.join(', '),
     ])
     const ws = XLSX.utils.aoa_to_sheet([head, ...lines])
@@ -64,11 +65,12 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   return (
     <div className="space-y-4">
       {/* mini KPIs for current filter */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <MiniStat delay={0} label="Позиций в срезе" value={fmt(filtered.length)} tone="slate" />
         <MiniStat delay={50} label="Совпадает с матрицей" value={pct(s.matchRate).replace('+', '')} tone="slate" />
         <MiniStat delay={100} label="Заказ не по матрице" value={fmt(s.wrongSupplierCount)} tone="bad" />
         <MiniStat delay={150} label="Нет в матрице" value={fmt(s.noMatrixCount)} tone="bad" />
+        <MiniStat delay={200} label="Не закуплено" value={fmt(s.notPurchasedCount)} tone="slate" />
       </div>
 
       {/* toolbar */}
@@ -142,9 +144,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     )}
                   </td>
                   <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
-                  <td className="td text-right tabnum text-slate-200">{money(r.unit)}</td>
+                  <td className="td text-right tabnum text-slate-200">{r.unit != null ? money(r.unit) : <span className="text-slate-600">—</span>}</td>
                   <td className="td text-right tabnum font-semibold text-slate-300">
-                    {r.plan != null ? (r.unit - r.plan >= 0 ? '+' : '') + money(r.unit - r.plan) : <span className="text-slate-600">—</span>}
+                    {r.plan != null && r.unit != null ? (r.unit - r.plan >= 0 ? '+' : '') + money(r.unit - r.plan) : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="td overflow-hidden">
                     <StatusBadge status={r.status} />
