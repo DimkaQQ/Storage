@@ -119,7 +119,7 @@ interface RawDataset {
   restaurants: RawRestaurant[]
 }
 
-export type Status = 'ok' | 'wrongSupplier' | 'nomatrix' | 'notPurchased'
+export type Status = 'ok' | 'wrongSupplier' | 'nomatrix'
 
 export interface Row {
   id: string
@@ -134,7 +134,7 @@ export interface Row {
   productLabel: string | null  // их собственное "Наименование товара" из матрицы (только когда status === 'ok')
   pack: string
   qty: number
-  unit: number | null  // null только для status === 'notPurchased' — позиция из матрицы, которую в этом периоде вообще не покупали
+  unit: number | null  // null для позиции из матрицы, которую в этом периоде вообще не покупали (status при этом всё ещё 'ok' — она есть в плане)
   plan: number | null
   diffPct: number | null   // (unit - plan)/plan — informational only, no overpay/saving concept
   status: Status
@@ -354,8 +354,6 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
 
 const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 
-const NOT_PURCHASED_NOTE = 'Есть в матрице, но в этом периоде не закупали.'
-
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {
   const designatedIndex = buildDesignatedIndex(matching)
@@ -420,7 +418,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
       supplier: supplierDisplay, supplierLabel: null,
       product: label ?? capitalize(product), productLabel: pack || null,
       pack, qty: 0, unit: null, plan,
-      diffPct: null, status: 'notPurchased', designatedSuppliers: [], note: NOT_PURCHASED_NOTE,
+      diffPct: null, status: 'ok', designatedSuppliers: [], note: null,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
@@ -526,7 +524,6 @@ export const STATUS_META: Record<Status, { label: string; color: string; dot: st
   ok: { label: 'По матрице', color: 'text-good', dot: 'bg-good' },
   wrongSupplier: { label: 'Заказ не по матрице', color: 'text-warn', dot: 'bg-warn' },
   nomatrix: { label: 'Нет в матрице', color: 'text-purple-300', dot: 'bg-purple-400' },
-  notPurchased: { label: 'Не закуплено', color: 'text-slate-400', dot: 'bg-slate-500' },
 }
 
 /* ---------- aggregation helpers ---------- */
@@ -537,29 +534,27 @@ export interface Summary {
   matchRate: number
   wrongSupplierCount: number
   noMatrixCount: number
-  notPurchasedCount: number  // в матрице есть, но в этом периоде не покупали — отдельно от "проблем" ниже
   openIssues: number   // всё, что требует внимания
 }
 
-// notPurchased-строки — не реальные закупки, поэтому не участвуют в
-// "позиций проверено" / matchRate / openIssues — те метрики про то, что
-// реально купили и насколько это сошлось с планом.
+// Строки без факта (unit === null — в матрице есть, но в этом периоде не
+// покупали) не участвуют в "позиций проверено" / matchRate / openIssues —
+// те метрики про то, что реально купили и насколько это сошлось с планом.
 export function summarize(rows: Row[]): Summary {
-  let matched = 0, wrongSupplierCount = 0, noMatrixCount = 0, notPurchasedCount = 0
+  let matched = 0, wrongSupplierCount = 0, noMatrixCount = 0, purchased = 0
   for (const r of rows) {
-    if (r.status === 'notPurchased') { notPurchasedCount++; continue }
+    if (r.unit == null) continue
+    purchased++
     if (r.status !== 'nomatrix' && r.status !== 'wrongSupplier') matched++
     else if (r.status === 'wrongSupplier') wrongSupplierCount++
     else if (r.status === 'nomatrix') noMatrixCount++
   }
-  const purchased = rows.length - notPurchasedCount
   return {
     positions: purchased,
     matched,
     matchRate: purchased ? matched / purchased : 0,
     wrongSupplierCount,
     noMatrixCount,
-    notPurchasedCount,
     openIssues: wrongSupplierCount + noMatrixCount,
   }
 }
