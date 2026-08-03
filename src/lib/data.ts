@@ -370,6 +370,25 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
   const supplierDisplayByNorm = new Map<string, string>()
   for (const canon of Object.values(matching.supplierAlias)) supplierDisplayByNorm.set(norm(canon), canon)
 
+  // iiko часто пишет один и тот же product0 для целой категории ("Пюре в
+  // асс", "Ягода импортная 2..."), а конкретный сорт/вкус виден только по
+  // фасовке — сама матрица различает их через productLabels на разные ключи.
+  // Переименование в Справочниках (edits.productRenames) хранится ПО
+  // product0, то есть на всю категорию сразу — для такой "многозначной"
+  // категории оно физически не может быть верным для каждой закупки: если
+  // переименовали ради ананаса, все остальные вкусы (облепиха, малина…)
+  // ошибочно подхватят то же название. Поэтому для таких категорий имя из
+  // матрицы (точное, по факту+фасовке) побеждает ручное переименование —
+  // для однозначных product0 переименование по-прежнему работает как обычно.
+  const labelsByProduct = new Map<string, Set<string>>()
+  for (const key of Object.keys(matching.productLabels)) {
+    const productSeg = key.split('::')[2]
+    const set = labelsByProduct.get(productSeg) ?? new Set<string>()
+    set.add(matching.productLabels[key])
+    labelsByProduct.set(productSeg, set)
+  }
+  const ambiguousProducts = new Set([...labelsByProduct].filter(([, set]) => set.size > 1).map(([p]) => p))
+
   const rows: Row[] = base.map((b) => {
     // Основное название — всегда как поставщик записан в самом отчёте iiko.
     // Их название компании из матрицы (колонка C) — отдельная серая подпись
@@ -377,10 +396,13 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplier = b.supplier0
     const supplierCanonical = matching.supplierAlias[norm(b.supplier0)] ?? null
     const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
-    const product = edits.productRenames[b.product0] ?? b.product0
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers, productLabel, unpricedMatch, matchedKey } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers, productLabel: matrixLabel, unpricedMatch, matchedKey } = resolveRowPlan(b, edits, matching, designatedIndex)
     if (matchedKey) consumed.add(matchedKey)
+    const isAmbiguous = ambiguousProducts.has(norm(b.product0))
+    const rename = edits.productRenames[b.product0]
+    const product = isAmbiguous && matrixLabel ? matrixLabel : (rename ?? b.product0)
+    const productLabel = isAmbiguous && matrixLabel ? null : matrixLabel
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
     // независимо от статуса. Если комментария нет, но статус выставлен через

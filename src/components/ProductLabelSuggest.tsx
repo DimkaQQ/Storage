@@ -38,7 +38,10 @@ export default function ProductLabelSuggest({
         title={v}
         onFocus={() => setOpen(true)}
         onChange={(e) => setV(e.target.value)}
-        onBlur={() => onCommit(v)}
+        // Коммитим только если реально поменяли значение — иначе просто
+        // кликнуть в поле и выйти (например, случайно проходя табом) молча
+        // "замораживает" текущую подсказку как ручное переименование.
+        onBlur={() => { if (v !== value) onCommit(v) }}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
         className="w-full max-w-md rounded-md border border-ink-700/50 bg-ink-900/40 px-2 py-1 text-sm text-slate-100 transition-colors hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70 focus:outline-none"
       />
