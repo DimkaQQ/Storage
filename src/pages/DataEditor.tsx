@@ -13,7 +13,7 @@ type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
-    edits, editCount, rows, renameProduct, setVenue, reset, replaceAll,
+    edits, editCount, rows, renameProduct, renameSupplier, setVenue, reset, replaceAll,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setPackAlias, setPlanOverride, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching,
@@ -296,7 +296,7 @@ export default function DataEditor() {
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-[42%]">Название (iiko)</th>
-                  <th className="th w-[28%]">Справочник <InfoTip text="«Нет в справочнике» — этой компании нет в матрице. Если это действительно новый поставщик — нажмите «Добавить»." /></th>
+                  <th className="th w-[28%]">Наше название <InfoTip text="Название компании, обычно как в матрице — можно поправить вручную, например переименовать ИП. Влияет только на подпись, не на сопоставление. «Нет в справочнике» — этой компании нет в матрице ни под каким известным написанием; если это действительно новый поставщик — нажмите «Добавить»." /></th>
                   <th className="th w-[12%] text-right">Позиций</th>
                   <th className="th w-[18%] text-center">Действие</th>
                 </tr>
@@ -331,26 +331,35 @@ export default function DataEditor() {
                 ? (shown as typeof suppliersBase).map((s) => {
                     const canon = matching.supplierAlias[norm(s.name)]
                     const acknowledged = edits.acknowledgedSuppliers[s.name] === true
+                    const supplierRename = edits.supplierRenames[s.name]
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-slate-400">
                           <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={s.name} /></span>
                         </td>
                         <td className="td overflow-hidden">
-                          {canon ? (
-                            <HoverName text={canon} className="text-[11px] text-good" />
-                          ) : acknowledged ? (
-                            <span className="chip border-transparent bg-ink-700 text-[11px] text-slate-400">новый поставщик</span>
-                          ) : (
-                            <div className="flex min-w-0 flex-col gap-0.5">
-                              <span className="chip w-fit border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>
-                              {possibleDuplicate(s.name) && (
-                                <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                                  похоже на «{possibleDuplicate(s.name)}»?
-                                  <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Добавить» стоит свериться с матрицей." align="left" />
-                                </span>
-                              )}
-                            </div>
+                          <div className="flex items-center gap-1.5">
+                            <EditableText
+                              value={supplierRename ?? canon ?? ''}
+                              onCommit={(v) => renameSupplier(s.name, v)}
+                              className={supplierRename ? undefined : canon ? 'text-good' : undefined}
+                            />
+                            {supplierRename && <span className="chip shrink-0 border-transparent bg-brand-500/10 text-[10px] text-brand-300">правка</span>}
+                          </div>
+                          {!canon && (
+                            acknowledged ? (
+                              <span className="chip mt-1 w-fit border-transparent bg-ink-700 text-[11px] text-slate-400">новый поставщик</span>
+                            ) : (
+                              <div className="mt-1 flex min-w-0 flex-col gap-0.5">
+                                <span className="chip w-fit border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>
+                                {possibleDuplicate(s.name) && (
+                                  <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                                    похоже на «{possibleDuplicate(s.name)}»?
+                                    <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Добавить» стоит свериться с матрицей." align="left" />
+                                  </span>
+                                )}
+                              </div>
+                            )
                           )}
                         </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>

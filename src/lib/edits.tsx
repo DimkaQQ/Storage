@@ -7,6 +7,7 @@ const KEY = 'pricecheck-edits-v2'
 function normalize(p: any): Edits {
   return {
     productRenames: p?.productRenames ?? {},
+    supplierRenames: p?.supplierRenames ?? {},
     acknowledgedSuppliers: p?.acknowledgedSuppliers ?? {},
     productPackOverride: p?.productPackOverride ?? {},
     packAliases: p?.packAliases ?? {},
@@ -40,6 +41,8 @@ function diffKeys<T>(current: Record<string, T>, target: Record<string, T>): str
 function syncUndoToServer(current: Edits, target: Edits) {
   for (const k of diffKeys(current.productRenames, target.productRenames))
     applyEditOp('renameProduct', { original: k, name: target.productRenames[k] ?? '' })
+  for (const k of diffKeys(current.supplierRenames, target.supplierRenames))
+    applyEditOp('renameSupplier', { original: k, name: target.supplierRenames[k] ?? '' })
   for (const k of diffKeys(current.venueOverrides, target.venueOverrides)) {
     applyEditOp('clearVenue', { restaurant: k })
     if (target.venueOverrides[k]) applyEditOp('setVenue', { restaurant: k, patch: target.venueOverrides[k] })
@@ -78,7 +81,8 @@ interface Ctx {
   refresh: () => Promise<void>
   reloadStatus: () => Promise<void>
   // edits
-  renameProduct: (key: string, name: string) => void  // key = "товар::поставщик" (raw, как в iiko)
+  renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
+  renameSupplier: (rawName: string, name: string) => void
   setVenue: (restaurant: string, patch: VenuePatch) => void
   addVenue: (name: string, patch?: VenuePatch) => void
   removeVenue: (name: string) => void
@@ -198,6 +202,19 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('renameProduct', { original: key, name: v })
   }, [updateEdits])
 
+  // rawName = iiko-имя поставщика как есть. Только подпись — не влияет на
+  // само сопоставление с матрицей (см. supplierDisplay в computeRows).
+  const renameSupplier = useCallback((rawName: string, name: string) => {
+    const v = name.trim()
+    updateEdits((e) => {
+      const next = { ...e.supplierRenames }
+      if (!v) delete next[rawName]
+      else next[rawName] = v
+      return { ...e, supplierRenames: next }
+    })
+    applyEditOp('renameSupplier', { original: rawName, name: v })
+  }, [updateEdits])
+
   const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
     updateEdits((e) => {
       const next = { ...e.venueOverrides }
@@ -289,6 +306,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const replaceAll = useCallback((e: Edits) => {
     const next: Edits = {
       productRenames: e.productRenames ?? {},
+      supplierRenames: e.supplierRenames ?? {},
       acknowledgedSuppliers: e.acknowledgedSuppliers ?? {},
       productPackOverride: e.productPackOverride ?? {},
       packAliases: e.packAliases ?? {},
@@ -302,6 +320,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   const editCount =
     Object.keys(edits.productRenames).length +
+    Object.keys(edits.supplierRenames).length +
     Object.keys(edits.acknowledgedSuppliers).length +
     Object.keys(edits.productPackOverride).length +
     Object.keys(edits.packAliases).length +
@@ -319,7 +338,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, periodKey, periods, setPeriod, matching, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
-    renameProduct, setVenue,
+    renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setPlanOverride,
     reset, replaceAll, undo, canUndo,

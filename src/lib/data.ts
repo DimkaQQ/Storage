@@ -185,6 +185,7 @@ export interface PackAlias { targetPack: string; supplier: string; product: stri
 
 export interface Edits {
   productRenames: Record<string, string>   // "товар::поставщик::фасовка" (raw, как в iiko) -> наше название для этой ровно позиции
+  supplierRenames: Record<string, string>  // iiko-имя поставщика (raw) -> наше название — только подпись (HoverName/"Справочник"), на сопоставление с матрицей не влияет
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). Ручной override автоматики (см. resolveRowPlan)
   packAliases: Record<string, PackAlias>   // "поставщик(канон)::товар::фасовка как в iiko" (норм.) -> правка
@@ -193,7 +194,7 @@ export interface Edits {
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
 }
 export const EMPTY_EDITS: Edits = {
-  productRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
+  productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -444,7 +445,11 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     // снизу, так же, как название товара из матрицы под самим товаром.
     const supplier = b.supplier0
     const supplierCanonical = matching.supplierAlias[norm(b.supplier0)] ?? null
-    const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
+    // Ручное переименование побеждает каноническое название из матрицы —
+    // только подпись, на само сопоставление (supplierCanon в resolveRowPlan)
+    // не влияет, там по-прежнему используется matching.supplierAlias как есть.
+    const supplierDisplay = edits.supplierRenames[b.supplier0] ?? supplierCanonical
+    const supplierLabel = supplierDisplay && norm(supplierDisplay) !== norm(supplier) ? supplierDisplay : null
     const venue = edits.venueOverrides[b.restaurant]
     const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey } = resolveRowPlan(b, edits, matching, designatedIndex)
     if (matchedKey) consumed.add(matchedKey)

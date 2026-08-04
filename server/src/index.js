@@ -202,6 +202,7 @@ app.put('/api/edits', requireAuth, (req, res) => {
 
 const EDIT_OPS = {
   renameProduct: (orgId, { original, name }) => editsDb.renameProduct(orgId, original, name),
+  renameSupplier: (orgId, { original, name }) => editsDb.renameSupplier(orgId, original, name),
   setVenue: (orgId, { restaurant, patch }) => editsDb.setVenue(orgId, restaurant, patch),
   clearVenue: (orgId, { restaurant }) => editsDb.clearVenue(orgId, restaurant),
   addVenue: (orgId, { name, patch }) => editsDb.addVenue(orgId, name, patch),

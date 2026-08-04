@@ -20,6 +20,7 @@ function tx(fn) {
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS product_renames  (org_id TEXT NOT NULL, original TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, original));
+  CREATE TABLE IF NOT EXISTS supplier_renames (org_id TEXT NOT NULL, original TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, original));
   CREATE TABLE IF NOT EXISTS venue_overrides  (org_id TEXT NOT NULL, restaurant TEXT NOT NULL, city TEXT, brand TEXT, entity TEXT, category TEXT, PRIMARY KEY (org_id, restaurant));
   CREATE TABLE IF NOT EXISTS new_venues       (org_id TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, name));
   CREATE TABLE IF NOT EXISTS acknowledged_suppliers (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
@@ -28,7 +29,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS plan_overrides    (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (org_id, key));
 `)
 
-const TABLES = ['product_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'plan_overrides']
+const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'plan_overrides']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -36,6 +37,8 @@ export function getEditsForOrg(orgId) {
   migrateLegacyJsonIfNeeded(orgId)
   const productRenames = Object.fromEntries(
     db.prepare('SELECT original, name FROM product_renames WHERE org_id=?').all(orgId).map((r) => [r.original, r.name]))
+  const supplierRenames = Object.fromEntries(
+    db.prepare('SELECT original, name FROM supplier_renames WHERE org_id=?').all(orgId).map((r) => [r.original, r.name]))
   const venueOverrides = Object.fromEntries(
     db.prepare('SELECT restaurant, city, brand, entity, category FROM venue_overrides WHERE org_id=?').all(orgId).map((r) => {
       const patch = {}
@@ -56,7 +59,7 @@ export function getEditsForOrg(orgId) {
       .map((r) => [r.key, { targetPack: r.target_pack, supplier: r.supplier, product: r.product, rawPack: r.raw_pack }]))
   const planOverrides = Object.fromEntries(
     db.prepare('SELECT key, price FROM plan_overrides WHERE org_id=?').all(orgId).map((r) => [r.key, r.price]))
-  return { productRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, planOverrides }
+  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, planOverrides }
 }
 
 function hasAnyRows(orgId) {
@@ -84,6 +87,12 @@ export function renameProduct(orgId, original, name) {
   const v = String(name || '').trim()
   if (!v || v === original) db.prepare('DELETE FROM product_renames WHERE org_id=? AND original=?').run(orgId, original)
   else db.prepare('INSERT INTO product_renames (org_id, original, name) VALUES (?,?,?) ON CONFLICT(org_id, original) DO UPDATE SET name=excluded.name').run(orgId, original, v)
+}
+
+export function renameSupplier(orgId, original, name) {
+  const v = String(name || '').trim()
+  if (!v || v === original) db.prepare('DELETE FROM supplier_renames WHERE org_id=? AND original=?').run(orgId, original)
+  else db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?) ON CONFLICT(org_id, original) DO UPDATE SET name=excluded.name').run(orgId, original, v)
 }
 
 export function setVenue(orgId, restaurant, patch) {
@@ -156,6 +165,8 @@ export function replaceAllEdits(orgId, e) {
     for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId)
     for (const [original, name] of Object.entries(e.productRenames || {}))
       db.prepare('INSERT INTO product_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, original, name)
+    for (const [original, name] of Object.entries(e.supplierRenames || {}))
+      db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, original, name)
     for (const [restaurant, patch] of Object.entries(e.venueOverrides || {}))
       db.prepare('INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category) VALUES (?,?,?,?,?,?)')
         .run(orgId, restaurant, patch.city || null, patch.brand || null, patch.entity || null, patch.category || null)
