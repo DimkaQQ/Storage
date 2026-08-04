@@ -10,6 +10,7 @@ function normalize(p: any): Edits {
     acknowledgedSuppliers: p?.acknowledgedSuppliers ?? {},
     productPackOverride: p?.productPackOverride ?? {},
     packAliases: p?.packAliases ?? {},
+    planOverrides: p?.planOverrides ?? {},
     venueOverrides: p?.venueOverrides ?? {},
     newVenues: p?.newVenues ?? {},
   }
@@ -51,6 +52,8 @@ function syncUndoToServer(current: Edits, target: Edits) {
     applyEditOp('setProductPackOverride', { product: k, value: target.productPackOverride[k] ?? null })
   for (const k of diffKeys(current.packAliases, target.packAliases))
     applyEditOp('setPackAlias', { key: k, value: target.packAliases[k] ?? null })
+  for (const k of diffKeys(current.planOverrides, target.planOverrides))
+    applyEditOp('setPlanOverride', { key: k, value: target.planOverrides[k] ?? null })
 }
 
 interface Ctx {
@@ -83,6 +86,7 @@ interface Ctx {
   unacknowledgeSupplier: (rawName: string) => void
   setProductPackOverride: (product: string, value: boolean | null) => void
   setPackAlias: (key: string, value: PackAlias | null) => void
+  setPlanOverride: (key: string, value: number | null) => void
   reset: () => void
   replaceAll: (e: Edits) => void
   undo: () => void
@@ -265,6 +269,19 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('setPackAlias', { key, value })
   }, [updateEdits])
 
+  // Ручная плановая цена (Справочники → Товары → «План») — key в той же
+  // ключевой области, что и matching.planPairsByPack/planPairs (см.
+  // resolveRowPlan). null — снять правку, вернуться к цене из матрицы.
+  const setPlanOverride = useCallback((key: string, value: number | null) => {
+    updateEdits((e) => {
+      const next = { ...e.planOverrides }
+      if (value === null) delete next[key]
+      else next[key] = value
+      return { ...e, planOverrides: next }
+    })
+    applyEditOp('setPlanOverride', { key, value })
+  }, [updateEdits])
+
   const reset = useCallback(() => {
     updateEdits(() => EMPTY_EDITS)
     applyEditOp('reset')
@@ -275,6 +292,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       acknowledgedSuppliers: e.acknowledgedSuppliers ?? {},
       productPackOverride: e.productPackOverride ?? {},
       packAliases: e.packAliases ?? {},
+      planOverrides: e.planOverrides ?? {},
       venueOverrides: e.venueOverrides ?? {},
       newVenues: e.newVenues ?? {},
     }
@@ -287,6 +305,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.acknowledgedSuppliers).length +
     Object.keys(edits.productPackOverride).length +
     Object.keys(edits.packAliases).length +
+    Object.keys(edits.planOverrides).length +
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newVenues).length
 
@@ -302,7 +321,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     backendOnline, status, syncing, refresh, reloadStatus,
     renameProduct, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setPlanOverride,
     reset, replaceAll, undo, canUndo,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>

@@ -25,9 +25,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS acknowledged_suppliers (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
   CREATE TABLE IF NOT EXISTS product_pack_override (org_id TEXT NOT NULL, product TEXT NOT NULL, pack_matters INTEGER NOT NULL, PRIMARY KEY (org_id, product));
   CREATE TABLE IF NOT EXISTS pack_aliases     (org_id TEXT NOT NULL, key TEXT NOT NULL, target_pack TEXT NOT NULL, supplier TEXT NOT NULL, product TEXT NOT NULL, raw_pack TEXT NOT NULL, PRIMARY KEY (org_id, key));
+  CREATE TABLE IF NOT EXISTS plan_overrides    (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (org_id, key));
 `)
 
-const TABLES = ['product_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases']
+const TABLES = ['product_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'plan_overrides']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -53,7 +54,9 @@ export function getEditsForOrg(orgId) {
   const packAliases = Object.fromEntries(
     db.prepare('SELECT key, target_pack, supplier, product, raw_pack FROM pack_aliases WHERE org_id=?').all(orgId)
       .map((r) => [r.key, { targetPack: r.target_pack, supplier: r.supplier, product: r.product, rawPack: r.raw_pack }]))
-  return { productRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases }
+  const planOverrides = Object.fromEntries(
+    db.prepare('SELECT key, price FROM plan_overrides WHERE org_id=?').all(orgId).map((r) => [r.key, r.price]))
+  return { productRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, planOverrides }
 }
 
 function hasAnyRows(orgId) {
@@ -136,6 +139,13 @@ export function setPackAlias(orgId, key, value) {
   `).run(orgId, key, String(value.targetPack || ''), String(value.supplier || ''), String(value.product || ''), String(value.rawPack || ''))
 }
 
+/** value: число — план цена вручную из Справочников; null — снять правку (вернуться к цене из матрицы). */
+export function setPlanOverride(orgId, key, value) {
+  if (value === null || value === undefined) db.prepare('DELETE FROM plan_overrides WHERE org_id=? AND key=?').run(orgId, key)
+  else db.prepare('INSERT INTO plan_overrides (org_id, key, price) VALUES (?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET price=excluded.price')
+    .run(orgId, key, Number(value))
+}
+
 export function resetEdits(orgId) {
   tx(() => { for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId) })
 }
@@ -158,5 +168,7 @@ export function replaceAllEdits(orgId, e) {
     for (const [key, v] of Object.entries(e.packAliases || {}))
       db.prepare('INSERT INTO pack_aliases (org_id, key, target_pack, supplier, product, raw_pack) VALUES (?,?,?,?,?,?)')
         .run(orgId, key, String(v.targetPack || ''), String(v.supplier || ''), String(v.product || ''), String(v.rawPack || ''))
+    for (const [key, price] of Object.entries(e.planOverrides || {}))
+      db.prepare('INSERT INTO plan_overrides (org_id, key, price) VALUES (?,?,?)').run(orgId, key, Number(price))
   })
 }

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmt, plural, normPack } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
@@ -15,7 +15,7 @@ export default function DataEditor() {
   const {
     edits, editCount, rows, renameProduct, setVenue, reset, replaceAll,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setPackAlias, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setPackAlias, setPlanOverride, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('suppliers')
@@ -49,60 +49,33 @@ export default function DataEditor() {
     return list
   }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBase, matching])
 
-  // Товары — одна строка на пару товар+поставщик, а не просто на название из
-  // iiko: то же название часто покрывает разные товары у разных поставщиков
-  // (а иногда и у одного — см. ambiguousPairs ниже), так что «наше название»
-  // и «фасовка» имеют однозначный смысл только в привязке к поставщику.
-  const productSupplierPairs = useMemo(() => {
-    const map = new Map<string, { product: string; supplier: string; count: number; packs: Map<string, string> }>()
+  // Товары — одна строка на ровно одну позицию: товар+поставщик+фасовка,
+  // как её реально покупали. Фасовка тут — просто как записана в iiko,
+  // без всякого сопоставления с матрицей (это делает «Проверка цен»); зато
+  // на этом уровне «наше название» и «план» всегда однозначны — та же
+  // "Пюре в асс" у одного поставщика превращается в 19 отдельных строк
+  // (по вкусу), а не в одну с кучей вариантов.
+  const productVariants = useMemo(() => {
+    const map = new Map<string, { restaurant: string; product: string; supplier: string; pack: string; count: number }>()
     for (const r of rows) {
       if (r.unit == null) continue // не реальная закупка — позиция из матрицы, ещё не куплена в этом периоде
-      const key = `${norm(r.productRaw)}::${norm(r.supplier)}`
+      const key = `${norm(r.restaurant)}::${norm(r.productRaw)}::${norm(r.supplier)}::${normPack(r.pack)}`
       let entry = map.get(key)
-      if (!entry) { entry = { product: r.productRaw, supplier: r.supplier, count: 0, packs: new Map() }; map.set(key, entry) }
+      if (!entry) { entry = { restaurant: r.restaurant, product: r.productRaw, supplier: r.supplier, pack: r.pack, count: 0 }; map.set(key, entry) }
       entry.count++
-      const rawNorm = normPack(r.pack)
-      if (rawNorm && !entry.packs.has(rawNorm)) entry.packs.set(rawNorm, r.pack)
     }
     return [...map.values()].sort((a, b) => b.count - a.count)
   }, [rows])
 
-  const productSupplierPairsFiltered = useMemo(
+  // Поиск бьёт и по фасовке — «Ягода в асс» ищется через конкретный вкус
+  // (например «черника»), который в iiko виден только в фасовке, не в
+  // названии товара.
+  const productVariantsFiltered = useMemo(
     () => (needle
-      ? productSupplierPairs.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle))
-      : productSupplierPairs),
-    [needle, productSupplierPairs],
+      ? productVariants.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || p.pack.toLowerCase().includes(needle))
+      : productVariants),
+    [needle, productVariants],
   )
-
-  // Их собственное название товара (столбец I) по паре товар+поставщик —
-  // вариантов может быть несколько (одно название в iiko покрывает разные
-  // вкусы даже у одного поставщика), тогда переименование недоступно.
-  const labelsByPair = useMemo(() => {
-    const map = new Map<string, string[]>()
-    for (const [key, label] of Object.entries(matching.productLabels)) {
-      const [, supplierNorm, product] = key.split('::')
-      const k = `${supplierNorm}::${product}`
-      const list = map.get(k) ?? []
-      if (!list.includes(label)) list.push(label)
-      map.set(k, list)
-    }
-    return map
-  }, [matching])
-
-  // Фасовки, которые матрица знает у этого поставщика для этого товара —
-  // чтобы показать, к чему сейчас резолвится факт (напрямую или через
-  // edits.packAliases), без привязки к конкретному ресторану.
-  const knownPacksByPair = useMemo(() => {
-    const map = new Map<string, Set<string>>()
-    for (const key of Object.keys(matching.planPairsByPack)) {
-      const [, supplierNorm, product, pack] = key.split('::')
-      const k = `${supplierNorm}::${product}`
-      const set = map.get(k) ?? new Set<string>()
-      set.add(pack)
-      map.set(k, set)
-    }
-    return map
-  }, [matching])
 
   // Компании без справочника (potentially typos of an existing поставщик,
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
@@ -129,11 +102,11 @@ export default function DataEditor() {
   )
 
   const shown = tab === 'suppliers' ? suppliers.slice(0, limit)
-    : tab === 'products' ? productSupplierPairsFiltered.slice(0, limit)
+    : tab === 'products' ? productVariantsFiltered.slice(0, limit)
     : tab === 'packs' ? packAliasList.slice(0, limit)
     : venues.slice(0, limit)
   const total = tab === 'suppliers' ? suppliers.length
-    : tab === 'products' ? productSupplierPairsFiltered.length
+    : tab === 'products' ? productVariantsFiltered.length
     : tab === 'packs' ? packAliasList.length
     : venues.length
 
@@ -178,7 +151,7 @@ export default function DataEditor() {
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
               Справочники
-              <InfoTip text="Компании и товары приходят из iiko. Плановые цены и матрица остаются в вашем Excel-файле — здесь только сопоставление названий и список точек." />
+              <InfoTip text="Компании и товары приходят из iiko. Плановые цены обычно из вашего Excel-файла (матрицы), но их можно поправить и здесь, на вкладке «Товары»." />
             </div>
             <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
               Если компании нет в матрице — «Добавить», чтобы отметить, что это действительно новый поставщик.
@@ -211,7 +184,7 @@ export default function DataEditor() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
             <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
-            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productSupplierPairs.length)})</button>
+            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productVariants.length)})</button>
             <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
             <button onClick={() => { setTab('packs'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'packs' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Фасовки ({fmt(packAliasEntries.length)})</button>
           </div>
@@ -220,7 +193,7 @@ export default function DataEditor() {
             <input
               value={q}
               onChange={(e) => { setQ(e.target.value); setLimit(60) }}
-              placeholder={tab === 'products' ? 'Поиск товара или поставщика…' : tab === 'suppliers' ? 'Поиск компании…' : tab === 'packs' ? 'Поиск по товару, поставщику, фасовке…' : 'Поиск точки или города…'}
+              placeholder={tab === 'products' ? 'Поиск товара, поставщика или фасовки…' : tab === 'suppliers' ? 'Поиск компании…' : tab === 'packs' ? 'Поиск по товару, поставщику, фасовке…' : 'Поиск точки или города…'}
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
@@ -285,10 +258,10 @@ export default function DataEditor() {
 
         {tab === 'products' && (
           <p className="mb-3 text-xs text-slate-500">
-            Одна строка — товар из iiko у конкретного поставщика. «Наше название» — как товар называют они сами
-            (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» показывает, чему сейчас
-            соответствует в матрице каждая встречавшаяся фасовка из iiko — поправить несовпадение можно прямо на
-            строке в «Проверке цен».
+            Одна строка — ровно одна позиция: товар, поставщик и фасовка как реально покупали. «Наше название» —
+            как товар называют они сами (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» —
+            просто как записана в iiko, без изменений. «План» — плановая цена: по умолчанию из матрицы, но можно
+            задать или поправить прямо здесь — тогда эта цена побеждает.
           </p>
         )}
 
@@ -329,9 +302,10 @@ export default function DataEditor() {
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-[30%]">Название (iiko)</th>
-                  <th className="th w-[28%]">Наше название <InfoTip text="Как этот товар называют они сами (столбец I матрицы) у этого поставщика — можно поправить или выбрать другой вариант из подсказок. Название из iiko при этом не трогается, остаётся якорем." /></th>
-                  <th className="th w-[42%]">Фасовка <InfoTip text="Слева — как записана фасовка в отчёте iiko, справа — чему она сейчас соответствует в матрице (напрямую или через ручную правку). Прочерк — матрица не знает такую фасовку у этого поставщика для этого товара." /></th>
+                  <th className="th w-[26%]">Название (iiko)</th>
+                  <th className="th w-[26%]">Наше название <InfoTip text="Как этот товар называют они сами (столбец I матрицы) для этой позиции — можно поправить. Название из iiko при этом не трогается, остаётся якорем." /></th>
+                  <th className="th w-[24%]">Фасовка <InfoTip text="Ровно как записана фасовка в отчёте iiko, без изменений." /></th>
+                  <th className="th w-[24%] text-right">План <InfoTip text="Плановая цена. По умолчанию — из матрицы; можно задать или поправить прямо здесь, тогда эта цена побеждает при сопоставлении с фактом." align="right" /></th>
                 </tr>
               ) : tab === 'venues' ? (
                 <tr>
@@ -395,74 +369,41 @@ export default function DataEditor() {
                     )
                   })
                 : tab === 'products'
-                ? (shown as typeof productSupplierPairsFiltered).map((p) => {
+                ? (shown as typeof productVariantsFiltered).map((p) => {
+                    const restaurantNorm = norm(p.restaurant)
                     const supplierCanon = norm(matching.supplierAlias[norm(p.supplier)] ?? p.supplier)
                     const productNorm = norm(p.product)
-                    const pairKey = `${supplierCanon}::${productNorm}`
-                    const labels = labelsByPair.get(pairKey) ?? []
-                    const isAmbiguous = labels.length > 1
-                    const singleLabel = labels.length === 1 ? labels[0] : null
-                    const renameKey = `${p.product}::${p.supplier}`
-                    const suggestions = labels.map((label) => ({ label, supplier: p.supplier }))
-                    const knownPacks = knownPacksByPair.get(pairKey)
-                    const packEntries = [...p.packs.entries()].map(([rawNorm, rawDisplay]) => {
-                      const alias = edits.packAliases[`${supplierCanon}::${productNorm}::${rawNorm}`]
-                      const effective = alias ? normPack(alias.targetPack) : rawNorm
-                      const resolved = knownPacks?.has(effective) ? (alias ? alias.targetPack : rawDisplay) : null
-                      return { raw: rawDisplay, resolved }
-                    })
+                    const packNorm = normPack(p.pack)
+                    const pairKey = `${restaurantNorm}::${supplierCanon}::${productNorm}`
+                    const tripleKey = packNorm ? `${pairKey}::${packNorm}` : null
+                    const matrixLabel = (tripleKey && matching.productLabels[tripleKey]) ?? matching.productLabels[pairKey] ?? null
+                    const renameKey = `${p.product}::${p.supplier}::${p.pack}`
+                    const suggestions = matrixLabel ? [{ label: matrixLabel, supplier: p.supplier }] : []
+                    const planKey = tripleKey ?? pairKey
+                    const matrixPlan = (tripleKey && matching.planPairsByPack[tripleKey]) ?? matching.planPairs[pairKey] ?? null
+                    const overridden = edits.planOverrides[planKey]
                     return (
-                      <tr key={`${p.product}::${p.supplier}`} className="row-hover hover:bg-ink-800/40">
+                      <tr key={planKey} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden">
                           <HoverName text={p.product} className="font-medium text-slate-100" />
                           <HoverName text={p.supplier} className="block text-[11px] font-normal text-slate-500" />
                         </td>
                         <td className="td">
-                          {isAmbiguous ? (
-                            <div className="flex items-center gap-1.5 py-1.5 text-xs text-slate-500">
-                              <span className="chip w-fit shrink-0 border-transparent bg-ink-700 text-[11px] text-slate-400">неск. разных товаров</span>
-                              <InfoTip
-                                text="Даже у этого поставщика одно название в iiko покрывает несколько разных товаров, различающихся только фасовкой (например, разные вкусы пюре). Одно переименование не может быть верным для всех сразу, поэтому оно тут недоступно — правильное название уже подставляется автоматически по фасовке каждой конкретной закупки."
-                                align="left"
-                              />
-                            </div>
-                          ) : (
-                            <ProductLabelSuggest
-                              value={edits.productRenames[renameKey] ?? singleLabel ?? p.product}
-                              suggestions={suggestions}
-                              onCommit={(v) => renameProduct(renameKey, v)}
-                            />
-                          )}
+                          <ProductLabelSuggest
+                            value={edits.productRenames[renameKey] ?? matrixLabel ?? p.product}
+                            suggestions={suggestions}
+                            onCommit={(v) => renameProduct(renameKey, v)}
+                          />
+                        </td>
+                        <td className="td overflow-hidden text-xs text-slate-400">
+                          <HoverName text={p.pack || '—'} />
                         </td>
                         <td className="td">
-                          {packEntries.length === 0 ? (
-                            <span className="text-xs text-slate-600">—</span>
-                          ) : packEntries.length === 1 ? (
-                            <div className="flex items-center gap-2 text-xs">
-                              <HoverName text={packEntries[0].raw} className="text-slate-400" />
-                              <span className="shrink-0 text-slate-600">→</span>
-                              <HoverName text={packEntries[0].resolved ?? '—'} className={packEntries[0].resolved ? 'text-good' : 'text-slate-600'} />
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                              <span className="chip w-fit shrink-0 border-transparent bg-ink-700 text-[11px] text-slate-400">
-                                <IScale width={11} height={11} className="mr-1 inline align-[-1px] text-slate-500" />{packEntries.length} вариантов
-                              </span>
-                              <InfoTip
-                                text={
-                                  <div className="space-y-1">
-                                    {packEntries.map((e, i) => (
-                                      <div key={i} className="flex items-center gap-1.5">
-                                        <span>{e.raw}</span><span className="text-slate-500">→</span>
-                                        <span className={e.resolved ? 'text-good' : 'text-slate-500'}>{e.resolved ?? '—'}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                }
-                                align="left"
-                              />
-                            </div>
-                          )}
+                          <PlanPriceInput
+                            value={overridden ?? matrixPlan}
+                            overridden={overridden != null}
+                            onCommit={(v) => setPlanOverride(planKey, v)}
+                          />
                         </td>
                       </tr>
                     )
@@ -523,5 +464,39 @@ export default function DataEditor() {
         )}
       </Section>
     </div>
+  )
+}
+
+/**
+ * План — число, коммитится по blur/Enter, пустое поле = снять правку
+ * (вернуться к автоматической цене из матрицы). Ручные правки подсвечены,
+ * чтобы отличать от того, что подтянулось из матрицы само.
+ */
+function PlanPriceInput({ value, overridden, onCommit }: {
+  value: number | null; overridden: boolean; onCommit: (v: number | null) => void
+}) {
+  const [v, setV] = useState(value == null ? '' : String(value))
+  useEffect(() => setV(value == null ? '' : String(value)), [value])
+  const commit = () => {
+    const trimmed = v.trim().replace(',', '.')
+    if (!trimmed) { onCommit(null); return }
+    const n = Number(trimmed)
+    if (!Number.isNaN(n)) onCommit(n)
+  }
+  return (
+    <input
+      value={v}
+      title={overridden ? 'Цена задана вручную — побеждает матрицу. Очистите поле, чтобы вернуться к автоматике.' : 'Цена из матрицы. Впишите своё значение, чтобы задать вручную.'}
+      inputMode="decimal"
+      onChange={(e) => setV(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      placeholder="—"
+      className={`w-full rounded-md border px-2 py-1.5 text-right text-sm tabnum transition-colors focus:outline-none ${
+        overridden
+          ? 'border-brand-500/40 bg-brand-500/[0.06] text-brand-200 hover:border-brand-500/60 focus:border-brand-500'
+          : 'border-ink-700/50 bg-ink-900/40 text-slate-100 hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70'
+      }`}
+    />
   )
 }

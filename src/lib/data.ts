@@ -184,15 +184,16 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
 export interface PackAlias { targetPack: string; supplier: string; product: string; rawPack: string }
 
 export interface Edits {
-  productRenames: Record<string, string>   // "товар::поставщик" (raw, как в iiko) -> наше название для этой пары товар+поставщик
+  productRenames: Record<string, string>   // "товар::поставщик::фасовка" (raw, как в iiko) -> наше название для этой ровно позиции
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). Ручной override автоматики (см. resolveRowPlan)
   packAliases: Record<string, PackAlias>   // "поставщик(канон)::товар::фасовка как в iiko" (норм.) -> правка
+  planOverrides: Record<string, number>    // "ресторан::поставщик(канон)::товар::фасовка" или без фасовки (норм.) -> план цена, задана вручную в Справочниках — та же ключевая область, что у matching.planPairsByPack/planPairs
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
 }
 export const EMPTY_EDITS: Edits = {
-  productRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, venueOverrides: {}, newVenues: {},
+  productRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -295,6 +296,20 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey'> = { candidateNote: null, availableFasovki: [], packFixKey: null }
 
   const pairKey = `${restaurant}::${supplierCanon}::${product}`
+
+  // Ручной план цены из Справочников (Товары → «План») — самая свежая,
+  // осознанно введённая цена для этой ровно позиции, побеждает всё
+  // остальное. Считаем по СЫРОЙ фасовке из iiko (не через packAlias) —
+  // это независимый, более прямой способ поправить/задать цену, а не ещё
+  // один слой поверх сопоставления фасовки.
+  const rawTripleKey = rawPack ? `${pairKey}::${rawPack}` : null
+  if (rawTripleKey && edits.planOverrides[rawTripleKey] != null) {
+    return { plan: edits.planOverrides[rawTripleKey], status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[rawTripleKey]), unpricedMatch: false, matchedKey: rawTripleKey, ...NONE }
+  }
+  if (edits.planOverrides[pairKey] != null) {
+    return { plan: edits.planOverrides[pairKey], status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, ...NONE }
+  }
+
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
@@ -407,31 +422,6 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
 
 const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 
-/**
- * iiko часто пишет один и тот же product0 для целой категории ("Пюре в
- * асс", "Ягода импортная 2..."), а конкретный сорт/вкус виден только по
- * фасовке — сама матрица различает их через productLabels на разные ключи.
- * Переименование в Справочниках теперь хранится ПО ПАРЕ товар+поставщик
- * (см. Edits.productRenames), что решает большинство случаев — но не все:
- * бывает, что даже у ОДНОГО поставщика этот iiko-товар покрывает несколько
- * разных реальных вещей (та же "Пюре в асс" — все 19 вкусов от одного
- * Кампофрута). Для такой "многозначной" пары переименование физически не
- * может быть верным сразу для всех, поэтому и показ, и возможность его
- * задать зависят от одной и той же проверки — отсюда экспорт, чтобы
- * computeRows и Справочники считали одинаково.
- */
-export function getAmbiguousProductSupplierPairs(matching: MatchingTable): Set<string> {
-  const labelsByPair = new Map<string, Set<string>>()
-  for (const key of Object.keys(matching.productLabels)) {
-    const [, supplier, product] = key.split('::')
-    const pairKey = `${supplier}::${product}`
-    const set = labelsByPair.get(pairKey) ?? new Set<string>()
-    set.add(matching.productLabels[key])
-    labelsByPair.set(pairKey, set)
-  }
-  return new Set([...labelsByPair].filter(([, set]) => set.size > 1).map(([p]) => p))
-}
-
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {
   const designatedIndex = buildDesignatedIndex(matching)
@@ -448,8 +438,6 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
   const supplierDisplayByNorm = new Map<string, string>()
   for (const canon of Object.values(matching.supplierAlias)) supplierDisplayByNorm.set(norm(canon), canon)
 
-  const ambiguousPairs = getAmbiguousProductSupplierPairs(matching)
-
   const rows: Row[] = base.map((b) => {
     // Основное название — всегда как поставщик записан в самом отчёте iiko.
     // Их название компании из матрицы (колонка C) — отдельная серая подпись
@@ -460,11 +448,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const venue = edits.venueOverrides[b.restaurant]
     const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey } = resolveRowPlan(b, edits, matching, designatedIndex)
     if (matchedKey) consumed.add(matchedKey)
-    const supplierCanonNorm = norm(supplierCanonical ?? b.supplier0)
-    const isAmbiguous = ambiguousPairs.has(`${supplierCanonNorm}::${norm(b.product0)}`)
-    const rename = edits.productRenames[`${b.product0}::${b.supplier0}`]
-    const product = isAmbiguous && matrixLabel ? matrixLabel : (rename ?? b.product0)
-    const productLabel = isAmbiguous && matrixLabel ? null : matrixLabel
+    // Переименование хранится по ровно этой позиции (товар+поставщик+
+    // фасовка, см. Edits.productRenames), так что тут не может залипнуть
+    // на другой вкус/вариант — каждая правка бьёт ровно в одну строку.
+    const rename = edits.productRenames[`${b.product0}::${b.supplier0}::${b.pack}`]
+    const product = rename ?? b.product0
+    const productLabel = matrixLabel
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     // designatedNorm — нормализованные (нижний регистр) ключи из матрицы,
     // для показа переводим обратно в их же написание (колонка C).
