@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
-import { fmt, plural } from '../lib/data'
+import { fmt, plural, getAmbiguousProducts } from '../lib/data'
 import { useEdits } from '../lib/edits'
+import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
@@ -82,6 +83,20 @@ export default function DataEditor() {
     }
     return map
   }, [matching, canonicalSupplierByNorm])
+
+  // Категории, где iiko пишет одно название на несколько разных товаров
+  // (различаются только фасовкой) — для них переименование не действует
+  // (см. computeRows), так что поле лучше не показывать как рабочее.
+  const ambiguousProducts = useMemo(() => getAmbiguousProducts(matching), [matching])
+
+  // Компании без справочника (potentially typos of an existing поставщик,
+  // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
+  // "Объединить" убрали сознательно, тут только подсказка "проверьте matrix".
+  const canonicalSupplierNames = useMemo(() => [...new Set(Object.values(matching.supplierAlias))], [matching])
+  const possibleDuplicate = (name: string) => {
+    const top = rankSimilar(name, canonicalSupplierNames, (x) => x, 0.45)[0]
+    return top?.item ?? null
+  }
 
   const venues = useMemo(
     () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
@@ -229,6 +244,22 @@ export default function DataEditor() {
         )}
 
         {tab === 'suppliers' && (
+          <p className="mb-3 text-xs text-slate-500">
+            Список формируется из закупок в iiko за выбранный период. «Нет в справочнике» — этой компании нет в вашей
+            матрице ни под каким известным написанием; «Добавить» ничего не меняет в сопоставлении, просто убирает
+            позицию из списка новых, чтобы не проверять её повторно каждый раз.
+          </p>
+        )}
+
+        {tab === 'products' && (
+          <p className="mb-3 text-xs text-slate-500">
+            «Наше название» — как этот товар называют в матрице; меняет только подпись под товаром в «Проверке цен»,
+            на сопоставление с планом не влияет. «Фасовка» — наоборот, влияет напрямую: определяет, обязана ли цена
+            совпасть с точностью до тенге, чтобы засчитать позицию «по матрице».
+          </p>
+        )}
+
+        {tab === 'suppliers' && (
           <div className="mb-3 flex flex-wrap gap-2">
             {([
               ['all', `Все (${fmt(supplierCounts.all)})`],
@@ -284,11 +315,21 @@ export default function DataEditor() {
                           <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={s.name} /></span>
                         </td>
                         <td className="td overflow-hidden">
-                          {canon
-                            ? <HoverName text={canon} className="text-[11px] text-good" />
-                            : acknowledged
-                            ? <span className="chip border-transparent bg-ink-700 text-[11px] text-slate-400">новый поставщик</span>
-                            : <span className="chip border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>}
+                          {canon ? (
+                            <HoverName text={canon} className="text-[11px] text-good" />
+                          ) : acknowledged ? (
+                            <span className="chip border-transparent bg-ink-700 text-[11px] text-slate-400">новый поставщик</span>
+                          ) : (
+                            <div className="flex min-w-0 flex-col gap-0.5">
+                              <span className="chip w-fit border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>
+                              {possibleDuplicate(s.name) && (
+                                <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                                  похоже на «{possibleDuplicate(s.name)}»?
+                                  <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Добавить» стоит свериться с матрицей." align="left" />
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
                         <td className="td text-center">
@@ -309,15 +350,26 @@ export default function DataEditor() {
                 ? (shown as typeof productsBase).map((p) => {
                     const override = edits.productPackOverride[p.name]
                     const suggestions = productLabelSuggestions.get(norm(p.name)) ?? []
+                    const isAmbiguous = ambiguousProducts.has(norm(p.name))
                     return (
                       <tr key={p.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
                         <td className="td">
-                          <ProductLabelSuggest
-                            value={edits.productRenames[p.name] ?? suggestions[0]?.label ?? p.name}
-                            suggestions={suggestions}
-                            onCommit={(v) => renameProduct(p.name, v)}
-                          />
+                          {isAmbiguous ? (
+                            <div className="flex items-center gap-1.5 py-1.5 text-xs text-slate-500">
+                              <span className="chip w-fit shrink-0 border-transparent bg-ink-700 text-[11px] text-slate-400">неск. разных товаров</span>
+                              <InfoTip
+                                text="Это название в iiko — общая категория (например «Пюре в асс»), под ней на самом деле несколько разных товаров, различающихся только фасовкой (ананас, облепиха, малина…). Одно переименование не может быть верным для всех сразу, поэтому оно тут недоступно — правильное название уже подставляется автоматически из матрицы по фасовке каждой конкретной закупки."
+                                align="left"
+                              />
+                            </div>
+                          ) : (
+                            <ProductLabelSuggest
+                              value={edits.productRenames[p.name] ?? suggestions[0]?.label ?? p.name}
+                              suggestions={suggestions}
+                              onCommit={(v) => renameProduct(p.name, v)}
+                            />
+                          )}
                         </td>
                         <td className="td">
                           <select

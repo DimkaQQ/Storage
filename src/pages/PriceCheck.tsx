@@ -23,7 +23,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     const needle = q.trim().toLowerCase()
     let r = rows
     if (active.size) r = r.filter((x) => active.has(x.status))
-    if (needle) r = r.filter((x) => x.product.toLowerCase().includes(needle) || x.supplier.toLowerCase().includes(needle) || x.restaurant.toLowerCase().includes(needle) || x.pack.toLowerCase().includes(needle))
+    if (needle) {
+      r = r.filter((x) =>
+        x.product.toLowerCase().includes(needle) || x.supplier.toLowerCase().includes(needle) ||
+        x.restaurant.toLowerCase().includes(needle) || x.pack.toLowerCase().includes(needle) ||
+        // ...и по "их" названиям из матрицы — можно искать "Тамаки" даже
+        // когда основное поле показывает общее iiko-название "Соус ореховый".
+        (x.productLabel ?? '').toLowerCase().includes(needle) || (x.supplierLabel ?? '').toLowerCase().includes(needle),
+      )
+    }
     const dir = sort.dir
     const key = sort.key
     return [...r].sort((a, b) => {

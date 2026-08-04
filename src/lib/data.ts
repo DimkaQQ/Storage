@@ -363,6 +363,29 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
 
 const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 
+/**
+ * iiko часто пишет один и тот же product0 для целой категории ("Пюре в
+ * асс", "Ягода импортная 2..."), а конкретный сорт/вкус виден только по
+ * фасовке — сама матрица различает их через productLabels на разные ключи.
+ * Переименование в Справочниках (edits.productRenames) хранится ПО product0,
+ * то есть на всю категорию сразу — для такой "многозначной" категории оно
+ * физически не может быть верным для каждой закупки: если переименовали
+ * ради ананаса, все остальные вкусы (облепиха, малина…) ошибочно подхватят
+ * то же название. Экспортируется, чтобы и computeRows (какое имя показать),
+ * и Справочники (стоит ли вообще предлагать переименование) считали
+ * одинаково — раньше это было продублировано и легко могло разойтись.
+ */
+export function getAmbiguousProducts(matching: MatchingTable): Set<string> {
+  const labelsByProduct = new Map<string, Set<string>>()
+  for (const key of Object.keys(matching.productLabels)) {
+    const productSeg = key.split('::')[2]
+    const set = labelsByProduct.get(productSeg) ?? new Set<string>()
+    set.add(matching.productLabels[key])
+    labelsByProduct.set(productSeg, set)
+  }
+  return new Set([...labelsByProduct].filter(([, set]) => set.size > 1).map(([p]) => p))
+}
+
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {
   const designatedIndex = buildDesignatedIndex(matching)
@@ -379,24 +402,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
   const supplierDisplayByNorm = new Map<string, string>()
   for (const canon of Object.values(matching.supplierAlias)) supplierDisplayByNorm.set(norm(canon), canon)
 
-  // iiko часто пишет один и тот же product0 для целой категории ("Пюре в
-  // асс", "Ягода импортная 2..."), а конкретный сорт/вкус виден только по
-  // фасовке — сама матрица различает их через productLabels на разные ключи.
-  // Переименование в Справочниках (edits.productRenames) хранится ПО
-  // product0, то есть на всю категорию сразу — для такой "многозначной"
-  // категории оно физически не может быть верным для каждой закупки: если
-  // переименовали ради ананаса, все остальные вкусы (облепиха, малина…)
-  // ошибочно подхватят то же название. Поэтому для таких категорий имя из
-  // матрицы (точное, по факту+фасовке) побеждает ручное переименование —
-  // для однозначных product0 переименование по-прежнему работает как обычно.
-  const labelsByProduct = new Map<string, Set<string>>()
-  for (const key of Object.keys(matching.productLabels)) {
-    const productSeg = key.split('::')[2]
-    const set = labelsByProduct.get(productSeg) ?? new Set<string>()
-    set.add(matching.productLabels[key])
-    labelsByProduct.set(productSeg, set)
-  }
-  const ambiguousProducts = new Set([...labelsByProduct].filter(([, set]) => set.size > 1).map(([p]) => p))
+  const ambiguousProducts = getAmbiguousProducts(matching)
 
   const rows: Row[] = base.map((b) => {
     // Основное название — всегда как поставщик записан в самом отчёте iiko.
@@ -406,19 +412,35 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplierCanonical = matching.supplierAlias[norm(b.supplier0)] ?? null
     const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote } = resolveRowPlan(b, edits, matching, designatedIndex)
     if (matchedKey) consumed.add(matchedKey)
     const isAmbiguous = ambiguousProducts.has(norm(b.product0))
     const rename = edits.productRenames[b.product0]
     const product = isAmbiguous && matrixLabel ? matrixLabel : (rename ?? b.product0)
     const productLabel = isAmbiguous && matrixLabel ? null : matrixLabel
     const diffPct = plan != null ? (b.unit - plan) / plan : null
+    // designatedNorm — нормализованные (нижний регистр) ключи из матрицы,
+    // для показа переводим обратно в их же написание (колонка C).
+    const designatedSuppliers = designatedNorm.map((s) => supplierDisplayByNorm.get(s) ?? s)
     // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
     // независимо от статуса. Если комментария нет, но статус выставлен через
     // unpriced-fallback (по матрице, но без цены) — поясняем почему нет цены,
     // а если это отклонённый по цене/фасовке кандидат — покажем, что рядом
-    // всё же есть цена в матрице, просто не совпала.
-    const note = b.comment ?? (unpricedMatch ? NO_PLAN_PRICE_NOTE : candidateNote)
+    // всё же есть цена в матрице, просто не совпала. Для "заказ не по
+    // матрице" — если у назначенного поставщика известна цена, покажем её,
+    // чтобы сразу было видно, сколько должны были заплатить.
+    let note = b.comment ?? (unpricedMatch ? NO_PLAN_PRICE_NOTE : candidateNote)
+    if (!note && status === 'wrongSupplier' && designatedNorm.length > 0) {
+      const restaurant = norm(b.restaurant), product0 = norm(b.product0), pack = normPack(b.pack)
+      const prices = designatedNorm
+        .map((s) => {
+          const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
+          const price = byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`]
+          return price != null ? `${supplierDisplayByNorm.get(s) ?? s}: ${money(price)}` : null
+        })
+        .filter((x): x is string => x != null)
+      if (prices.length) note = `По матрице должны были купить у: ${prices.join('; ')}.`
+    }
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
