@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { fmt, plural, getAmbiguousProducts } from '../lib/data'
+import { fmt, plural, normPack } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip } from '../components/ui'
@@ -13,10 +13,10 @@ type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
-    edits, editCount, renameProduct, setVenue, reset, replaceAll,
+    edits, editCount, rows, renameProduct, setVenue, reset, replaceAll,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, undo, canUndo,
-    suppliers: suppliersBase, products: productsBase, restaurants, matching,
+    acknowledgeSupplier, unacknowledgeSupplier, setPackAlias, undo, canUndo,
+    suppliers: suppliersBase, restaurants, matching,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('suppliers')
   const [q, setQ] = useState('')
@@ -49,45 +49,60 @@ export default function DataEditor() {
     return list
   }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBase, matching])
 
-  const products = useMemo(
+  // Товары — одна строка на пару товар+поставщик, а не просто на название из
+  // iiko: то же название часто покрывает разные товары у разных поставщиков
+  // (а иногда и у одного — см. ambiguousPairs ниже), так что «наше название»
+  // и «фасовка» имеют однозначный смысл только в привязке к поставщику.
+  const productSupplierPairs = useMemo(() => {
+    const map = new Map<string, { product: string; supplier: string; count: number; packs: Map<string, string> }>()
+    for (const r of rows) {
+      if (r.unit == null) continue // не реальная закупка — позиция из матрицы, ещё не куплена в этом периоде
+      const key = `${norm(r.productRaw)}::${norm(r.supplier)}`
+      let entry = map.get(key)
+      if (!entry) { entry = { product: r.productRaw, supplier: r.supplier, count: 0, packs: new Map() }; map.set(key, entry) }
+      entry.count++
+      const rawNorm = normPack(r.pack)
+      if (rawNorm && !entry.packs.has(rawNorm)) entry.packs.set(rawNorm, r.pack)
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count)
+  }, [rows])
+
+  const productSupplierPairsFiltered = useMemo(
     () => (needle
-      ? productsBase.filter((p) => p.name.toLowerCase().includes(needle) || (edits.productRenames[p.name] ?? '').toLowerCase().includes(needle))
-      : productsBase),
-    [needle, edits.productRenames, productsBase],
+      ? productSupplierPairs.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle))
+      : productSupplierPairs),
+    [needle, productSupplierPairs],
   )
 
-  // Проперкейсовое название поставщика по нормализованному (ключи в
-  // matching.productLabels хранят поставщика в норм-виде) — берём из
-  // значений supplierAlias, они уже как надо записаны (столбец C матрицы).
-  const canonicalSupplierByNorm = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const canon of Object.values(matching.supplierAlias)) map.set(norm(canon), canon)
+  // Их собственное название товара (столбец I) по паре товар+поставщик —
+  // вариантов может быть несколько (одно название в iiko покрывает разные
+  // вкусы даже у одного поставщика), тогда переименование недоступно.
+  const labelsByPair = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const [key, label] of Object.entries(matching.productLabels)) {
+      const [, supplierNorm, product] = key.split('::')
+      const k = `${supplierNorm}::${product}`
+      const list = map.get(k) ?? []
+      if (!list.includes(label)) list.push(label)
+      map.set(k, list)
+    }
     return map
   }, [matching])
 
-  // Их собственное название товара (столбец I матрицы) — как якорь берём
-  // название из iiko (D/E), а тут собираем ВСЕ варианты их описания, что
-  // встречались по этому товару у разных поставщиков/точек: один и тот же
-  // товар из iiko может называться у них по-разному в зависимости от того,
-  // кто его поставляет, так что подсказок может быть несколько, и у каждой
-  // подсказки виден свой поставщик.
-  const productLabelSuggestions = useMemo(() => {
-    const map = new Map<string, { label: string; supplier: string }[]>()
-    for (const [key, label] of Object.entries(matching.productLabels)) {
-      const [, supplierNorm, product] = key.split('::')
-      if (!product) continue
-      const supplier = canonicalSupplierByNorm.get(supplierNorm) ?? supplierNorm
-      const list = map.get(product) ?? []
-      if (!list.some((x) => x.label === label && x.supplier === supplier)) list.push({ label, supplier })
-      map.set(product, list)
+  // Фасовки, которые матрица знает у этого поставщика для этого товара —
+  // чтобы показать, к чему сейчас резолвится факт (напрямую или через
+  // edits.packAliases), без привязки к конкретному ресторану.
+  const knownPacksByPair = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const key of Object.keys(matching.planPairsByPack)) {
+      const [, supplierNorm, product, pack] = key.split('::')
+      const k = `${supplierNorm}::${product}`
+      const set = map.get(k) ?? new Set<string>()
+      set.add(pack)
+      map.set(k, set)
     }
     return map
-  }, [matching, canonicalSupplierByNorm])
-
-  // Категории, где iiko пишет одно название на несколько разных товаров
-  // (различаются только фасовкой) — для них переименование не действует
-  // (см. computeRows), так что поле лучше не показывать как рабочее.
-  const ambiguousProducts = useMemo(() => getAmbiguousProducts(matching), [matching])
+  }, [matching])
 
   // Компании без справочника (potentially typos of an existing поставщик,
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
@@ -114,10 +129,13 @@ export default function DataEditor() {
   )
 
   const shown = tab === 'suppliers' ? suppliers.slice(0, limit)
-    : tab === 'products' ? products.slice(0, limit)
+    : tab === 'products' ? productSupplierPairsFiltered.slice(0, limit)
     : tab === 'packs' ? packAliasList.slice(0, limit)
     : venues.slice(0, limit)
-  const total = tab === 'suppliers' ? suppliers.length : tab === 'products' ? products.length : tab === 'packs' ? packAliasList.length : venues.length
+  const total = tab === 'suppliers' ? suppliers.length
+    : tab === 'products' ? productSupplierPairsFiltered.length
+    : tab === 'packs' ? packAliasList.length
+    : venues.length
 
   const resetAddForm = () => {
     setNewName(''); setNewCity(''); setNewBrand(''); setNewEntity(''); setNewCategory(''); setAddOpen(false)
@@ -193,7 +211,7 @@ export default function DataEditor() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
             <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
-            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productsBase.length)})</button>
+            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productSupplierPairs.length)})</button>
             <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
             <button onClick={() => { setTab('packs'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'packs' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Фасовки ({fmt(packAliasEntries.length)})</button>
           </div>
@@ -202,7 +220,7 @@ export default function DataEditor() {
             <input
               value={q}
               onChange={(e) => { setQ(e.target.value); setLimit(60) }}
-              placeholder={tab === 'products' ? 'Поиск товара…' : tab === 'suppliers' ? 'Поиск компании…' : tab === 'packs' ? 'Поиск по товару, поставщику, фасовке…' : 'Поиск точки или города…'}
+              placeholder={tab === 'products' ? 'Поиск товара или поставщика…' : tab === 'suppliers' ? 'Поиск компании…' : tab === 'packs' ? 'Поиск по товару, поставщику, фасовке…' : 'Поиск точки или города…'}
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
@@ -267,9 +285,10 @@ export default function DataEditor() {
 
         {tab === 'products' && (
           <p className="mb-3 text-xs text-slate-500">
-            «Наше название» — как этот товар называют в матрице; меняет только подпись под товаром в «Проверке цен»,
-            на сопоставление с планом не влияет. «Фасовка» — наоборот, влияет напрямую: определяет, обязана ли цена
-            совпасть с точностью до тенге, чтобы засчитать позицию «по матрице».
+            Одна строка — товар из iiko у конкретного поставщика. «Наше название» — как товар называют они сами
+            (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» показывает, чему сейчас
+            соответствует в матрице каждая встречавшаяся фасовка из iiko — поправить несовпадение можно прямо на
+            строке в «Проверке цен».
           </p>
         )}
 
@@ -310,10 +329,9 @@ export default function DataEditor() {
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-[32%]">Название (iiko)</th>
-                  <th className="th w-[32%]">Наше название <InfoTip text="Как этот товар называют они сами (столбец I матрицы), если известно — можно поправить или выбрать другой вариант из подсказок, если у разных поставщиков он называется по-разному. Название из iiko при этом не трогается, остаётся якорем." /></th>
-                  <th className="th w-[20%]">Фасовка <InfoTip text="Важна ли фасовка для сопоставления с матрицей. «Авто» — определяется автоматически по тому, как записана фасовка в матрице. Поставьте вручную, если автоматика ошибается." /></th>
-                  <th className="th w-[16%] text-right">Ресторанов</th>
+                  <th className="th w-[30%]">Название (iiko)</th>
+                  <th className="th w-[28%]">Наше название <InfoTip text="Как этот товар называют они сами (столбец I матрицы) у этого поставщика — можно поправить или выбрать другой вариант из подсказок. Название из iiko при этом не трогается, остаётся якорем." /></th>
+                  <th className="th w-[42%]">Фасовка <InfoTip text="Слева — как записана фасовка в отчёте iiko, справа — чему она сейчас соответствует в матрице (напрямую или через ручную правку). Прочерк — матрица не знает такую фасовку у этого поставщика для этого товара." /></th>
                 </tr>
               ) : tab === 'venues' ? (
                 <tr>
@@ -377,42 +395,75 @@ export default function DataEditor() {
                     )
                   })
                 : tab === 'products'
-                ? (shown as typeof productsBase).map((p) => {
-                    const override = edits.productPackOverride[p.name]
-                    const suggestions = productLabelSuggestions.get(norm(p.name)) ?? []
-                    const isAmbiguous = ambiguousProducts.has(norm(p.name))
+                ? (shown as typeof productSupplierPairsFiltered).map((p) => {
+                    const supplierCanon = norm(matching.supplierAlias[norm(p.supplier)] ?? p.supplier)
+                    const productNorm = norm(p.product)
+                    const pairKey = `${supplierCanon}::${productNorm}`
+                    const labels = labelsByPair.get(pairKey) ?? []
+                    const isAmbiguous = labels.length > 1
+                    const singleLabel = labels.length === 1 ? labels[0] : null
+                    const renameKey = `${p.product}::${p.supplier}`
+                    const suggestions = labels.map((label) => ({ label, supplier: p.supplier }))
+                    const knownPacks = knownPacksByPair.get(pairKey)
+                    const packEntries = [...p.packs.entries()].map(([rawNorm, rawDisplay]) => {
+                      const alias = edits.packAliases[`${supplierCanon}::${productNorm}::${rawNorm}`]
+                      const effective = alias ? normPack(alias.targetPack) : rawNorm
+                      const resolved = knownPacks?.has(effective) ? (alias ? alias.targetPack : rawDisplay) : null
+                      return { raw: rawDisplay, resolved }
+                    })
                     return (
-                      <tr key={p.name} className="row-hover hover:bg-ink-800/40">
-                        <td className="td overflow-hidden text-slate-400"><HoverName text={p.name} /></td>
+                      <tr key={`${p.product}::${p.supplier}`} className="row-hover hover:bg-ink-800/40">
+                        <td className="td overflow-hidden">
+                          <HoverName text={p.product} className="font-medium text-slate-100" />
+                          <HoverName text={p.supplier} className="block text-[11px] font-normal text-slate-500" />
+                        </td>
                         <td className="td">
                           {isAmbiguous ? (
                             <div className="flex items-center gap-1.5 py-1.5 text-xs text-slate-500">
                               <span className="chip w-fit shrink-0 border-transparent bg-ink-700 text-[11px] text-slate-400">неск. разных товаров</span>
                               <InfoTip
-                                text="Это название в iiko — общая категория (например «Пюре в асс»), под ней на самом деле несколько разных товаров, различающихся только фасовкой (ананас, облепиха, малина…). Одно переименование не может быть верным для всех сразу, поэтому оно тут недоступно — правильное название уже подставляется автоматически из матрицы по фасовке каждой конкретной закупки."
+                                text="Даже у этого поставщика одно название в iiko покрывает несколько разных товаров, различающихся только фасовкой (например, разные вкусы пюре). Одно переименование не может быть верным для всех сразу, поэтому оно тут недоступно — правильное название уже подставляется автоматически по фасовке каждой конкретной закупки."
                                 align="left"
                               />
                             </div>
                           ) : (
                             <ProductLabelSuggest
-                              value={edits.productRenames[p.name] ?? suggestions[0]?.label ?? p.name}
+                              value={edits.productRenames[renameKey] ?? singleLabel ?? p.product}
                               suggestions={suggestions}
-                              onCommit={(v) => renameProduct(p.name, v)}
+                              onCommit={(v) => renameProduct(renameKey, v)}
                             />
                           )}
                         </td>
                         <td className="td">
-                          <select
-                            value={override === undefined ? 'auto' : override ? 'yes' : 'no'}
-                            onChange={(e) => setProductPackOverride(p.name, e.target.value === 'auto' ? null : e.target.value === 'yes')}
-                            className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-xs text-slate-200 focus:border-brand-500 focus:outline-none"
-                          >
-                            <option value="auto">Авто</option>
-                            <option value="yes">Важна</option>
-                            <option value="no">Не важна</option>
-                          </select>
+                          {packEntries.length === 0 ? (
+                            <span className="text-xs text-slate-600">—</span>
+                          ) : packEntries.length === 1 ? (
+                            <div className="flex items-center gap-2 text-xs">
+                              <HoverName text={packEntries[0].raw} className="text-slate-400" />
+                              <span className="shrink-0 text-slate-600">→</span>
+                              <HoverName text={packEntries[0].resolved ?? '—'} className={packEntries[0].resolved ? 'text-good' : 'text-slate-600'} />
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                              <span className="chip w-fit shrink-0 border-transparent bg-ink-700 text-[11px] text-slate-400">
+                                <IScale width={11} height={11} className="mr-1 inline align-[-1px] text-slate-500" />{packEntries.length} вариантов
+                              </span>
+                              <InfoTip
+                                text={
+                                  <div className="space-y-1">
+                                    {packEntries.map((e, i) => (
+                                      <div key={i} className="flex items-center gap-1.5">
+                                        <span>{e.raw}</span><span className="text-slate-500">→</span>
+                                        <span className={e.resolved ? 'text-good' : 'text-slate-500'}>{e.resolved ?? '—'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                }
+                                align="left"
+                              />
+                            </div>
+                          )}
                         </td>
-                        <td className="td text-right tabnum text-slate-400">{fmt(p.restaurantCount)}</td>
                       </tr>
                     )
                   })

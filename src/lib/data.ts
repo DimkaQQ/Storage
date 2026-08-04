@@ -38,7 +38,7 @@ export function bundledMatching(period?: string | null): MatchingTable {
 /** Latest period's matrix — used wherever a period isn't in scope (e.g. default fn params). */
 export const BUNDLED_MATCHING: MatchingTable = bundledMatching()
 
-const norm = (s: string) => String(s || '').trim().toLowerCase()
+export const norm = (s: string) => String(s || '').trim().toLowerCase()
 
 /**
  * Фасовка в отчёте iiko и в матрице иногда набрана по-разному для одного и
@@ -49,7 +49,7 @@ const norm = (s: string) => String(s || '').trim().toLowerCase()
  * а не сборка данных). matching.json уже собран с этой же нормализацией
  * фасовки, так что она обязана совпадать с extract.py дословно.
  */
-const normPack = (s: string) => {
+export const normPack = (s: string) => {
   let p = norm(s)
   p = p.replace(/(?<=\d),(?=\d)/g, '.')
   p = p.replace(/\.$/, '')
@@ -184,7 +184,7 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
 export interface PackAlias { targetPack: string; supplier: string; product: string; rawPack: string }
 
 export interface Edits {
-  productRenames: Record<string, string>   // original product name -> display name
+  productRenames: Record<string, string>   // "товар::поставщик" (raw, как в iiko) -> наше название для этой пары товар+поставщик
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). Ручной override автоматики (см. resolveRowPlan)
   packAliases: Record<string, PackAlias>   // "поставщик(канон)::товар::фасовка как в iiko" (норм.) -> правка
@@ -411,23 +411,25 @@ const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
  * iiko часто пишет один и тот же product0 для целой категории ("Пюре в
  * асс", "Ягода импортная 2..."), а конкретный сорт/вкус виден только по
  * фасовке — сама матрица различает их через productLabels на разные ключи.
- * Переименование в Справочниках (edits.productRenames) хранится ПО product0,
- * то есть на всю категорию сразу — для такой "многозначной" категории оно
- * физически не может быть верным для каждой закупки: если переименовали
- * ради ананаса, все остальные вкусы (облепиха, малина…) ошибочно подхватят
- * то же название. Экспортируется, чтобы и computeRows (какое имя показать),
- * и Справочники (стоит ли вообще предлагать переименование) считали
- * одинаково — раньше это было продублировано и легко могло разойтись.
+ * Переименование в Справочниках теперь хранится ПО ПАРЕ товар+поставщик
+ * (см. Edits.productRenames), что решает большинство случаев — но не все:
+ * бывает, что даже у ОДНОГО поставщика этот iiko-товар покрывает несколько
+ * разных реальных вещей (та же "Пюре в асс" — все 19 вкусов от одного
+ * Кампофрута). Для такой "многозначной" пары переименование физически не
+ * может быть верным сразу для всех, поэтому и показ, и возможность его
+ * задать зависят от одной и той же проверки — отсюда экспорт, чтобы
+ * computeRows и Справочники считали одинаково.
  */
-export function getAmbiguousProducts(matching: MatchingTable): Set<string> {
-  const labelsByProduct = new Map<string, Set<string>>()
+export function getAmbiguousProductSupplierPairs(matching: MatchingTable): Set<string> {
+  const labelsByPair = new Map<string, Set<string>>()
   for (const key of Object.keys(matching.productLabels)) {
-    const productSeg = key.split('::')[2]
-    const set = labelsByProduct.get(productSeg) ?? new Set<string>()
+    const [, supplier, product] = key.split('::')
+    const pairKey = `${supplier}::${product}`
+    const set = labelsByPair.get(pairKey) ?? new Set<string>()
     set.add(matching.productLabels[key])
-    labelsByProduct.set(productSeg, set)
+    labelsByPair.set(pairKey, set)
   }
-  return new Set([...labelsByProduct].filter(([, set]) => set.size > 1).map(([p]) => p))
+  return new Set([...labelsByPair].filter(([, set]) => set.size > 1).map(([p]) => p))
 }
 
 /** Builds display rows by applying edits and resolving plan/status. */
@@ -446,7 +448,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
   const supplierDisplayByNorm = new Map<string, string>()
   for (const canon of Object.values(matching.supplierAlias)) supplierDisplayByNorm.set(norm(canon), canon)
 
-  const ambiguousProducts = getAmbiguousProducts(matching)
+  const ambiguousPairs = getAmbiguousProductSupplierPairs(matching)
 
   const rows: Row[] = base.map((b) => {
     // Основное название — всегда как поставщик записан в самом отчёте iiko.
@@ -458,8 +460,9 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const venue = edits.venueOverrides[b.restaurant]
     const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey } = resolveRowPlan(b, edits, matching, designatedIndex)
     if (matchedKey) consumed.add(matchedKey)
-    const isAmbiguous = ambiguousProducts.has(norm(b.product0))
-    const rename = edits.productRenames[b.product0]
+    const supplierCanonNorm = norm(supplierCanonical ?? b.supplier0)
+    const isAmbiguous = ambiguousPairs.has(`${supplierCanonNorm}::${norm(b.product0)}`)
+    const rename = edits.productRenames[`${b.product0}::${b.supplier0}`]
     const product = isAmbiguous && matrixLabel ? matrixLabel : (rename ?? b.product0)
     const productLabel = isAmbiguous && matrixLabel ? null : matrixLabel
     const diffPct = plan != null ? (b.unit - plan) / plan : null

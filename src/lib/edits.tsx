@@ -75,7 +75,7 @@ interface Ctx {
   refresh: () => Promise<void>
   reloadStatus: () => Promise<void>
   // edits
-  renameProduct: (original: string, name: string) => void
+  renameProduct: (key: string, name: string) => void  // key = "товар::поставщик" (raw, как в iiko)
   setVenue: (restaurant: string, patch: VenuePatch) => void
   addVenue: (name: string, patch?: VenuePatch) => void
   removeVenue: (name: string) => void
@@ -181,16 +181,17 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const matching = useMemo(() => bundledMatching(periodKey), [periodKey])
   const rows = useMemo(() => computeRows(parsed.base, edits, matching), [parsed, edits, matching])
 
-  // Set a map entry, or delete it when the value clears / equals the original.
-  const renameProduct = useCallback((original: string, name: string) => {
+  // key = "товар::поставщик" (composed by the caller — DataEditor). Ставит
+  // значение или удаляет запись, если очистили поле.
+  const renameProduct = useCallback((key: string, name: string) => {
     const v = name.trim()
     updateEdits((e) => {
       const next = { ...e.productRenames }
-      if (!v || v === original) delete next[original]
-      else next[original] = v
+      if (!v) delete next[key]
+      else next[key] = v
       return { ...e, productRenames: next }
     })
-    applyEditOp('renameProduct', { original, name: v })
+    applyEditOp('renameProduct', { original: key, name: v })
   }, [updateEdits])
 
   const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
