@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -9,6 +9,7 @@ function normalize(p: any): Edits {
     productRenames: p?.productRenames ?? {},
     acknowledgedSuppliers: p?.acknowledgedSuppliers ?? {},
     productPackOverride: p?.productPackOverride ?? {},
+    packAliases: p?.packAliases ?? {},
     venueOverrides: p?.venueOverrides ?? {},
     newVenues: p?.newVenues ?? {},
   }
@@ -48,6 +49,8 @@ function syncUndoToServer(current: Edits, target: Edits) {
     applyEditOp(target.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k })
   for (const k of diffKeys(current.productPackOverride, target.productPackOverride))
     applyEditOp('setProductPackOverride', { product: k, value: target.productPackOverride[k] ?? null })
+  for (const k of diffKeys(current.packAliases, target.packAliases))
+    applyEditOp('setPackAlias', { key: k, value: target.packAliases[k] ?? null })
 }
 
 interface Ctx {
@@ -79,6 +82,7 @@ interface Ctx {
   acknowledgeSupplier: (rawName: string) => void
   unacknowledgeSupplier: (rawName: string) => void
   setProductPackOverride: (product: string, value: boolean | null) => void
+  setPackAlias: (key: string, value: PackAlias | null) => void
   reset: () => void
   replaceAll: (e: Edits) => void
   undo: () => void
@@ -247,6 +251,19 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('setProductPackOverride', { product, value })
   }, [updateEdits])
 
+  // "Эта фасовка из iiko на самом деле вот эта из матрицы" — key приходит
+  // готовым из resolveRowPlan (Row.packFixKey) или из списка в Справочниках.
+  // null — снять правку (вернуть автоматическое сопоставление как было).
+  const setPackAlias = useCallback((key: string, value: PackAlias | null) => {
+    updateEdits((e) => {
+      const next = { ...e.packAliases }
+      if (value === null) delete next[key]
+      else next[key] = value
+      return { ...e, packAliases: next }
+    })
+    applyEditOp('setPackAlias', { key, value })
+  }, [updateEdits])
+
   const reset = useCallback(() => {
     updateEdits(() => EMPTY_EDITS)
     applyEditOp('reset')
@@ -256,6 +273,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       productRenames: e.productRenames ?? {},
       acknowledgedSuppliers: e.acknowledgedSuppliers ?? {},
       productPackOverride: e.productPackOverride ?? {},
+      packAliases: e.packAliases ?? {},
       venueOverrides: e.venueOverrides ?? {},
       newVenues: e.newVenues ?? {},
     }
@@ -267,6 +285,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.productRenames).length +
     Object.keys(edits.acknowledgedSuppliers).length +
     Object.keys(edits.productPackOverride).length +
+    Object.keys(edits.packAliases).length +
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newVenues).length
 
@@ -282,7 +301,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     backendOnline, status, syncing, refresh, reloadStatus,
     renameProduct, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias,
     reset, replaceAll, undo, canUndo,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>

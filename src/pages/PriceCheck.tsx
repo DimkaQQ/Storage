@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Row, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
+import { Row, Status, PackAlias, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
+import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
-import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/icons'
+import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, ICheck } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct'
 
@@ -14,6 +15,7 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
+  const { setPackAlias } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'restaurant', dir: -1 })
@@ -165,6 +167,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         <span>комментарий</span>
                       </div>
                     )}
+                    {r.packFixKey && r.availableFasovki.length > 0 && (
+                      <FasovkaFix row={r} onPick={setPackAlias} />
+                    )}
                   </td>
                 </tr>
               ))}
@@ -181,6 +186,45 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * "Это тот же товар, просто иначе записана фасовка" — реально влияет на
+ * сопоставление (см. resolveRowPlan/edits.packAliases), не просто подпись:
+ * после выбора эта строка на следующий пересчёт уже придёт "по матрице".
+ * Один вариант — сразу кнопка; несколько — выпадающий список на выбор.
+ */
+function FasovkaFix({ row, onPick }: {
+  row: Row
+  onPick: (key: string, value: PackAlias) => void
+}) {
+  const options = row.availableFasovki
+  const packFixKey = row.packFixKey
+  if (!packFixKey) return null
+  const pick = (targetPack: string) => onPick(packFixKey, { targetPack, supplier: row.supplier, product: row.productRaw, rawPack: row.pack })
+  if (options.length === 1) {
+    const o = options[0]
+    return (
+      <button
+        onClick={() => pick(o.pack)}
+        title="Считать эту фасовку тем же товаром при сопоставлении с матрицей"
+        className="mt-1 flex items-center gap-1 text-[11px] text-brand-300 hover:text-brand-200"
+      >
+        <ICheck width={11} height={11} /> Это тот же товар
+      </button>
+    )
+  }
+  return (
+    <select
+      defaultValue=""
+      onChange={(e) => { if (e.target.value) pick(e.target.value) }}
+      title="Если это на самом деле тот же товар, просто иначе записанная фасовка — выберите правильный вариант"
+      className="mt-1 w-full rounded border border-ink-600 bg-ink-900/60 px-1 py-0.5 text-[11px] text-slate-300 focus:border-brand-500 focus:outline-none"
+    >
+      <option value="">Поправить фасовку…</option>
+      {options.map((o) => <option key={o.pack} value={o.pack}>{o.pack} — {money(o.price)}</option>)}
+    </select>
   )
 }
 

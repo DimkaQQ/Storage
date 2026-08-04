@@ -131,6 +131,7 @@ export interface Row {
   supplier: string
   supplierLabel: string | null  // их название компании из матрицы (колонка C), когда отличается от того, что пишет iiko
   product: string
+  productRaw: string  // название товара как в iiko, без переименований/подмены — нужно для setPackAlias (Row.product может быть подменён на их название)
   productLabel: string | null  // их собственное "Наименование товара" из матрицы (только когда status === 'ok')
   pack: string
   qty: number
@@ -140,6 +141,8 @@ export interface Row {
   status: Status
   designatedSuppliers: string[]  // only set for status === 'wrongSupplier' — who it should have been bought from
   note: string | null  // их комментарий к этой закупке в iiko, либо пояснение "нет плановой цены" для unpriced-совпадений
+  availableFasovki: FasovkaOption[]  // прайсованные варианты фасовки у этого же поставщика, ни один не совпал с фактом — предложить выбрать вручную (см. packFixKey)
+  packFixKey: string | null  // ключ для setPackAlias — есть, только когда availableFasovki непусто
 }
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
@@ -171,15 +174,25 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
  * app's job is matching iiko's names to it and flagging mismatches, not
  * re-implementing price entry.
  */
+/**
+ * "Эта фасовка из iiko на самом деле вот эта фасовка из матрицы" — реально
+ * влияет на сопоставление (см. resolveRowPlan). Ключ (supplier/product/
+ * rawPack нормализованные) нужен только для лукапа при сопоставлении;
+ * значения храним отдельно в их же написании — иначе список в Справочниках
+ * пришлось бы собирать обратно из нижнего регистра, а этого не восстановить.
+ */
+export interface PackAlias { targetPack: string; supplier: string; product: string; rawPack: string }
+
 export interface Edits {
   productRenames: Record<string, string>   // original product name -> display name
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). Ручной override автоматики (см. resolveRowPlan)
+  packAliases: Record<string, PackAlias>   // "поставщик(канон)::товар::фасовка как в iiko" (норм.) -> правка
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
 }
 export const EMPTY_EDITS: Edits = {
-  productRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, venueOverrides: {}, newVenues: {},
+  productRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, venueOverrides: {}, newVenues: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -194,6 +207,8 @@ export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta
   return added.length ? [...restaurants, ...added] : restaurants
 }
 
+export interface FasovkaOption { pack: string; price: number; label: string | null }
+
 interface Resolved {
   plan: number | null
   status: Status
@@ -201,7 +216,9 @@ interface Resolved {
   productLabel: string | null
   unpricedMatch: boolean
   matchedKey: string | null  // the planPairs/planPairsByPack key this purchase consumed, if any — lets computeRows tell purchased matrix slots apart from ones nobody bought yet
-  candidateNote: string | null  // у этого же поставщика в матрице есть цена по ДРУГОЙ фасовке, но она не прошла проверку по цене — не считаем совпадением, но не молчим об этом
+  candidateNote: string | null  // у этого же поставщика в матрице есть цена по ДРУГОЙ фасовке — не считаем совпадением автоматически, но не молчим об этом
+  availableFasovki: FasovkaOption[]  // все прайсованные варианты фасовки у ЭТОГО поставщика для этого товара, ни один не совпал с фактом — предлагаем выбрать вручную
+  packFixKey: string | null  // ключ для edits.packAliases, если выбрать один из availableFasovki
 }
 
 const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
@@ -265,22 +282,26 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const supplierCanon = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
   const restaurant = norm(b.restaurant)
   const product = norm(b.product0)
-  const pack = normPack(b.pack)
+  const rawPack = normPack(b.pack)
+
+  // Ручная правка "эта фасовка из iiko на самом деле вот эта фасовка из
+  // матрицы" (Справочники / прямо на строке в «Проверке цен») — подставляем
+  // ДО любого сопоставления, дальше вся логика работает уже с исправленным
+  // текстом, как будто iiko изначально написал именно так.
+  const packFixKey = rawPack ? `${supplierCanon}::${product}::${rawPack}` : null
+  const packAlias = packFixKey ? edits.packAliases[packFixKey] : undefined
+  const pack = packAlias ? normPack(packAlias.targetPack) : rawPack
+
+  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey'> = { candidateNote: null, availableFasovki: [], packFixKey: null }
 
   const pairKey = `${restaurant}::${supplierCanon}::${product}`
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
-    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false, matchedKey: tripleKey, candidateNote: null }
+    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false, matchedKey: tripleKey, ...NONE }
   }
   const plan = matching.planPairs[pairKey]
-  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, candidateNote: null }
-
-  // Кандидат, который прошёл проверку по названию/поставщику, но не по
-  // цене/фасовке (см. ниже) — не считаем совпадением, но раз в матрице
-  // ЕСТЬ цена для этого поставщика и товара, просто по другой фасовке,
-  // молчать об этом не стоит: показываем её как подсказку, а не прячем.
-  let candidateNote: string | null = null
+  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, ...NONE }
 
   // Текст фасовки у факта и у матрицы может не совпасть буквально по кучe
   // причин, которые не про разный товар: iiko иногда пишет голую единицу
@@ -315,10 +336,8 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
         // (Товары → «Фасовка»), если для конкретного товара оно не подходит.
         const packMatters = edits.productPackOverride[b.product0] ?? isPrecisePack(onlyPack)
         if (!packMatters || Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
-          return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false, matchedKey: candidateKey, candidateNote: null }
+          return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false, matchedKey: candidateKey, ...NONE }
         }
-        const candidateLabel = matching.productLabels[candidateKey]
-        candidateNote = `В матрице у этого поставщика есть цена по фасовке «${onlyPack}»: ${money(candidatePlan)}${candidateLabel ? ` (${candidateLabel})` : ''} — но фасовка и цена этой закупки сильно отличаются, похоже на другой товар.`
       }
     }
   }
@@ -328,11 +347,35 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // яйцо" продаёт им "Яйцо куриное" один в один как в iiko, только без
   // цены. Точное совпадение имени — не нужно гадать по словам, как ниже.
   if (pack && matching.noPriceExact[`${pairKey}::${pack}`]) {
-    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null, candidateNote: null }
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null, ...NONE }
   }
   if (matching.noPriceExact[pairKey]) {
-    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null, candidateNote: null }
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null, ...NONE }
   }
+
+  // Ни одна фасовка этого поставщика для этого товара не совпала с фактом —
+  // ни точно, ни по единственно-возможному варианту выше. Раз у поставщика
+  // вообще ЕСТЬ прайсованные варианты (один или несколько), не молчим об
+  // этом: показываем их все как подсказку/варианты для ручной правки
+  // фасовки (см. packFixKey/setPackAlias) — возможно, это просто иначе
+  // записанная фасовка того же товара, а не другой товар вовсе.
+  let availableFasovki: FasovkaOption[] = []
+  if (pack) {
+    const variants = designatedIndex.bySupplierProduct.get(pairKey)
+    if (variants && variants.size > 0) {
+      availableFasovki = [...variants]
+        .map((p): FasovkaOption | null => {
+          const price = matching.planPairsByPack[`${pairKey}::${p}`]
+          return price != null ? { pack: p, price, label: matching.productLabels[`${pairKey}::${p}`] ?? null } : null
+        })
+        .filter((x): x is FasovkaOption => x != null)
+        .sort((a, b) => a.pack.localeCompare(b.pack))
+    }
+  }
+  const candidateNote = availableFasovki.length === 0 ? null
+    : availableFasovki.length === 1
+    ? `В матрице у этого поставщика есть цена по фасовке «${availableFasovki[0].pack}»: ${money(availableFasovki[0].price)}${availableFasovki[0].label ? ` (${availableFasovki[0].label})` : ''} — но фасовка и цена этой закупки сильно отличаются, похоже на другой товар. Если это на самом деле он же — можно поправить фасовку прямо здесь.`
+    : `В матрице у этого поставщика есть ${availableFasovki.length} прайсованных варианта(ов) фасовки для этого товара, но ни один не совпал с фактом по названию — если это просто иначе записанная фасовка, поправьте её прямо здесь.`
 
   // No price for THIS exact (supplier, pack) combo. Who's designated for
   // THIS EXACT variant (pack included) matters — e.g. Ayakaz and Alga73 both
@@ -354,11 +397,12 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   } else {
     designated = designatedIndex.byProduct.get(`${restaurant}::${product}`)
   }
+  const fixKeyIfAny = availableFasovki.length > 0 ? packFixKey : null
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny }
 }
 
 const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
@@ -412,7 +456,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplierCanonical = matching.supplierAlias[norm(b.supplier0)] ?? null
     const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey } = resolveRowPlan(b, edits, matching, designatedIndex)
     if (matchedKey) consumed.add(matchedKey)
     const isAmbiguous = ambiguousProducts.has(norm(b.product0))
     const rename = edits.productRenames[b.product0]
@@ -423,29 +467,35 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     // для показа переводим обратно в их же написание (колонка C).
     const designatedSuppliers = designatedNorm.map((s) => supplierDisplayByNorm.get(s) ?? s)
     // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
-    // независимо от статуса. Если комментария нет, но статус выставлен через
-    // unpriced-fallback (по матрице, но без цены) — поясняем почему нет цены,
-    // а если это отклонённый по цене/фасовке кандидат — покажем, что рядом
-    // всё же есть цена в матрице, просто не совпала. Для "заказ не по
-    // матрице" — если у назначенного поставщика известна цена, покажем её,
-    // чтобы сразу было видно, сколько должны были заплатить.
-    let note = b.comment ?? (unpricedMatch ? NO_PLAN_PRICE_NOTE : candidateNote)
-    if (!note && status === 'wrongSupplier' && designatedNorm.length > 0) {
-      const restaurant = norm(b.restaurant), product0 = norm(b.product0), pack = normPack(b.pack)
-      const prices = designatedNorm
-        .map((s) => {
-          const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
-          const price = byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`]
-          return price != null ? `${supplierDisplayByNorm.get(s) ?? s}: ${money(price)}` : null
-        })
-        .filter((x): x is string => x != null)
-      if (prices.length) note = `По матрице должны были купить у: ${prices.join('; ')}.`
+    // независимо от статуса и один, без остального (это живой текст от них).
+    // Иначе собираем то, что применимо: "нет плановой цены" для unpriced-
+    // совпадений, "рядом есть цена по другой фасовке" для отклонённых
+    // кандидатов, и для "заказ не по матрице" — сколько должны были
+    // заплатить у назначенного поставщика, если цена известна. Не
+    // взаимоисключающие — можно показать сразу несколько.
+    let note: string | null = b.comment ?? null
+    if (!note) {
+      const parts: string[] = []
+      if (unpricedMatch) parts.push(NO_PLAN_PRICE_NOTE)
+      if (candidateNote) parts.push(candidateNote)
+      if (status === 'wrongSupplier' && designatedNorm.length > 0) {
+        const restaurant = norm(b.restaurant), product0 = norm(b.product0), pack = normPack(b.pack)
+        const prices = designatedNorm
+          .map((s) => {
+            const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
+            const price = byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`]
+            return price != null ? `${supplierDisplayByNorm.get(s) ?? s}: ${money(price)}` : null
+          })
+          .filter((x): x is string => x != null)
+        if (prices.length) parts.push(`По матрице должны были купить у: ${prices.join('; ')}.`)
+      }
+      note = parts.length ? parts.join(' ') : null
     }
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
-      supplier, supplierLabel, product, productLabel, pack: b.pack, qty: b.qty, unit: b.unit, plan,
-      diffPct, status, designatedSuppliers, note,
+      supplier, supplierLabel, product, productRaw: b.product0, productLabel, pack: b.pack, qty: b.qty, unit: b.unit, plan,
+      diffPct, status, designatedSuppliers, note, availableFasovki, packFixKey,
     }
   })
 
@@ -471,9 +521,9 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
       id: 'np' + seq++, restaurant: venueRow.restaurant,
       brand: venueRow.brand, city: venueRow.city, entity: venueRow.entity, category: venueRow.category,
       supplier: supplierDisplay, supplierLabel: null,
-      product: label ?? capitalize(product), productLabel: pack || null,
+      product: label ?? capitalize(product), productRaw: '', productLabel: pack || null,
       pack, qty: 0, unit: null, plan,
-      diffPct: null, status: 'ok', designatedSuppliers: [], note: null,
+      diffPct: null, status: 'ok', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {

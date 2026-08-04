@@ -209,6 +209,7 @@ const EDIT_OPS = {
   acknowledgeSupplier: (orgId, { rawName }) => editsDb.acknowledgeSupplier(orgId, rawName),
   unacknowledgeSupplier: (orgId, { rawName }) => editsDb.unacknowledgeSupplier(orgId, rawName),
   setProductPackOverride: (orgId, { product, value }) => editsDb.setProductPackOverride(orgId, product, value),
+  setPackAlias: (orgId, { key, value }) => editsDb.setPackAlias(orgId, key, value),
   reset: (orgId) => editsDb.resetEdits(orgId),
 }
 

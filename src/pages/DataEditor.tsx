@@ -6,16 +6,16 @@ import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
-import { ISearch, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck } from '../components/icons'
+import { ISearch, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IScale } from '../components/icons'
 
-type Tab = 'suppliers' | 'products' | 'venues'
+type Tab = 'suppliers' | 'products' | 'venues' | 'packs'
 type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
     edits, editCount, renameProduct, setVenue, reset, replaceAll,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, undo, canUndo,
     suppliers: suppliersBase, products: productsBase, restaurants, matching,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('suppliers')
@@ -103,8 +103,21 @@ export default function DataEditor() {
     [needle, restaurants],
   )
 
-  const shown = tab === 'suppliers' ? suppliers.slice(0, limit) : tab === 'products' ? products.slice(0, limit) : venues.slice(0, limit)
-  const total = tab === 'suppliers' ? suppliers.length : tab === 'products' ? products.length : venues.length
+  // Правки фасовки — созданные прямо на строке в «Проверке цен» (кнопка
+  // «Это тот же товар») или тут вручную; тут только просмотр/отмена.
+  const packAliasEntries = useMemo(() => Object.entries(edits.packAliases), [edits.packAliases])
+  const packAliasList = useMemo(
+    () => (needle
+      ? packAliasEntries.filter(([, v]) => [v.supplier, v.product, v.rawPack, v.targetPack].some((x) => x.toLowerCase().includes(needle)))
+      : packAliasEntries),
+    [needle, packAliasEntries],
+  )
+
+  const shown = tab === 'suppliers' ? suppliers.slice(0, limit)
+    : tab === 'products' ? products.slice(0, limit)
+    : tab === 'packs' ? packAliasList.slice(0, limit)
+    : venues.slice(0, limit)
+  const total = tab === 'suppliers' ? suppliers.length : tab === 'products' ? products.length : tab === 'packs' ? packAliasList.length : venues.length
 
   const resetAddForm = () => {
     setNewName(''); setNewCity(''); setNewBrand(''); setNewEntity(''); setNewCategory(''); setAddOpen(false)
@@ -182,13 +195,14 @@ export default function DataEditor() {
             <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
             <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productsBase.length)})</button>
             <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
+            <button onClick={() => { setTab('packs'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'packs' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Фасовки ({fmt(packAliasEntries.length)})</button>
           </div>
           <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
             <input
               value={q}
               onChange={(e) => { setQ(e.target.value); setLimit(60) }}
-              placeholder={tab === 'products' ? 'Поиск товара…' : tab === 'suppliers' ? 'Поиск компании…' : 'Поиск точки или города…'}
+              placeholder={tab === 'products' ? 'Поиск товара…' : tab === 'suppliers' ? 'Поиск компании…' : tab === 'packs' ? 'Поиск по товару, поставщику, фасовке…' : 'Поиск точки или города…'}
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
@@ -259,6 +273,14 @@ export default function DataEditor() {
           </p>
         )}
 
+        {tab === 'packs' && (
+          <p className="mb-3 text-xs text-slate-500">
+            Список правок вида «эта фасовка из iiko на самом деле вот эта фасовка из матрицы» — заводятся кнопкой
+            «Это тот же товар» прямо на строке в «Проверке цен», когда автоматика не смогла угадать сама. Реально
+            влияют на сопоставление с планом, а не только на подпись. Удаление возвращает автоматику как было.
+          </p>
+        )}
+
         {tab === 'suppliers' && (
           <div className="mb-3 flex flex-wrap gap-2">
             {([
@@ -293,13 +315,21 @@ export default function DataEditor() {
                   <th className="th w-[20%]">Фасовка <InfoTip text="Важна ли фасовка для сопоставления с матрицей. «Авто» — определяется автоматически по тому, как записана фасовка в матрице. Поставьте вручную, если автоматика ошибается." /></th>
                   <th className="th w-[16%] text-right">Ресторанов</th>
                 </tr>
-              ) : (
+              ) : tab === 'venues' ? (
                 <tr>
                   <th className="th w-[25%]">Точка</th>
                   <th className="th w-[14%]">Город</th>
                   <th className="th w-[16%]">Бренд</th>
                   <th className="th w-[21%]">Юрлицо</th>
                   <th className="th w-[14%]">Категория</th>
+                  <th className="th w-[10%] text-center">Действие</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th className="th w-[20%]">Поставщик</th>
+                  <th className="th w-[26%]">Товар</th>
+                  <th className="th w-[24%]">Как в iiko</th>
+                  <th className="th w-[20%]">Считаем той же фасовкой из матрицы</th>
                   <th className="th w-[10%] text-center">Действие</th>
                 </tr>
               )}
@@ -386,7 +416,8 @@ export default function DataEditor() {
                       </tr>
                     )
                   })
-                : (shown as typeof venues).map((r) => {
+                : tab === 'venues'
+                ? (shown as typeof venues).map((r) => {
                     const manual = edits.newVenues[r.name] === true
                     return (
                       <tr key={r.name} className="row-hover hover:bg-ink-800/40">
@@ -409,7 +440,26 @@ export default function DataEditor() {
                         </td>
                       </tr>
                     )
-                  })}
+                  })
+                : (shown as typeof packAliasList).map(([key, v]) => (
+                    <tr key={key} className="row-hover hover:bg-ink-800/40">
+                      <td className="td overflow-hidden text-slate-400">
+                        <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={v.supplier} /></span>
+                      </td>
+                      <td className="td overflow-hidden text-slate-100"><HoverName text={v.product} /></td>
+                      <td className="td overflow-hidden">
+                        <span className="flex min-w-0 items-center gap-2 text-slate-400">
+                          <IScale width={13} height={13} className="shrink-0 text-slate-600" /><HoverName text={v.rawPack} />
+                        </span>
+                      </td>
+                      <td className="td overflow-hidden text-good"><HoverName text={v.targetPack} /></td>
+                      <td className="td text-center">
+                        <button onClick={() => setPackAlias(key, null)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Отменить правку — вернуть автоматическое сопоставление">
+                          <ITrash width={13} height={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
             </tbody>
           </table>
           {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено.</div>}
