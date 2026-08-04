@@ -201,6 +201,7 @@ interface Resolved {
   productLabel: string | null
   unpricedMatch: boolean
   matchedKey: string | null  // the planPairs/planPairsByPack key this purchase consumed, if any — lets computeRows tell purchased matrix slots apart from ones nobody bought yet
+  candidateNote: string | null  // у этого же поставщика в матрице есть цена по ДРУГОЙ фасовке, но она не прошла проверку по цене — не считаем совпадением, но не молчим об этом
 }
 
 const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
@@ -270,10 +271,16 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
-    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false, matchedKey: tripleKey }
+    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false, matchedKey: tripleKey, candidateNote: null }
   }
   const plan = matching.planPairs[pairKey]
-  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey }
+  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, candidateNote: null }
+
+  // Кандидат, который прошёл проверку по названию/поставщику, но не по
+  // цене/фасовке (см. ниже) — не считаем совпадением, но раз в матрице
+  // ЕСТЬ цена для этого поставщика и товара, просто по другой фасовке,
+  // молчать об этом не стоит: показываем её как подсказку, а не прячем.
+  let candidateNote: string | null = null
 
   // Текст фасовки у факта и у матрицы может не совпасть буквально по кучe
   // причин, которые не про разный товар: iiko иногда пишет голую единицу
@@ -308,8 +315,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
         // (Товары → «Фасовка»), если для конкретного товара оно не подходит.
         const packMatters = edits.productPackOverride[b.product0] ?? isPrecisePack(onlyPack)
         if (!packMatters || Math.abs(candidatePlan - b.unit) / candidatePlan < 0.001) {
-          return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false, matchedKey: candidateKey }
+          return { plan: candidatePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[candidateKey]), unpricedMatch: false, matchedKey: candidateKey, candidateNote: null }
         }
+        const candidateLabel = matching.productLabels[candidateKey]
+        candidateNote = `В матрице у этого поставщика есть цена по фасовке «${onlyPack}»: ${money(candidatePlan)}${candidateLabel ? ` (${candidateLabel})` : ''} — но фасовка и цена этой закупки сильно отличаются, похоже на другой товар.`
       }
     }
   }
@@ -319,10 +328,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // яйцо" продаёт им "Яйцо куриное" один в один как в iiko, только без
   // цены. Точное совпадение имени — не нужно гадать по словам, как ниже.
   if (pack && matching.noPriceExact[`${pairKey}::${pack}`]) {
-    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null }
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null, candidateNote: null }
   }
   if (matching.noPriceExact[pairKey]) {
-    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null }
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null, candidateNote: null }
   }
 
   // No price for THIS exact (supplier, pack) combo. Who's designated for
@@ -347,9 +356,9 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   }
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote }
 }
 
 const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
@@ -397,7 +406,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplierCanonical = matching.supplierAlias[norm(b.supplier0)] ?? null
     const supplierLabel = supplierCanonical && norm(supplierCanonical) !== norm(supplier) ? supplierCanonical : null
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers, productLabel: matrixLabel, unpricedMatch, matchedKey } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote } = resolveRowPlan(b, edits, matching, designatedIndex)
     if (matchedKey) consumed.add(matchedKey)
     const isAmbiguous = ambiguousProducts.has(norm(b.product0))
     const rename = edits.productRenames[b.product0]
@@ -406,8 +415,10 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
     // независимо от статуса. Если комментария нет, но статус выставлен через
-    // unpriced-fallback (по матрице, но без цены) — поясняем почему нет цены.
-    const note = b.comment ?? (unpricedMatch ? NO_PLAN_PRICE_NOTE : null)
+    // unpriced-fallback (по матрице, но без цены) — поясняем почему нет цены,
+    // а если это отклонённый по цене/фасовке кандидат — покажем, что рядом
+    // всё же есть цена в матрице, просто не совпала.
+    const note = b.comment ?? (unpricedMatch ? NO_PLAN_PRICE_NOTE : candidateNote)
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
