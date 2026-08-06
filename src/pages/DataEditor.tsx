@@ -28,9 +28,26 @@ export default function DataEditor() {
   const [newBrand, setNewBrand] = useState('')
   const [newEntity, setNewEntity] = useState('')
   const [newCategory, setNewCategory] = useState('')
-  const [nameFilterOpen, setNameFilterOpen] = useState(false)
-  const [nameFilter, setNameFilter] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Фильтр Товаров (значок у строки поиска) — как в Google Sheets: по
+  // каждой колонке отдельно свой список значений с чекбоксами (текстовые
+  // колонки) или диапазон (План, число). "Исключено" — так проще: пусто =
+  // ничего не исключено = показываем всё, ровно как чекбоксы "все отмечены".
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [filterCol, setFilterCol] = useState<'iiko' | 'matrix' | 'pack' | 'plan'>('iiko')
+  const [excludedIiko, setExcludedIiko] = useState<Set<string>>(new Set())
+  const [excludedMatrix, setExcludedMatrix] = useState<Set<string>>(new Set())
+  const [excludedPack, setExcludedPack] = useState<Set<string>>(new Set())
+  const [planMin, setPlanMin] = useState('')
+  const [planMax, setPlanMax] = useState('')
+  const filterRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
 
   const needle = q.trim().toLowerCase()
   const norm = (s: string) => s.trim().toLowerCase()
@@ -108,27 +125,50 @@ export default function DataEditor() {
       ?? matching.planPairs[pairKey] ?? null
     return { pairKey, matrixLabel, renameKey, planKey, matrixPlan }
   }
+  const productMatrixName = (p: ProductVariant) => {
+    const { matrixLabel, renameKey } = productMeta(p)
+    return edits.productRenames[renameKey] ?? matrixLabel ?? p.product
+  }
+
+  // Значения для чек-листов фильтра — как в Google Sheets, список всех
+  // встречающихся значений колонки (независимо от того, что сейчас
+  // отфильтровано другими колонками — иначе список "прыгал" бы при каждом
+  // изменении).
+  const iikoNameValues = useMemo(() => [...new Set(productVariants.map((p) => p.product))].sort((a, b) => a.localeCompare(b)), [productVariants])
+  const matrixNameValues = useMemo(() => [...new Set(productVariants.map(productMatrixName))].sort((a, b) => a.localeCompare(b)), [productVariants, matching, edits.productRenames])
+  const packValues = useMemo(() => [...new Set(productVariants.map((p) => p.pack ?? '—'))].sort((a, b) => a.localeCompare(b)), [productVariants])
+  const planMinNum = planMin.trim() ? Number(planMin.trim().replace(',', '.')) : null
+  const planMaxNum = planMax.trim() ? Number(planMax.trim().replace(',', '.')) : null
 
   // Поиск бьёт и по фасовке — «Ягода в асс» ищется через конкретный вкус
   // (например «черника»), который в iiko виден только в фасовке, не в
-  // названии товара. Отдельный значок-фильтр у заголовка колонки — только
-  // по названию из матрицы (а если его нет — как в iiko), как фильтр по
-  // столбцу в Google Sheets: набрали "аво" — вышли авокадо, масло авокадо…
-  const nameNeedle = nameFilter.trim().toLowerCase()
+  // названии товара. Фильтр (значок у строки поиска) — отдельно, по каждой
+  // колонке: iiko-название, название из матрицы, фасовка, план (диапазон).
   const productVariantsFiltered = useMemo(() => {
     let list = productVariants
     if (needle) {
       list = list.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || (p.pack ?? '').toLowerCase().includes(needle))
     }
-    if (nameNeedle) {
+    if (excludedIiko.size || excludedMatrix.size || excludedPack.size || planMinNum != null || planMaxNum != null) {
       list = list.filter((p) => {
-        const { matrixLabel, renameKey } = productMeta(p)
-        const displayName = edits.productRenames[renameKey] ?? matrixLabel ?? p.product
-        return displayName.toLowerCase().includes(nameNeedle)
+        if (excludedIiko.has(p.product)) return false
+        if (excludedPack.has(p.pack ?? '—')) return false
+        if (excludedMatrix.size && excludedMatrix.has(productMatrixName(p))) return false
+        if (planMinNum != null || planMaxNum != null) {
+          const { matrixPlan, planKey } = productMeta(p)
+          const plan = edits.planOverrides[planKey] ?? matrixPlan
+          if (plan == null) return false
+          if (planMinNum != null && plan < planMinNum) return false
+          if (planMaxNum != null && plan > planMaxNum) return false
+        }
+        return true
       })
     }
     return list
-  }, [needle, nameNeedle, productVariants, matching, edits.productRenames])
+  }, [needle, productVariants, excludedIiko, excludedMatrix, excludedPack, planMinNum, planMaxNum, matching, edits.productRenames, edits.planOverrides])
+
+  const activeFilterDims = (excludedIiko.size ? 1 : 0) + (excludedMatrix.size ? 1 : 0) + (excludedPack.size ? 1 : 0) + (planMinNum != null || planMaxNum != null ? 1 : 0)
+  const resetAllFilters = () => { setExcludedIiko(new Set()); setExcludedMatrix(new Set()); setExcludedPack(new Set()); setPlanMin(''); setPlanMax('') }
 
   // Компании без справочника (potentially typos of an existing поставщик,
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
@@ -250,6 +290,67 @@ export default function DataEditor() {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
+          {tab === 'products' && (
+            <div className="relative" ref={filterRef}>
+              <button
+                onClick={() => setFilterOpen((v) => !v)}
+                title="Фильтр по названиям, фасовке и плану (как в Google Sheets)"
+                className={`btn border px-3 py-2 text-xs ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+              >
+                <IFilter width={14} height={14} /> Фильтр{activeFilterDims > 0 ? ` (${activeFilterDims})` : ''}
+              </button>
+              {filterOpen && (
+                <div className="animate-scale-in absolute right-0 z-30 mt-1 w-[380px] rounded-xl border border-ink-700 bg-ink-850 p-3 shadow-card">
+                  <div className="mb-2 flex gap-1 border-b border-ink-700/50 pb-2">
+                    {([
+                      ['iiko', 'iiko', excludedIiko.size],
+                      ['matrix', 'Матрица', excludedMatrix.size],
+                      ['pack', 'Фасовка', excludedPack.size],
+                      ['plan', 'План', planMinNum != null || planMaxNum != null ? 1 : 0],
+                    ] as [typeof filterCol, string, number][]).map(([id, label, count]) => (
+                      <button
+                        key={id}
+                        onClick={() => setFilterCol(id)}
+                        className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors ${filterCol === id ? 'bg-ink-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        {label}
+                        {count > 0 && <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />}
+                      </button>
+                    ))}
+                  </div>
+                  {filterCol === 'plan' ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={planMin} onChange={(e) => { setPlanMin(e.target.value); setLimit(60) }} placeholder="От" inputMode="decimal"
+                        className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+                      />
+                      <span className="text-slate-500">—</span>
+                      <input
+                        value={planMax} onChange={(e) => { setPlanMax(e.target.value); setLimit(60) }} placeholder="До" inputMode="decimal"
+                        className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <ValueChecklist
+                      key={filterCol}
+                      values={filterCol === 'iiko' ? iikoNameValues : filterCol === 'matrix' ? matrixNameValues : packValues}
+                      excluded={filterCol === 'iiko' ? excludedIiko : filterCol === 'matrix' ? excludedMatrix : excludedPack}
+                      onChange={(next) => {
+                        setLimit(60)
+                        if (filterCol === 'iiko') setExcludedIiko(next)
+                        else if (filterCol === 'matrix') setExcludedMatrix(next)
+                        else setExcludedPack(next)
+                      }}
+                    />
+                  )}
+                  <div className="mt-3 flex items-center justify-between border-t border-ink-700/50 pt-2">
+                    <button onClick={resetAllFilters} className="text-xs text-slate-500 hover:text-bad">Сбросить всё</button>
+                    <button onClick={() => setFilterOpen(false)} className="text-xs text-brand-300 hover:text-brand-200">Готово</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {tab === 'venues' && (
             <button
               onClick={() => setAddOpen((v) => !v)}
@@ -358,30 +459,7 @@ export default function DataEditor() {
               ) : tab === 'products' ? (
                 <tr>
                   <th className="th w-[26%]">Название (iiko)</th>
-                  <th className="th w-[26%]">
-                    <div className="flex items-center gap-1.5">
-                      <span>Название из матрицы</span>
-                      <InfoTip text="Как этот товар называют они сами (столбец I матрицы) для этой позиции — можно поправить. Название из iiko при этом не трогается, остаётся якорем." />
-                      <button
-                        onClick={() => setNameFilterOpen((v) => !v)}
-                        title="Фильтр по названию (как в Google Sheets)"
-                        className={`ml-auto rounded p-1 transition-colors ${nameFilterOpen || nameNeedle ? 'bg-brand-500/15 text-brand-300' : 'text-slate-500 hover:text-slate-300'}`}
-                      >
-                        <IFilter width={13} height={13} />
-                      </button>
-                    </div>
-                    {nameFilterOpen && (
-                      <div className="mt-1.5 normal-case">
-                        <input
-                          value={nameFilter}
-                          onChange={(e) => { setNameFilter(e.target.value); setLimit(60) }}
-                          autoFocus
-                          placeholder="например, «аво»…"
-                          className="w-full max-w-[180px] rounded-md border border-ink-600 bg-ink-900/70 px-2 py-1 text-xs font-normal normal-case tracking-normal text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-                        />
-                      </div>
-                    )}
-                  </th>
+                  <th className="th w-[26%]">Название из матрицы <InfoTip text="Как этот товар называют они сами (столбец I матрицы) для этой позиции — можно поправить. Название из iiko при этом не трогается, остаётся якорем." /></th>
                   <th className="th w-[24%]">Фасовка <InfoTip text="Ровно как записана фасовка в отчёте iiko, без изменений." /></th>
                   <th className="th w-[24%] text-right">План <InfoTip text="Плановая цена. По умолчанию — из матрицы; можно задать или поправить прямо здесь, тогда эта цена побеждает при сопоставлении с фактом." align="right" /></th>
                 </tr>
@@ -578,5 +656,54 @@ function PlanPriceInput({ value, overridden, onCommit }: {
           : 'border-ink-700/50 bg-ink-900/40 text-slate-100 hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70'
       }`}
     />
+  )
+}
+
+/**
+ * Список значений колонки с чекбоксами — как в фильтре Google Sheets:
+ * поиск сужает видимый список (не сами данные), «Выбрать все»/«Очистить»
+ * действуют на видимый (отфильтрованный поиском) список. Пусто в
+ * excluded = ничего не исключено = все отмечены, как открытый фильтр.
+ * key={filterCol} на месте использования — при переключении колонки
+ * компонент пересоздаётся заново, и свой локальный поиск сбрасывается сам.
+ */
+function ValueChecklist({ values, excluded, onChange }: {
+  values: string[]; excluded: Set<string>; onChange: (next: Set<string>) => void
+}) {
+  const [search, setSearch] = useState('')
+  const needle = search.trim().toLowerCase()
+  const filtered = needle ? values.filter((v) => v.toLowerCase().includes(needle)) : values
+
+  const selectAll = () => { const next = new Set(excluded); for (const v of filtered) next.delete(v); onChange(next) }
+  const clearAll = () => { const next = new Set(excluded); for (const v of filtered) next.add(v); onChange(next) }
+  const toggle = (v: string) => {
+    const next = new Set(excluded)
+    if (next.has(v)) next.delete(v); else next.add(v)
+    onChange(next)
+  }
+
+  return (
+    <div>
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        autoFocus
+        placeholder="Поиск значений…"
+        className="mb-1.5 w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+      />
+      <div className="mb-1.5 flex gap-3 text-[11px]">
+        <button onClick={selectAll} className="text-brand-300 hover:text-brand-200">Выбрать все</button>
+        <button onClick={clearAll} className="text-slate-500 hover:text-slate-300">Очистить</button>
+      </div>
+      <div className="max-h-56 space-y-0.5 overflow-y-auto pr-1">
+        {filtered.length === 0 && <div className="py-4 text-center text-xs text-slate-600">Ничего не найдено</div>}
+        {filtered.map((v) => (
+          <label key={v} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm text-slate-200 hover:bg-ink-800">
+            <input type="checkbox" checked={!excluded.has(v)} onChange={() => toggle(v)} className="accent-brand-500" />
+            <span className="truncate">{v || '—'}</span>
+          </label>
+        ))}
+      </div>
+    </div>
   )
 }
