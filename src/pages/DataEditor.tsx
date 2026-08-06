@@ -49,22 +49,34 @@ export default function DataEditor() {
     return list
   }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBase, matching])
 
-  // Товары — одна строка на ровно одну позицию: товар+поставщик+фасовка,
-  // как её реально покупали. Фасовка тут — просто как записана в iiko,
-  // без всякого сопоставления с матрицей (это делает «Проверка цен»); зато
-  // на этом уровне «наше название» и «план» всегда однозначны — та же
-  // "Пюре в асс" у одного поставщика превращается в 19 отдельных строк
-  // (по вкусу), а не в одну с кучей вариантов.
+  // Товары — одна строка на товар+поставщика. Фасовку показываем отдельными
+  // строками только там, где под одним названием в iiko на самом деле разные
+  // товары (категории-ассортименты вроде "Пюре в асс" — вкус виден только в
+  // фасовке, см. Row.isAssortment в data.ts); иначе фасовка — просто размер
+  // упаковки одного и того же товара, разносить по строкам незачем.
+  interface ProductVariant { restaurant: string; product: string; supplier: string; pack: string | null; count: number }
   const productVariants = useMemo(() => {
-    const map = new Map<string, { restaurant: string; product: string; supplier: string; pack: string; count: number }>()
+    const groups = new Map<string, { restaurant: string; product: string; supplier: string; isAssortment: boolean; packs: Map<string, string>; count: number }>()
     for (const r of rows) {
       if (r.unit == null) continue // не реальная закупка — позиция из матрицы, ещё не куплена в этом периоде
-      const key = `${norm(r.restaurant)}::${norm(r.productRaw)}::${norm(r.supplier)}::${normPack(r.pack)}`
-      let entry = map.get(key)
-      if (!entry) { entry = { restaurant: r.restaurant, product: r.productRaw, supplier: r.supplier, pack: r.pack, count: 0 }; map.set(key, entry) }
-      entry.count++
+      const key = `${norm(r.restaurant)}::${norm(r.productRaw)}::${norm(r.supplier)}`
+      let g = groups.get(key)
+      if (!g) { g = { restaurant: r.restaurant, product: r.productRaw, supplier: r.supplier, isAssortment: r.isAssortment, packs: new Map(), count: 0 }; groups.set(key, g) }
+      g.count++
+      const rawNorm = normPack(r.pack)
+      if (!g.packs.has(rawNorm)) g.packs.set(rawNorm, r.pack)
     }
-    return [...map.values()].sort((a, b) => b.count - a.count)
+    const result: ProductVariant[] = []
+    for (const g of groups.values()) {
+      if (g.isAssortment) {
+        for (const [, rawDisplay] of g.packs) {
+          result.push({ restaurant: g.restaurant, product: g.product, supplier: g.supplier, pack: rawDisplay, count: g.count })
+        }
+      } else {
+        result.push({ restaurant: g.restaurant, product: g.product, supplier: g.supplier, pack: null, count: g.count })
+      }
+    }
+    return result.sort((a, b) => b.count - a.count)
   }, [rows])
 
   // Поиск бьёт и по фасовке — «Ягода в асс» ищется через конкретный вкус
@@ -72,7 +84,7 @@ export default function DataEditor() {
   // названии товара.
   const productVariantsFiltered = useMemo(
     () => (needle
-      ? productVariants.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || p.pack.toLowerCase().includes(needle))
+      ? productVariants.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || (p.pack ?? '').toLowerCase().includes(needle))
       : productVariants),
     [needle, productVariants],
   )
@@ -258,10 +270,12 @@ export default function DataEditor() {
 
         {tab === 'products' && (
           <p className="mb-3 text-xs text-slate-500">
-            Одна строка — ровно одна позиция: товар, поставщик и фасовка как реально покупали. «Наше название» —
-            как товар называют они сами (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» —
-            просто как записана в iiko, без изменений. «План» — плановая цена: по умолчанию из матрицы, но можно
-            задать или поправить прямо здесь — тогда эта цена побеждает.
+            Одна строка — товар у конкретного поставщика; фасовку показываем отдельными строками только там, где
+            под одним названием в iiko на самом деле разные товары (пюре/ягода в ассортименте и т.п.) — для
+            остального фасовка не важна и не разносится по строкам. «Наше название» — как товар называют они сами
+            (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» — просто как записана в iiko,
+            без изменений. «План» — плановая цена: по умолчанию из матрицы, но можно задать или поправить прямо
+            здесь — тогда эта цена побеждает.
           </p>
         )}
 
@@ -382,17 +396,29 @@ export default function DataEditor() {
                     const restaurantNorm = norm(p.restaurant)
                     const supplierCanon = norm(matching.supplierAlias[norm(p.supplier)] ?? p.supplier)
                     const productNorm = norm(p.product)
-                    const packNorm = normPack(p.pack)
                     const pairKey = `${restaurantNorm}::${supplierCanon}::${productNorm}`
+                    const packNorm = p.pack ? normPack(p.pack) : null
                     const tripleKey = packNorm ? `${pairKey}::${packNorm}` : null
-                    const matrixLabel = (tripleKey && matching.productLabels[tripleKey]) ?? matching.productLabels[pairKey] ?? null
-                    const renameKey = `${p.product}::${p.supplier}::${p.pack}`
+                    // Не ассортимент (p.pack === null, строка на весь товар без
+                    // деления) — если у пары в матрице ровно один прайсованный
+                    // вариант фасовки, берём его описание/план; иначе — просто
+                    // плоская запись без привязки к конкретной упаковке.
+                    const prefix = `${pairKey}::`
+                    const soleKey = !tripleKey
+                      ? (() => { const ks = Object.keys(matching.planPairsByPack).filter((k) => k.startsWith(prefix)); return ks.length === 1 ? ks[0] : null })()
+                      : null
+                    const matrixLabel = (tripleKey && matching.productLabels[tripleKey])
+                      ?? (soleKey && matching.productLabels[soleKey])
+                      ?? matching.productLabels[pairKey] ?? null
+                    const renameKey = tripleKey ? `${p.product}::${p.supplier}::${p.pack}` : `${p.product}::${p.supplier}`
                     const suggestions = matrixLabel ? [{ label: matrixLabel, supplier: p.supplier }] : []
                     const planKey = tripleKey ?? pairKey
-                    const matrixPlan = (tripleKey && matching.planPairsByPack[tripleKey]) ?? matching.planPairs[pairKey] ?? null
+                    const matrixPlan = (tripleKey && matching.planPairsByPack[tripleKey])
+                      ?? (soleKey && matching.planPairsByPack[soleKey])
+                      ?? matching.planPairs[pairKey] ?? null
                     const overridden = edits.planOverrides[planKey]
                     return (
-                      <tr key={planKey} className="row-hover hover:bg-ink-800/40">
+                      <tr key={`${pairKey}::${p.pack ?? ''}`} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden">
                           <HoverName text={p.product} className="font-medium text-slate-100" />
                           <HoverName text={p.supplier} className="block text-[11px] font-normal text-slate-500" />

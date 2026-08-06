@@ -133,6 +133,7 @@ export interface Row {
   product: string
   productRaw: string  // название товара как в iiko, без переименований/подмены — нужно для setPackAlias (Row.product может быть подменён на их название)
   productLabel: string | null  // их собственное "Наименование товара" из матрицы (только когда status === 'ok')
+  isAssortment: boolean  // true, если под этим iiko-названием у этого поставщика в матрице реально несколько разных товаров (категория-ассортимент, например "Пюре в асс") — различить их можно только по фасовке
   pack: string
   qty: number
   unit: number | null  // null для позиции из матрицы, которую в этом периоде вообще не покупали (status при этом всё ещё 'ok' — она есть в плане)
@@ -278,6 +279,28 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
     else add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
   }
   return { byPack, byProduct, byProductFlatOnly, bySupplierProduct }
+}
+
+/**
+ * Пары товар+поставщик, где в матрице под ОДНИМ iiko-названием прячется
+ * несколько РАЗНЫХ товаров, различимых только по фасовке (категории-
+ * ассортименты вроде "Пюре в асс" — там за фасовкой стоит конкретный вкус).
+ * Строится один раз на весь matching: если у пары товар+поставщик в
+ * productLabels больше одного различного текста (по разным фасовкам) —
+ * это ассортимент; иначе фасовка — просто размер упаковки одного и того
+ * же товара, показывать её отдельно незачем.
+ */
+function buildAssortmentIndex(matching: MatchingTable): Set<string> {
+  const labelsByPair = new Map<string, Set<string>>()
+  for (const [key, label] of Object.entries(matching.productLabels)) {
+    const pairKey = key.split('::').slice(0, 3).join('::')
+    const set = labelsByPair.get(pairKey) ?? new Set<string>()
+    set.add(label)
+    labelsByPair.set(pairKey, set)
+  }
+  const result = new Set<string>()
+  for (const [pairKey, labels] of labelsByPair) if (labels.size > 1) result.add(pairKey)
+  return result
 }
 
 function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
@@ -426,6 +449,7 @@ const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {
   const designatedIndex = buildDesignatedIndex(matching)
+  const assortmentPairs = buildAssortmentIndex(matching)
   const consumed = new Set<string>()
   // Restaurants actually present in this dataset (post RESTAURANT_SCOPE), so
   // matrix entries for restaurants we don't even show don't spawn rows here.
@@ -463,6 +487,8 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
       ?? edits.productRenames[`${b.product0}::${b.supplier0}`]
     const product = rename ?? b.product0
     const productLabel = matrixLabel
+    const supplierCanonNorm = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
+    const isAssortment = assortmentPairs.has(`${norm(b.restaurant)}::${supplierCanonNorm}::${norm(b.product0)}`)
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     // designatedNorm — нормализованные (нижний регистр) ключи из матрицы,
     // для показа переводим обратно в их же написание (колонка C).
@@ -495,7 +521,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
-      supplier, supplierLabel, product, productRaw: b.product0, productLabel, pack: b.pack, qty: b.qty, unit: b.unit, plan,
+      supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers, note, availableFasovki, packFixKey,
     }
   })
@@ -518,11 +544,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const [, supplierNorm] = key.split('::')
     const supplierDisplay = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
     const label = matching.productLabels[key] ?? null
+    const isAssortment = assortmentPairs.has(key.split('::').slice(0, 3).join('::'))
     rows.push({
       id: 'np' + seq++, restaurant: venueRow.restaurant,
       brand: venueRow.brand, city: venueRow.city, entity: venueRow.entity, category: venueRow.category,
       supplier: supplierDisplay, supplierLabel: null,
-      product: label ?? capitalize(product), productRaw: '', productLabel: pack || null,
+      product: label ?? capitalize(product), productRaw: '', productLabel: pack || null, isAssortment,
       pack, qty: 0, unit: null, plan,
       diffPct: null, status: 'ok', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null,
     })

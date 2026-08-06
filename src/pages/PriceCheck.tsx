@@ -142,11 +142,31 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     {r.supplierLabel && <HoverName text={r.supplierLabel} className="block text-[11px] font-normal text-slate-500" />}
                   </td>
                   <td className="td overflow-hidden px-2 font-medium text-slate-100">
-                    <HoverName text={r.product} />
-                    {r.productLabel ? (
-                      <HoverName text={r.productLabel} className="block text-[11px] font-normal text-slate-500" />
+                    {r.unit == null ? (
+                      // Позиция из матрицы, ещё не купленная в этом периоде — тут
+                      // r.product уже и есть их название, отдельного iiko-имени
+                      // нет вовсе (не покупали), под ним просто фасовка.
+                      <>
+                        <HoverName text={r.product} />
+                        {isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                      </>
+                    ) : r.productLabel ? (
+                      // Крупным — их название из матрицы, под ним мелким — как
+                      // называется в iiko, и через тире фасовка, но только если
+                      // это категория-ассортимент (иначе фасовка ничего не
+                      // уточняет — тот же товар, просто другой размер упаковки).
+                      <>
+                        <HoverName text={r.productLabel} />
+                        <HoverName
+                          text={r.isAssortment ? `${r.productRaw} - ${r.pack}` : r.productRaw}
+                          className="block text-[11px] font-normal text-slate-500"
+                        />
+                      </>
                     ) : (
-                      isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />
+                      <>
+                        <HoverName text={r.product} />
+                        {isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                      </>
                     )}
                   </td>
                   <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
