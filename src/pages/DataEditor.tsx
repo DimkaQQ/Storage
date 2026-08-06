@@ -6,14 +6,14 @@ import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
-import { ISearch, IFilter, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IScale } from '../components/icons'
+import { ISearch, IFilter, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IScale } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues' | 'packs'
 type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
-    edits, editCount, rows, renameProduct, renameSupplier, setVenue, reset, replaceAll,
+    edits, editCount, rows, renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setPackAlias, setPlanOverride, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching,
@@ -28,7 +28,6 @@ export default function DataEditor() {
   const [newBrand, setNewBrand] = useState('')
   const [newEntity, setNewEntity] = useState('')
   const [newCategory, setNewCategory] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
 
   // Фильтр Товаров (значок у строки поиска) — как в Google Sheets: по
   // каждой колонке отдельно свой список значений с чекбоксами (текстовые
@@ -216,25 +215,6 @@ export default function DataEditor() {
     resetAddForm()
   }
 
-  const exportEdits = () => {
-    const blob = new Blob([JSON.stringify(edits, null, 2)], { type: 'application/json' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = 'pricecheck-spravochnik.json'
-    a.click()
-  }
-
-  const importEdits = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      try {
-        const p = JSON.parse(String(reader.result))
-        if (p && typeof p === 'object') replaceAll(p)
-      } catch { alert('Не удалось прочитать файл — ожидается JSON, экспортированный из этого приложения.') }
-    }
-    reader.readAsText(file)
-  }
-
   return (
     <div className="space-y-5">
       {/* intro + actions */}
@@ -260,15 +240,6 @@ export default function DataEditor() {
             title="Отменить последнее изменение"
             className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
           ><IUndo width={16} height={16} /> Отменить</button>
-          <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importEdits(f); e.target.value = '' }} />
-          <button onClick={() => fileRef.current?.click()} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IDownload width={16} height={16} /> Импорт</button>
-          <button onClick={exportEdits} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750"><IUpload width={16} height={16} /> Экспорт</button>
-          {editCount > 0 && (
-            <button
-              onClick={() => { if (confirm('Сбросить все правки?')) reset() }}
-              className="btn border border-bad/30 bg-bad/10 text-bad hover:bg-bad/20"
-            ><IReset width={16} height={16} /> Сбросить</button>
-          )}
         </div>
       </div>
 
