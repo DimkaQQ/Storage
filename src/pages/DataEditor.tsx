@@ -6,7 +6,7 @@ import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
-import { ISearch, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IScale } from '../components/icons'
+import { ISearch, IFilter, IDownload, IUpload, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IScale } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues' | 'packs'
 type SupplierFilter = 'all' | 'new'
@@ -28,6 +28,8 @@ export default function DataEditor() {
   const [newBrand, setNewBrand] = useState('')
   const [newEntity, setNewEntity] = useState('')
   const [newCategory, setNewCategory] = useState('')
+  const [nameFilterOpen, setNameFilterOpen] = useState(false)
+  const [nameFilter, setNameFilter] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const needle = q.trim().toLowerCase()
@@ -79,15 +81,54 @@ export default function DataEditor() {
     return result.sort((a, b) => b.count - a.count)
   }, [rows])
 
+  // То же самое, что каждая строка Товаров считает сама себе для показа —
+  // вынесено отдельно, чтобы фильтр по колонке (ниже) и сам рендер строки
+  // не считали дважды и не могли разойтись.
+  const productMeta = (p: ProductVariant) => {
+    const restaurantNorm = norm(p.restaurant)
+    const supplierCanon = norm(matching.supplierAlias[norm(p.supplier)] ?? p.supplier)
+    const productNorm = norm(p.product)
+    const pairKey = `${restaurantNorm}::${supplierCanon}::${productNorm}`
+    const packNorm = p.pack ? normPack(p.pack) : null
+    const tripleKey = packNorm ? `${pairKey}::${packNorm}` : null
+    // Не ассортимент (p.pack === null) — если у пары в матрице ровно один
+    // прайсованный вариант фасовки, берём его описание/план; иначе — просто
+    // плоская запись без привязки к конкретной упаковке.
+    const prefix = `${pairKey}::`
+    const soleKey = !tripleKey
+      ? (() => { const ks = Object.keys(matching.planPairsByPack).filter((k) => k.startsWith(prefix)); return ks.length === 1 ? ks[0] : null })()
+      : null
+    const matrixLabel = (tripleKey && matching.productLabels[tripleKey])
+      ?? (soleKey && matching.productLabels[soleKey])
+      ?? matching.productLabels[pairKey] ?? null
+    const renameKey = tripleKey ? `${p.product}::${p.supplier}::${p.pack}` : `${p.product}::${p.supplier}`
+    const planKey = tripleKey ?? pairKey
+    const matrixPlan = (tripleKey && matching.planPairsByPack[tripleKey])
+      ?? (soleKey && matching.planPairsByPack[soleKey])
+      ?? matching.planPairs[pairKey] ?? null
+    return { pairKey, matrixLabel, renameKey, planKey, matrixPlan }
+  }
+
   // Поиск бьёт и по фасовке — «Ягода в асс» ищется через конкретный вкус
   // (например «черника»), который в iiko виден только в фасовке, не в
-  // названии товара.
-  const productVariantsFiltered = useMemo(
-    () => (needle
-      ? productVariants.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || (p.pack ?? '').toLowerCase().includes(needle))
-      : productVariants),
-    [needle, productVariants],
-  )
+  // названии товара. Отдельный значок-фильтр у заголовка колонки — только
+  // по названию из матрицы (а если его нет — как в iiko), как фильтр по
+  // столбцу в Google Sheets: набрали "аво" — вышли авокадо, масло авокадо…
+  const nameNeedle = nameFilter.trim().toLowerCase()
+  const productVariantsFiltered = useMemo(() => {
+    let list = productVariants
+    if (needle) {
+      list = list.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || (p.pack ?? '').toLowerCase().includes(needle))
+    }
+    if (nameNeedle) {
+      list = list.filter((p) => {
+        const { matrixLabel, renameKey } = productMeta(p)
+        const displayName = edits.productRenames[renameKey] ?? matrixLabel ?? p.product
+        return displayName.toLowerCase().includes(nameNeedle)
+      })
+    }
+    return list
+  }, [needle, nameNeedle, productVariants, matching, edits.productRenames])
 
   // Компании без справочника (potentially typos of an existing поставщик,
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
@@ -272,8 +313,8 @@ export default function DataEditor() {
           <p className="mb-3 text-xs text-slate-500">
             Одна строка — товар у конкретного поставщика; фасовку показываем отдельными строками только там, где
             под одним названием в iiko на самом деле разные товары (пюре/ягода в ассортименте и т.п.) — для
-            остального фасовка не важна и не разносится по строкам. «Наше название» — как товар называют они сами
-            (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» — просто как записана в iiko,
+            остального фасовка не важна и не разносится по строкам. «Название из матрицы» — как товар называют они
+            сами (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» — просто как записана в iiko,
             без изменений. «План» — плановая цена: по умолчанию из матрицы, но можно задать или поправить прямо
             здесь — тогда эта цена побеждает.
           </p>
@@ -317,7 +358,30 @@ export default function DataEditor() {
               ) : tab === 'products' ? (
                 <tr>
                   <th className="th w-[26%]">Название (iiko)</th>
-                  <th className="th w-[26%]">Наше название <InfoTip text="Как этот товар называют они сами (столбец I матрицы) для этой позиции — можно поправить. Название из iiko при этом не трогается, остаётся якорем." /></th>
+                  <th className="th w-[26%]">
+                    <div className="flex items-center gap-1.5">
+                      <span>Название из матрицы</span>
+                      <InfoTip text="Как этот товар называют они сами (столбец I матрицы) для этой позиции — можно поправить. Название из iiko при этом не трогается, остаётся якорем." />
+                      <button
+                        onClick={() => setNameFilterOpen((v) => !v)}
+                        title="Фильтр по названию (как в Google Sheets)"
+                        className={`ml-auto rounded p-1 transition-colors ${nameFilterOpen || nameNeedle ? 'bg-brand-500/15 text-brand-300' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <IFilter width={13} height={13} />
+                      </button>
+                    </div>
+                    {nameFilterOpen && (
+                      <div className="mt-1.5 normal-case">
+                        <input
+                          value={nameFilter}
+                          onChange={(e) => { setNameFilter(e.target.value); setLimit(60) }}
+                          autoFocus
+                          placeholder="например, «аво»…"
+                          className="w-full max-w-[180px] rounded-md border border-ink-600 bg-ink-900/70 px-2 py-1 text-xs font-normal normal-case tracking-normal text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+                        />
+                      </div>
+                    )}
+                  </th>
                   <th className="th w-[24%]">Фасовка <InfoTip text="Ровно как записана фасовка в отчёте iiko, без изменений." /></th>
                   <th className="th w-[24%] text-right">План <InfoTip text="Плановая цена. По умолчанию — из матрицы; можно задать или поправить прямо здесь, тогда эта цена побеждает при сопоставлении с фактом." align="right" /></th>
                 </tr>
@@ -393,29 +457,8 @@ export default function DataEditor() {
                   })
                 : tab === 'products'
                 ? (shown as typeof productVariantsFiltered).map((p) => {
-                    const restaurantNorm = norm(p.restaurant)
-                    const supplierCanon = norm(matching.supplierAlias[norm(p.supplier)] ?? p.supplier)
-                    const productNorm = norm(p.product)
-                    const pairKey = `${restaurantNorm}::${supplierCanon}::${productNorm}`
-                    const packNorm = p.pack ? normPack(p.pack) : null
-                    const tripleKey = packNorm ? `${pairKey}::${packNorm}` : null
-                    // Не ассортимент (p.pack === null, строка на весь товар без
-                    // деления) — если у пары в матрице ровно один прайсованный
-                    // вариант фасовки, берём его описание/план; иначе — просто
-                    // плоская запись без привязки к конкретной упаковке.
-                    const prefix = `${pairKey}::`
-                    const soleKey = !tripleKey
-                      ? (() => { const ks = Object.keys(matching.planPairsByPack).filter((k) => k.startsWith(prefix)); return ks.length === 1 ? ks[0] : null })()
-                      : null
-                    const matrixLabel = (tripleKey && matching.productLabels[tripleKey])
-                      ?? (soleKey && matching.productLabels[soleKey])
-                      ?? matching.productLabels[pairKey] ?? null
-                    const renameKey = tripleKey ? `${p.product}::${p.supplier}::${p.pack}` : `${p.product}::${p.supplier}`
+                    const { pairKey, matrixLabel, renameKey, planKey, matrixPlan } = productMeta(p)
                     const suggestions = matrixLabel ? [{ label: matrixLabel, supplier: p.supplier }] : []
-                    const planKey = tripleKey ?? pairKey
-                    const matrixPlan = (tripleKey && matching.planPairsByPack[tripleKey])
-                      ?? (soleKey && matching.planPairsByPack[soleKey])
-                      ?? matching.planPairs[pairKey] ?? null
                     const overridden = edits.planOverrides[planKey]
                     return (
                       <tr key={`${pairKey}::${p.pack ?? ''}`} className="row-hover hover:bg-ink-800/40">
