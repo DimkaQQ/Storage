@@ -453,10 +453,14 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const venue = edits.venueOverrides[b.restaurant]
     const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey } = resolveRowPlan(b, edits, matching, designatedIndex)
     if (matchedKey) consumed.add(matchedKey)
-    // Переименование хранится по ровно этой позиции (товар+поставщик+
-    // фасовка, см. Edits.productRenames), так что тут не может залипнуть
-    // на другой вкус/вариант — каждая правка бьёт ровно в одну строку.
+    // Переименование хранится по товар+поставщик+фасовка (для категорий-
+    // ассортиментов типа "Пюре в асс", где у одного iiko-названия за разными
+    // фасовками разные реальные товары — правка бьёт ровно в одну фасовку),
+    // либо по товар+поставщик без фасовки (для обычных товаров — Справочники
+    // сами решают, какой ключ писать, см. DataEditor: multiItem ? triple : flat).
+    // Точный ключ (с фасовкой) побеждает, если задан.
     const rename = edits.productRenames[`${b.product0}::${b.supplier0}::${b.pack}`]
+      ?? edits.productRenames[`${b.product0}::${b.supplier0}`]
     const product = rename ?? b.product0
     const productLabel = matrixLabel
     const diffPct = plan != null ? (b.unit - plan) / plan : null

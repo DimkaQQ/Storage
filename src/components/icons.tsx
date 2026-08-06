@@ -12,6 +12,7 @@ export const IStore = (p: P) => <svg {...base(p)}><path d="M3 9l1.5-5h15L21 9" /
 export const ILayers = (p: P) => <svg {...base(p)}><path d="M12 3l9 5-9 5-9-5 9-5Z" /><path d="M3 13l9 5 9-5" /></svg>
 export const IAlert = (p: P) => <svg {...base(p)}><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
 export const ISearch = (p: P) => <svg {...base(p)}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+export const IFilter = (p: P) => <svg {...base(p)}><path d="M3 4h18l-7 8.5V19l-4 2v-8.5L3 4Z" /></svg>
 export const IArrowUp = (p: P) => <svg {...base(p)}><path d="M12 19V5M5 12l7-7 7 7" /></svg>
 export const IArrowDown = (p: P) => <svg {...base(p)}><path d="M12 5v14M5 12l7 7 7-7" /></svg>
 export const IChevron = (p: P) => <svg {...base(p)}><path d="m9 18 6-6-6-6" /></svg>
