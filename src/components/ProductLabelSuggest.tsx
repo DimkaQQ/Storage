@@ -27,7 +27,10 @@ export default function ProductLabelSuggest({
 
   const commit = (next: string) => {
     setV(next)
-    onCommit(next)
+    // Как и в onBlur — если кликнули подсказку, которая совпадает с уже
+    // показанным значением (частый случай: подсказка ровно одна и это то,
+    // что и так уже стоит), это не правка, коммитить нечего.
+    if (next !== value) onCommit(next)
     setOpen(false)
   }
 

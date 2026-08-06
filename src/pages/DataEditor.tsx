@@ -555,9 +555,11 @@ function PlanPriceInput({ value, overridden, onCommit }: {
   useEffect(() => setV(value == null ? '' : String(value)), [value])
   const commit = () => {
     const trimmed = v.trim().replace(',', '.')
-    if (!trimmed) { onCommit(null); return }
-    const n = Number(trimmed)
-    if (!Number.isNaN(n)) onCommit(n)
+    const next = trimmed ? Number(trimmed) : null
+    if (next !== null && Number.isNaN(next)) return
+    // Как и в остальных полях справочника — просто кликнуть и выйти не
+    // должно "замораживать" текущее значение как ручную правку.
+    if (next !== value) onCommit(next)
   }
   return (
     <input
