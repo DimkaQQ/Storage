@@ -650,12 +650,29 @@ function ValueChecklist({ values, excluded, onChange }: {
       <div className="max-h-56 space-y-0.5 overflow-y-auto pr-1">
         {filtered.length === 0 && <div className="py-4 text-center text-xs text-slate-600">Ничего не найдено</div>}
         {filtered.map((v) => (
-          <label key={v} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm text-slate-200 hover:bg-ink-800">
-            <input type="checkbox" checked={!excluded.has(v)} onChange={() => toggle(v)} className="accent-brand-500" />
+          <label key={v} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm text-slate-200 hover:bg-ink-800">
+            <Checkbox checked={!excluded.has(v)} onChange={() => toggle(v)} />
             <span className="truncate">{v || '—'}</span>
           </label>
         ))}
       </div>
     </div>
+  )
+}
+
+/** Чекбокс под общий стиль (тема/цвет акцента) — вместо базового браузерного. */
+function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <span className="relative inline-flex h-4 w-4 shrink-0">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      />
+      <span className="pointer-events-none flex h-4 w-4 items-center justify-center rounded-[5px] border border-ink-600 bg-ink-900/60 text-transparent transition-all duration-150 peer-checked:border-brand-500 peer-checked:bg-brand-500 peer-checked:text-white peer-hover:border-ink-500 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
+        <ICheck width={10} height={10} strokeWidth={3} />
+      </span>
+    </span>
   )
 }
