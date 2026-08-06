@@ -184,8 +184,8 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
 export interface PackAlias { targetPack: string; supplier: string; product: string; rawPack: string }
 
 export interface Edits {
-  productRenames: Record<string, string>   // "товар::поставщик::фасовка" (raw, как в iiko) -> название из матрицы для этой ровно позиции
-  supplierRenames: Record<string, string>  // iiko-имя поставщика (raw) -> название из матрицы — только подпись (HoverName/"Справочник"), на сопоставление с матрицей не влияет
+  productRenames: Record<string, string>   // "товар::поставщик::фасовка" (raw, как в iiko) -> наше название для этой ровно позиции
+  supplierRenames: Record<string, string>  // iiko-имя поставщика (raw) -> наше название — только подпись (HoverName/"Справочник"), на сопоставление с матрицей не влияет
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). Ручной override автоматики (см. resolveRowPlan)
   packAliases: Record<string, PackAlias>   // "поставщик(канон)::товар::фасовка как в iiko" (норм.) -> правка
