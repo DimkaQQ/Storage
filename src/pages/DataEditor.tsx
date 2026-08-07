@@ -86,6 +86,10 @@ export default function DataEditor() {
       const rawNorm = normPack(r.pack)
       if (!g.packs.has(rawNorm)) g.packs.set(rawNorm, r.pack)
     }
+    // Порядок — как в самой «Проверке цен» (то есть как в отчёте iiko), а не
+    // по числу закупок: `groups` — Map, ключи создаются по первому появлению
+    // в rows, и Map всегда перебирается в порядке вставки, так что просто не
+    // пересортировываем результат — он уже в нужном порядке сам по себе.
     const result: ProductVariant[] = []
     for (const g of groups.values()) {
       if (g.isAssortment) {
@@ -96,7 +100,7 @@ export default function DataEditor() {
         result.push({ restaurant: g.restaurant, product: g.product, supplier: g.supplier, pack: null, count: g.count })
       }
     }
-    return result.sort((a, b) => b.count - a.count)
+    return result
   }, [rows])
 
   // То же самое, что каждая строка Товаров считает сама себе для показа —

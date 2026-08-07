@@ -150,13 +150,18 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         <HoverName text={r.product} />
                         {isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
                       </>
-                    ) : r.productLabel ? (
-                      // Крупным — их название из матрицы, под ним мелким — как
-                      // называется в iiko, и через тире фасовка, но только если
-                      // это категория-ассортимент (иначе фасовка ничего не
-                      // уточняет — тот же товар, просто другой размер упаковки).
+                    ) : r.productLabel || r.product !== r.productRaw ? (
+                      // Крупным — название из матрицы, если товар с ней совпал,
+                      // либо ручное переименование (Справочники → Товары), если
+                      // совпадения нет, но название всё равно поправили руками —
+                      // до этой правки тут ошибочно не показывалось вообще
+                      // ничего, кроме самого переименования, без исходного
+                      // iiko-имени под ним. Под названием мелким — как называется
+                      // в iiko, и через тире фасовка, но только если это
+                      // категория-ассортимент (иначе фасовка ничего не уточняет —
+                      // тот же товар, просто другой размер упаковки).
                       <>
-                        <HoverName text={r.productLabel} />
+                        <HoverName text={r.productLabel ?? r.product} />
                         <HoverName
                           text={r.isAssortment ? `${r.productRaw} - ${r.pack}` : r.productRaw}
                           className="block text-[11px] font-normal text-slate-500"
