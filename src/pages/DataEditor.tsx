@@ -36,7 +36,8 @@ export default function DataEditor() {
   // текст. Каждая категория — раскрывающаяся секция (открыта максимум одна),
   // а то чек-листы сами по себе длинные и раздували бы панель целиком.
   const [filterOpen, setFilterOpen] = useState(false)
-  const [filterSection, setFilterSection] = useState<'name' | 'pack' | 'plan' | null>(null)
+  const [filterSection, setFilterSection] = useState<'restaurant' | 'name' | 'pack' | 'plan' | null>(null)
+  const [excludedRestaurant, setExcludedRestaurant] = useState<Set<string>>(new Set())
   const [excludedName, setExcludedName] = useState<Set<string>>(new Set())
   const [excludedPack, setExcludedPack] = useState<Set<string>>(new Set())
   const [planMin, setPlanMin] = useState('')
@@ -130,9 +131,11 @@ export default function DataEditor() {
     return edits.productRenames[renameKey] ?? matrixLabel ?? p.product
   }
 
-  // Значения для чек-листов «Название» и «Фасовка» — как в Google Sheets,
-  // список всех встречающихся значений (независимо от того, что сейчас
-  // отфильтровано остальным — иначе список "прыгал" бы при каждом изменении).
+  // Значения для чек-листов «Ресторан», «Название» и «Фасовка» — как в
+  // Google Sheets, список всех встречающихся значений (независимо от того,
+  // что сейчас отфильтровано остальным — иначе список "прыгал" бы при
+  // каждом изменении).
+  const restaurantValues = useMemo(() => [...new Set(productVariants.map((p) => p.restaurant))].sort((a, b) => a.localeCompare(b)), [productVariants])
   const nameValues = useMemo(() => [...new Set(productVariants.map(productMatrixName))].sort((a, b) => a.localeCompare(b)), [productVariants, matching, edits.productRenames])
   const packValues = useMemo(() => [...new Set(productVariants.map((p) => p.pack ?? '—'))].sort((a, b) => a.localeCompare(b)), [productVariants])
   const planMinNum = planMin.trim() ? Number(planMin.trim().replace(',', '.')) : null
@@ -140,15 +143,17 @@ export default function DataEditor() {
 
   // Поиск бьёт и по фасовке — «Ягода в асс» ищется через конкретный вкус
   // (например «черника»), который в iiko виден только в фасовке, не в
-  // названии товара. Фильтр (значок слева от поиска) — отдельно: название
+  // названии товара. Фильтр (значок слева от поиска) — отдельно: ресторан
+  // (чек-лист — выбрать одну точку и работать только по ней), название
   // (чек-лист), фасовка (чек-лист), план (диапазон).
   const productVariantsFiltered = useMemo(() => {
     let list = productVariants
     if (needle) {
-      list = list.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || (p.pack ?? '').toLowerCase().includes(needle))
+      list = list.filter((p) => p.restaurant.toLowerCase().includes(needle) || p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || (p.pack ?? '').toLowerCase().includes(needle))
     }
-    if (excludedName.size || excludedPack.size || planMinNum != null || planMaxNum != null) {
+    if (excludedRestaurant.size || excludedName.size || excludedPack.size || planMinNum != null || planMaxNum != null) {
       list = list.filter((p) => {
+        if (excludedRestaurant.has(p.restaurant)) return false
         if (excludedName.size && excludedName.has(productMatrixName(p))) return false
         if (excludedPack.has(p.pack ?? '—')) return false
         if (planMinNum != null || planMaxNum != null) {
@@ -162,10 +167,10 @@ export default function DataEditor() {
       })
     }
     return list
-  }, [needle, productVariants, excludedName, excludedPack, planMinNum, planMaxNum, matching, edits.productRenames, edits.planOverrides])
+  }, [needle, productVariants, excludedRestaurant, excludedName, excludedPack, planMinNum, planMaxNum, matching, edits.productRenames, edits.planOverrides])
 
-  const activeFilterDims = (excludedName.size ? 1 : 0) + (excludedPack.size ? 1 : 0) + (planMinNum != null || planMaxNum != null ? 1 : 0)
-  const resetAllFilters = () => { setExcludedName(new Set()); setExcludedPack(new Set()); setPlanMin(''); setPlanMax('') }
+  const activeFilterDims = (excludedRestaurant.size ? 1 : 0) + (excludedName.size ? 1 : 0) + (excludedPack.size ? 1 : 0) + (planMinNum != null || planMaxNum != null ? 1 : 0)
+  const resetAllFilters = () => { setExcludedRestaurant(new Set()); setExcludedName(new Set()); setExcludedPack(new Set()); setPlanMin(''); setPlanMax('') }
 
   // Компании без справочника (potentially typos of an existing поставщик,
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
@@ -254,13 +259,19 @@ export default function DataEditor() {
               <div className="relative" ref={filterRef}>
                 <button
                   onClick={() => setFilterOpen((v) => !v)}
-                  title="Фильтр по названиям, фасовке и плану (как в Google Sheets)"
+                  title="Фильтр по ресторану, названиям, фасовке и плану (как в Google Sheets)"
                   className={`btn border px-3 py-2 text-xs ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
                 >
                   <IFilter width={14} height={14} /> Фильтр{activeFilterDims > 0 ? ` (${activeFilterDims})` : ''}
                 </button>
                 {filterOpen && (
                   <div className="animate-scale-in absolute left-0 z-30 mt-1 w-[320px] rounded-xl border border-ink-700 bg-ink-850 p-2 shadow-card">
+                    <FilterSection
+                      label="Ресторан" active={excludedRestaurant.size > 0} open={filterSection === 'restaurant'}
+                      onToggle={() => setFilterSection((s) => (s === 'restaurant' ? null : 'restaurant'))}
+                    >
+                      <ValueChecklist values={restaurantValues} excluded={excludedRestaurant} onChange={(next) => { setLimit(60); setExcludedRestaurant(next) }} />
+                    </FilterSection>
                     <FilterSection
                       label="Название" active={excludedName.size > 0} open={filterSection === 'name'}
                       onToggle={() => setFilterSection((s) => (s === 'name' ? null : 'name'))}
@@ -302,7 +313,7 @@ export default function DataEditor() {
               <input
                 value={q}
                 onChange={(e) => { setQ(e.target.value); setLimit(60) }}
-                placeholder={tab === 'products' ? 'Поиск товара, поставщика или фасовки…' : tab === 'suppliers' ? 'Поиск компании…' : 'Поиск точки или города…'}
+                placeholder={tab === 'products' ? 'Поиск товара, поставщика, ресторана или фасовки…' : tab === 'suppliers' ? 'Поиск компании…' : 'Поиск точки или города…'}
                 className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
               />
             </div>
@@ -368,12 +379,13 @@ export default function DataEditor() {
 
         {tab === 'products' && (
           <p className="mb-3 text-xs text-slate-500">
-            Одна строка — товар у конкретного поставщика; фасовку показываем отдельными строками только там, где
-            под одним названием в iiko на самом деле разные товары (пюре/ягода в ассортименте и т.п.) — для
-            остального фасовка не важна и не разносится по строкам. «Название из матрицы» — как товар называют они
-            сами (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» — просто как записана в iiko,
-            без изменений. «План» — плановая цена: по умолчанию из матрицы, но можно задать или поправить прямо
-            здесь — тогда эта цена побеждает.
+            Одна строка — товар у конкретного поставщика в конкретном ресторане (план-цена в матрице обычно своя
+            у каждой точки); фасовку показываем отдельными строками только там, где под одним названием в iiko на
+            самом деле разные товары (пюре/ягода в ассортименте и т.п.) — для остального фасовка не важна и не
+            разносится по строкам. «Название из матрицы» — как товар называют они сами (влияет только на подпись
+            в «Проверке цен», не на сопоставление). «Фасовка» — просто как записана в iiko, без изменений. «План» —
+            плановая цена: по умолчанию из матрицы, но можно задать или поправить прямо здесь — тогда эта цена
+            побеждает. Фильтром слева от поиска можно выбрать конкретный ресторан и работать только по нему.
           </p>
         )}
 
@@ -406,10 +418,11 @@ export default function DataEditor() {
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-[26%]">Название (iiko)</th>
-                  <th className="th w-[26%]">Название из матрицы <InfoTip text="Как этот товар называют они сами (столбец I матрицы) для этой позиции — можно поправить. Название из iiko при этом не трогается, остаётся якорем." /></th>
-                  <th className="th w-[24%]">Фасовка <InfoTip text="Ровно как записана фасовка в отчёте iiko, без изменений." /></th>
-                  <th className="th w-[24%] text-right">План <InfoTip text="Плановая цена. По умолчанию — из матрицы; можно задать или поправить прямо здесь, тогда эта цена побеждает при сопоставлении с фактом." align="right" /></th>
+                  <th className="th w-[16%]">Ресторан <InfoTip text="Точка, к которой относится эта позиция — план-цена в матрице обычно своя у каждого ресторана, даже для того же товара и поставщика." /></th>
+                  <th className="th w-[22%]">Название (iiko)</th>
+                  <th className="th w-[22%]">Название из матрицы <InfoTip text="Как этот товар называют они сами (столбец I матрицы) для этой позиции — можно поправить. Название из iiko при этом не трогается, остаётся якорем." /></th>
+                  <th className="th w-[20%]">Фасовка <InfoTip text="Ровно как записана фасовка в отчёте iiko, без изменений." /></th>
+                  <th className="th w-[20%] text-right">План <InfoTip text="Плановая цена. По умолчанию — из матрицы; можно задать или поправить прямо здесь, тогда эта цена побеждает при сопоставлении с фактом." align="right" /></th>
                 </tr>
               ) : (
                 <tr>
@@ -480,6 +493,9 @@ export default function DataEditor() {
                     const overridden = edits.planOverrides[planKey]
                     return (
                       <tr key={`${pairKey}::${p.pack ?? ''}`} className="row-hover hover:bg-ink-800/40">
+                        <td className="td overflow-hidden text-xs text-slate-400">
+                          <span className="flex min-w-0 items-center gap-1.5"><IPin width={12} height={12} className="shrink-0 text-slate-600" /><HoverName text={p.restaurant} /></span>
+                        </td>
                         <td className="td overflow-hidden">
                           <HoverName text={p.product} className="font-medium text-slate-100" />
                           <HoverName text={p.supplier} className="block text-[11px] font-normal text-slate-500" />
