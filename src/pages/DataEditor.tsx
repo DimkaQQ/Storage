@@ -6,7 +6,7 @@ import { Section, InfoTip } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
-import { ISearch, IFilter, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IScale } from '../components/icons'
+import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IScale } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues' | 'packs'
 type SupplierFilter = 'all' | 'new'
@@ -33,9 +33,11 @@ export default function DataEditor() {
   // для человека это одно и то же "как называется товар", разница только
   // техническая) — простой текстовый поиск, а не чек-лист: значений сотни,
   // чек-лист был бы бесполезен. Фасовка — чек-лист (значений немного, это
-  // удобно). План — диапазон, это число, а не текст. Всё в одной панели,
-  // без переключения по вкладкам — так меньше кликов и понятнее.
+  // удобно). План — диапазон, это число, а не текст. Каждая категория —
+  // раскрывающаяся секция (открыта максимум одна), а то список фасовок
+  // сам по себе длинный и раздувал панель, даже когда не нужен.
   const [filterOpen, setFilterOpen] = useState(false)
+  const [filterSection, setFilterSection] = useState<'name' | 'pack' | 'plan' | null>(null)
   const [nameSearch, setNameSearch] = useState('')
   const [excludedPack, setExcludedPack] = useState<Set<string>>(new Set())
   const [planMin, setPlanMin] = useState('')
@@ -268,9 +270,11 @@ export default function DataEditor() {
                 <IFilter width={14} height={14} /> Фильтр{activeFilterDims > 0 ? ` (${activeFilterDims})` : ''}
               </button>
               {filterOpen && (
-                <div className="animate-scale-in absolute right-0 z-30 mt-1 w-[320px] rounded-xl border border-ink-700 bg-ink-850 p-3 shadow-card">
-                  <div>
-                    <label className="mb-1 block text-[11px] text-slate-500">Название</label>
+                <div className="animate-scale-in absolute right-0 z-30 mt-1 w-[320px] rounded-xl border border-ink-700 bg-ink-850 p-2 shadow-card">
+                  <FilterSection
+                    label="Название" active={!!nameSearchNeedle} open={filterSection === 'name'}
+                    onToggle={() => setFilterSection((s) => (s === 'name' ? null : 'name'))}
+                  >
                     <input
                       value={nameSearch}
                       onChange={(e) => { setNameSearch(e.target.value); setLimit(60) }}
@@ -278,13 +282,17 @@ export default function DataEditor() {
                       placeholder="например, «аво»…"
                       className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
                     />
-                  </div>
-                  <div className="mt-3 border-t border-ink-700/50 pt-3">
-                    <label className="mb-1 block text-[11px] text-slate-500">Фасовка</label>
+                  </FilterSection>
+                  <FilterSection
+                    label="Фасовка" active={excludedPack.size > 0} open={filterSection === 'pack'}
+                    onToggle={() => setFilterSection((s) => (s === 'pack' ? null : 'pack'))}
+                  >
                     <ValueChecklist values={packValues} excluded={excludedPack} onChange={(next) => { setLimit(60); setExcludedPack(next) }} />
-                  </div>
-                  <div className="mt-3 border-t border-ink-700/50 pt-3">
-                    <label className="mb-1 block text-[11px] text-slate-500">План, ₸</label>
+                  </FilterSection>
+                  <FilterSection
+                    label="План, ₸" active={planMinNum != null || planMaxNum != null} open={filterSection === 'plan'}
+                    onToggle={() => setFilterSection((s) => (s === 'plan' ? null : 'plan'))}
+                  >
                     <div className="flex items-center gap-2">
                       <input
                         value={planMin} onChange={(e) => { setPlanMin(e.target.value); setLimit(60) }} placeholder="От" inputMode="decimal"
@@ -296,8 +304,8 @@ export default function DataEditor() {
                         className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
                       />
                     </div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between border-t border-ink-700/50 pt-2">
+                  </FilterSection>
+                  <div className="mt-1 flex items-center justify-between px-1 pt-2">
                     <button onClick={resetAllFilters} className="text-xs text-slate-500 hover:text-bad">Сбросить всё</button>
                     <button onClick={() => setFilterOpen(false)} className="text-xs text-brand-300 hover:text-brand-200">Готово</button>
                   </div>
@@ -610,6 +618,30 @@ function PlanPriceInput({ value, overridden, onCommit }: {
           : 'border-ink-700/50 bg-ink-900/40 text-slate-100 hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70'
       }`}
     />
+  )
+}
+
+/**
+ * Раскрывающаяся секция фильтра — заголовок с шевроном, содержимое видно
+ * только когда открыта. Открыта максимум одна (сворачивается предыдущая),
+ * чтобы длинный чек-лист фасовок не раздувал панель, когда он не нужен.
+ * Точка рядом с названием — там сейчас что-то отфильтровано, даже если
+ * секция свёрнута и не видно содержимого.
+ */
+function FilterSection({ label, active, open, onToggle, children }: {
+  label: string; active: boolean; open: boolean; onToggle: () => void; children: React.ReactNode
+}) {
+  return (
+    <div className="border-b border-ink-700/50 last:border-b-0">
+      <button onClick={onToggle} className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-2 text-left text-xs font-medium text-slate-300 transition-colors hover:text-white">
+        <span className="flex items-center gap-1.5">
+          {label}
+          {active && <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />}
+        </span>
+        <IChevron width={13} height={13} className={`text-slate-500 transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && <div className="px-1.5 pb-2.5">{children}</div>}
+    </div>
   )
 }
 
