@@ -83,31 +83,48 @@ function migrateLegacyJsonIfNeeded(orgId) {
 
 /* ---------- writes: one targeted operation per call — safe under concurrent editors ---------- */
 
+// Every op below is reachable straight from an authenticated user's request
+// body (see EDIT_OPS in index.js) — a required string key arriving as
+// undefined/null/a number used to hit SQLite's bind check directly ("cannot
+// be bound to SQLite parameter") and blow up as a 500 instead of just being
+// ignored. Coerce-and-no-op on empty, same as the existing v/name handling
+// below, so a malformed payload never corrupts data or crashes the request.
+const str = (x) => String(x ?? '').trim()
+
 export function renameProduct(orgId, original, name) {
+  const orig = str(original)
+  if (!orig) return
   const v = String(name || '').trim()
-  if (!v || v === original) db.prepare('DELETE FROM product_renames WHERE org_id=? AND original=?').run(orgId, original)
-  else db.prepare('INSERT INTO product_renames (org_id, original, name) VALUES (?,?,?) ON CONFLICT(org_id, original) DO UPDATE SET name=excluded.name').run(orgId, original, v)
+  if (!v || v === orig) db.prepare('DELETE FROM product_renames WHERE org_id=? AND original=?').run(orgId, orig)
+  else db.prepare('INSERT INTO product_renames (org_id, original, name) VALUES (?,?,?) ON CONFLICT(org_id, original) DO UPDATE SET name=excluded.name').run(orgId, orig, v)
 }
 
 export function renameSupplier(orgId, original, name) {
+  const orig = str(original)
+  if (!orig) return
   const v = String(name || '').trim()
-  if (!v || v === original) db.prepare('DELETE FROM supplier_renames WHERE org_id=? AND original=?').run(orgId, original)
-  else db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?) ON CONFLICT(org_id, original) DO UPDATE SET name=excluded.name').run(orgId, original, v)
+  if (!v || v === orig) db.prepare('DELETE FROM supplier_renames WHERE org_id=? AND original=?').run(orgId, orig)
+  else db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?) ON CONFLICT(org_id, original) DO UPDATE SET name=excluded.name').run(orgId, orig, v)
 }
 
 export function setVenue(orgId, restaurant, patch) {
-  const row = db.prepare('SELECT city, brand, entity, category FROM venue_overrides WHERE org_id=? AND restaurant=?').get(orgId, restaurant) || {}
-  const merged = { ...row, ...(patch || {}) }
+  const r = str(restaurant)
+  if (!r) return
+  const p = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}
+  const row = db.prepare('SELECT city, brand, entity, category FROM venue_overrides WHERE org_id=? AND restaurant=?').get(orgId, r) || {}
+  const merged = { ...row, ...p }
   const city = merged.city || null, brand = merged.brand || null, entity = merged.entity || null, category = merged.category || null
-  if (!city && !brand && !entity && !category) db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, restaurant)
+  if (!city && !brand && !entity && !category) db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, r)
   else db.prepare(`
     INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category) VALUES (?,?,?,?,?,?)
     ON CONFLICT(org_id, restaurant) DO UPDATE SET city=excluded.city, brand=excluded.brand, entity=excluded.entity, category=excluded.category
-  `).run(orgId, restaurant, city, brand, entity, category)
+  `).run(orgId, r, city, brand, entity, category)
 }
 
 export function clearVenue(orgId, restaurant) {
-  db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, restaurant)
+  const r = str(restaurant)
+  if (!r) return
+  db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, r)
 }
 
 export function addVenue(orgId, name, patch) {
@@ -118,68 +135,116 @@ export function addVenue(orgId, name, patch) {
 }
 
 export function removeVenue(orgId, name) {
+  const n = str(name)
+  if (!n) return
   tx(() => {
-    db.prepare('DELETE FROM new_venues WHERE org_id=? AND name=?').run(orgId, name)
-    db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, name)
+    db.prepare('DELETE FROM new_venues WHERE org_id=? AND name=?').run(orgId, n)
+    db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, n)
   })
 }
 
 export function acknowledgeSupplier(orgId, rawName) {
-  db.prepare('INSERT OR IGNORE INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, rawName)
+  const n = str(rawName)
+  if (!n) return
+  db.prepare('INSERT OR IGNORE INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, n)
 }
 
 export function unacknowledgeSupplier(orgId, rawName) {
-  db.prepare('DELETE FROM acknowledged_suppliers WHERE org_id=? AND raw_name=?').run(orgId, rawName)
+  const n = str(rawName)
+  if (!n) return
+  db.prepare('DELETE FROM acknowledged_suppliers WHERE org_id=? AND raw_name=?').run(orgId, n)
 }
 
 /** value: true = фасовка обязательна (строгое совпадение), false = не важна, null = вернуть к автоматике. */
 export function setProductPackOverride(orgId, product, value) {
-  if (value === null || value === undefined) db.prepare('DELETE FROM product_pack_override WHERE org_id=? AND product=?').run(orgId, product)
+  const p = str(product)
+  if (!p) return
+  if (value === null || value === undefined) db.prepare('DELETE FROM product_pack_override WHERE org_id=? AND product=?').run(orgId, p)
   else db.prepare('INSERT INTO product_pack_override (org_id, product, pack_matters) VALUES (?,?,?) ON CONFLICT(org_id, product) DO UPDATE SET pack_matters=excluded.pack_matters')
-    .run(orgId, product, value ? 1 : 0)
+    .run(orgId, p, value ? 1 : 0)
 }
 
 /** value: { targetPack, supplier, product, rawPack } — их же написание, для показа в Справочниках; null — снять правку. */
 export function setPackAlias(orgId, key, value) {
-  if (value === null || value === undefined) db.prepare('DELETE FROM pack_aliases WHERE org_id=? AND key=?').run(orgId, key)
-  else db.prepare(`
-    INSERT INTO pack_aliases (org_id, key, target_pack, supplier, product, raw_pack) VALUES (?,?,?,?,?,?)
-    ON CONFLICT(org_id, key) DO UPDATE SET target_pack=excluded.target_pack, supplier=excluded.supplier, product=excluded.product, raw_pack=excluded.raw_pack
-  `).run(orgId, key, String(value.targetPack || ''), String(value.supplier || ''), String(value.product || ''), String(value.rawPack || ''))
+  const k = str(key)
+  if (!k) return
+  if (value === null || value === undefined) db.prepare('DELETE FROM pack_aliases WHERE org_id=? AND key=?').run(orgId, k)
+  else {
+    const v = value && typeof value === 'object' ? value : {}
+    db.prepare(`
+      INSERT INTO pack_aliases (org_id, key, target_pack, supplier, product, raw_pack) VALUES (?,?,?,?,?,?)
+      ON CONFLICT(org_id, key) DO UPDATE SET target_pack=excluded.target_pack, supplier=excluded.supplier, product=excluded.product, raw_pack=excluded.raw_pack
+    `).run(orgId, k, String(v.targetPack || ''), String(v.supplier || ''), String(v.product || ''), String(v.rawPack || ''))
+  }
 }
 
-/** value: число — план цена вручную из Справочников; null — снять правку (вернуться к цене из матрицы). */
+/** value: число — план цена вручную из Справочников; null — снять правку (вернуться к цене из матрицы). Не число (в т.ч. NaN от мусорного ввода) — молча игнорируем, не затираем существующую правку невалидным значением. */
 export function setPlanOverride(orgId, key, value) {
-  if (value === null || value === undefined) db.prepare('DELETE FROM plan_overrides WHERE org_id=? AND key=?').run(orgId, key)
-  else db.prepare('INSERT INTO plan_overrides (org_id, key, price) VALUES (?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET price=excluded.price')
-    .run(orgId, key, Number(value))
+  const k = str(key)
+  if (!k) return
+  if (value === null || value === undefined) { db.prepare('DELETE FROM plan_overrides WHERE org_id=? AND key=?').run(orgId, k); return }
+  const price = Number(value)
+  if (!Number.isFinite(price)) return
+  db.prepare('INSERT INTO plan_overrides (org_id, key, price) VALUES (?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET price=excluded.price')
+    .run(orgId, k, price)
 }
 
 export function resetEdits(orgId) {
   tx(() => { for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId) })
 }
 
+// e's fields are whatever JSON the client sent ("Импорт" uploads a file
+// verbatim) — Object.entries()/keys() on a non-object (a string, an array)
+// silently iterates its indices/characters instead of throwing, which used
+// to insert garbage rows (numeric-string keys, single-char values) straight
+// into the DB instead of being rejected. Only ever treat an actual plain
+// object as a map to iterate; anything else becomes "no entries" (same as
+// the field being absent), not corrupt data.
+const plainObject = (x) => (x && typeof x === 'object' && !Array.isArray(x)) ? x : {}
+
 /** Full-blob restore — used by "Импорт" (explicit, deliberate user action) and the legacy-JSON migration. */
 export function replaceAllEdits(orgId, e) {
+  const edits = plainObject(e)
   tx(() => {
     for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId)
-    for (const [original, name] of Object.entries(e.productRenames || {}))
-      db.prepare('INSERT INTO product_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, original, name)
-    for (const [original, name] of Object.entries(e.supplierRenames || {}))
-      db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, original, name)
-    for (const [restaurant, patch] of Object.entries(e.venueOverrides || {}))
+    for (const [original, name] of Object.entries(plainObject(edits.productRenames))) {
+      const orig = str(original); if (!orig) continue
+      db.prepare('INSERT INTO product_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, orig, String(name || ''))
+    }
+    for (const [original, name] of Object.entries(plainObject(edits.supplierRenames))) {
+      const orig = str(original); if (!orig) continue
+      db.prepare('INSERT INTO supplier_renames (org_id, original, name) VALUES (?,?,?)').run(orgId, orig, String(name || ''))
+    }
+    for (const [restaurant, patchRaw] of Object.entries(plainObject(edits.venueOverrides))) {
+      const r = str(restaurant); if (!r) continue
+      const patch = plainObject(patchRaw)
+      const city = patch.city || null, brand = patch.brand || null, entity = patch.entity || null, category = patch.category || null
+      if (!city && !brand && !entity && !category) continue // ничего реально не переопределено — не создавать пустую запись
       db.prepare('INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category) VALUES (?,?,?,?,?,?)')
-        .run(orgId, restaurant, patch.city || null, patch.brand || null, patch.entity || null, patch.category || null)
-    for (const name of Object.keys(e.newVenues || {}))
-      db.prepare('INSERT INTO new_venues (org_id, name) VALUES (?,?)').run(orgId, name)
-    for (const rawName of Object.keys(e.acknowledgedSuppliers || {}))
-      db.prepare('INSERT INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, rawName)
-    for (const [product, matters] of Object.entries(e.productPackOverride || {}))
-      db.prepare('INSERT INTO product_pack_override (org_id, product, pack_matters) VALUES (?,?,?)').run(orgId, product, matters ? 1 : 0)
-    for (const [key, v] of Object.entries(e.packAliases || {}))
+        .run(orgId, r, city, brand, entity, category)
+    }
+    for (const name of Object.keys(plainObject(edits.newVenues))) {
+      const n = str(name); if (!n) continue
+      db.prepare('INSERT INTO new_venues (org_id, name) VALUES (?,?)').run(orgId, n)
+    }
+    for (const rawName of Object.keys(plainObject(edits.acknowledgedSuppliers))) {
+      const n = str(rawName); if (!n) continue
+      db.prepare('INSERT INTO acknowledged_suppliers (org_id, raw_name) VALUES (?,?)').run(orgId, n)
+    }
+    for (const [product, matters] of Object.entries(plainObject(edits.productPackOverride))) {
+      const p = str(product); if (!p) continue
+      db.prepare('INSERT INTO product_pack_override (org_id, product, pack_matters) VALUES (?,?,?)').run(orgId, p, matters ? 1 : 0)
+    }
+    for (const [key, vRaw] of Object.entries(plainObject(edits.packAliases))) {
+      const k = str(key); if (!k) continue
+      const v = plainObject(vRaw)
       db.prepare('INSERT INTO pack_aliases (org_id, key, target_pack, supplier, product, raw_pack) VALUES (?,?,?,?,?,?)')
-        .run(orgId, key, String(v.targetPack || ''), String(v.supplier || ''), String(v.product || ''), String(v.rawPack || ''))
-    for (const [key, price] of Object.entries(e.planOverrides || {}))
-      db.prepare('INSERT INTO plan_overrides (org_id, key, price) VALUES (?,?,?)').run(orgId, key, Number(price))
+        .run(orgId, k, String(v.targetPack || ''), String(v.supplier || ''), String(v.product || ''), String(v.rawPack || ''))
+    }
+    for (const [key, price] of Object.entries(plainObject(edits.planOverrides))) {
+      const k = str(key); if (!k) continue
+      const p = Number(price); if (!Number.isFinite(p)) continue
+      db.prepare('INSERT INTO plan_overrides (org_id, key, price) VALUES (?,?,?)').run(orgId, k, p)
+    }
   })
 }
