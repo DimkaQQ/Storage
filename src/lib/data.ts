@@ -233,6 +233,7 @@ interface Resolved {
   candidateNote: string | null  // у этого же поставщика в матрице есть цена по ДРУГОЙ фасовке — не считаем совпадением автоматически, но не молчим об этом
   availableFasovki: FasovkaOption[]  // все прайсованные варианты фасовки у ЭТОГО поставщика для этого товара, ни один не совпал с фактом — предлагаем выбрать вручную
   packFixKey: string | null  // ключ для edits.packAliases, если выбрать один из availableFasovki
+  isAssortment: boolean  // фасовка может иметь значение (см. buildKnownFlatIndex) — считаем ровно тут же, где строится pairKey, чтобы не разъезжаться с computeRows
 }
 
 const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
@@ -324,7 +325,7 @@ function buildKnownFlatIndex(matching: MatchingTable): Set<string> {
   return result
 }
 
-function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex): Resolved {
+function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex, knownFlatPairs: Set<string>): Resolved {
   const supplierCanon = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
   const restaurant = norm(b.restaurant)
   const product = norm(b.product0)
@@ -338,9 +339,16 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const packAlias = packFixKey ? edits.packAliases[packFixKey] : undefined
   const pack = packAlias ? normPack(packAlias.targetPack) : rawPack
 
-  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey'> = { candidateNote: null, availableFasovki: [], packFixKey: null }
-
   const pairKey = `${restaurant}::${supplierCanon}::${product}`
+  // Фасовка может иметь значение (см. buildKnownFlatIndex) — если да, ПЛОСКАЯ
+  // (без фасовки) ручная правка плана/названия для этой пары больше не
+  // применяется вообще, только точная (с фасовкой). Иначе одна цена/название,
+  // заданные для одной упаковки, тихо подставлялись бы во ВСЕ остальные
+  // фасовки этого же iiko-названия — ровно баг, который уже один раз нашли
+  // руками (Roti Azik 10шт/5шт получили одну и ту же цену).
+  const isAssortment = !knownFlatPairs.has(pairKey)
+
+  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey' | 'isAssortment'> = { candidateNote: null, availableFasovki: [], packFixKey: null, isAssortment }
 
   // Ручной план цены из Справочников (Товары → «План») — самая свежая,
   // осознанно введённая цена для этой ровно позиции, побеждает всё
@@ -351,7 +359,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   if (rawTripleKey && edits.planOverrides[rawTripleKey] != null) {
     return { plan: edits.planOverrides[rawTripleKey], status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[rawTripleKey]), unpricedMatch: false, matchedKey: rawTripleKey, ...NONE }
   }
-  if (edits.planOverrides[pairKey] != null) {
+  if (!isAssortment && edits.planOverrides[pairKey] != null) {
     return { plan: edits.planOverrides[pairKey], status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, ...NONE }
   }
 
@@ -460,9 +468,9 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const fixKeyIfAny = availableFasovki.length > 0 ? packFixKey : null
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment }
 }
 
 const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
@@ -496,20 +504,21 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     const supplierDisplay = edits.supplierRenames[b.supplier0] ?? supplierCanonical
     const supplierLabel = supplierDisplay && norm(supplierDisplay) !== norm(supplier) ? supplierDisplay : null
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey } = resolveRowPlan(b, edits, matching, designatedIndex)
+    const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
     if (matchedKey) consumed.add(matchedKey)
     // Переименование хранится по товар+поставщик+фасовка (для категорий-
     // ассортиментов типа "Пюре в асс", где у одного iiko-названия за разными
     // фасовками разные реальные товары — правка бьёт ровно в одну фасовку),
     // либо по товар+поставщик без фасовки (для обычных товаров — Справочники
     // сами решают, какой ключ писать, см. DataEditor: multiItem ? triple : flat).
-    // Точный ключ (с фасовкой) побеждает, если задан.
+    // Точный ключ (с фасовкой) побеждает, если задан; плоский вообще не
+    // рассматривается, когда фасовка может иметь значение (isAssortment) —
+    // иначе одно название, заданное для одной упаковки, тихо подменило бы
+    // название и у остальных фасовок этого же iiko-названия.
     const rename = edits.productRenames[`${b.product0}::${b.supplier0}::${b.pack}`]
-      ?? edits.productRenames[`${b.product0}::${b.supplier0}`]
+      ?? (isAssortment ? undefined : edits.productRenames[`${b.product0}::${b.supplier0}`])
     const product = rename ?? b.product0
     const productLabel = matrixLabel
-    const supplierCanonNorm = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
-    const isAssortment = !knownFlatPairs.has(`${norm(b.restaurant)}::${supplierCanonNorm}::${norm(b.product0)}`)
     const diffPct = plan != null ? (b.unit - plan) / plan : null
     // designatedNorm — нормализованные (нижний регистр) ключи из матрицы,
     // для показа переводим обратно в их же написание (колонка C).
