@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { fetchSettings, saveSettings, testConnection, IikoSettings as Settings } from '../lib/api'
-import { Section, InfoTip } from '../components/ui'
+import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose } from '../components/icons'
 
 const PROVIDERS: { id: Settings['provider']; label: string; note: string }[] = [
@@ -139,7 +139,7 @@ export default function IikoSettings() {
       {/* schedule */}
       <Section title="Автообновление" subtitle="Приложение будет само подтягивать данные из iiko по расписанию.">
         <label className="flex cursor-pointer items-center gap-3">
-          <input type="checkbox" checked={form.autoEnabled} onChange={(e) => set({ autoEnabled: e.target.checked })} className="h-4 w-4 accent-brand-500" />
+          <Checkbox checked={form.autoEnabled} onChange={() => set({ autoEnabled: !form.autoEnabled })} />
           <span className="text-sm text-slate-200">Обновлять автоматически</span>
           <InfoTip text="Сервис на сервере запускает обновление по расписанию, даже когда приложение закрыто." />
         </label>

@@ -2,7 +2,7 @@ import { ReactNode, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { STATUS_META, Status } from '../lib/data'
 import { useCountUp } from '../lib/hooks'
-import { IInfo } from './icons'
+import { IInfo, ICheck } from './icons'
 
 const TIP_WIDTH = 244
 
@@ -113,4 +113,21 @@ export function Section({ title, subtitle, right, children, className = '', dela
 
 export function EmptyHint({ children }: { children: ReactNode }) {
   return <div className="py-10 text-center text-sm text-slate-500">{children}</div>
+}
+
+/** Чекбокс под общий стиль (тема/цвет акцента) — вместо базового браузерного, везде одинаковый. */
+export function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <span className="relative inline-flex h-4 w-4 shrink-0">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      />
+      <span className="pointer-events-none flex h-4 w-4 items-center justify-center rounded-[5px] border border-ink-600 bg-ink-900/60 text-transparent transition-all duration-150 peer-checked:border-brand-500 peer-checked:bg-brand-500 peer-checked:text-white peer-hover:border-ink-500 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
+        <ICheck width={10} height={10} strokeWidth={3} />
+      </span>
+    </span>
+  )
 }

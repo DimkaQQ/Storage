@@ -2,20 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmt, plural, normPack } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
-import { Section, InfoTip } from '../components/ui'
+import { Section, InfoTip, Checkbox } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
-import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IScale } from '../components/icons'
+import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck } from '../components/icons'
 
-type Tab = 'suppliers' | 'products' | 'venues' | 'packs'
+type Tab = 'suppliers' | 'products' | 'venues'
 type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
     edits, editCount, rows, renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setPackAlias, setPlanOverride, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setPlanOverride, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching,
     noMatrixTest, setNoMatrixTest,
   } = useEdits()
@@ -30,16 +30,14 @@ export default function DataEditor() {
   const [newEntity, setNewEntity] = useState('')
   const [newCategory, setNewCategory] = useState('')
 
-  // Фильтр Товаров (значок у строки поиска). Название (iiko и из матрицы —
-  // для человека это одно и то же "как называется товар", разница только
-  // техническая) — простой текстовый поиск, а не чек-лист: значений сотни,
-  // чек-лист был бы бесполезен. Фасовка — чек-лист (значений немного, это
-  // удобно). План — диапазон, это число, а не текст. Каждая категория —
-  // раскрывающаяся секция (открыта максимум одна), а то список фасовок
-  // сам по себе длинный и раздувал панель, даже когда не нужен.
+  // Фильтр Товаров (значок слева от строки поиска). Название и Фасовка — оба
+  // чек-лист с поиском внутри, как в Google Sheets (значений в каждом не
+  // так много, чтобы это было неудобно). План — диапазон, это число, а не
+  // текст. Каждая категория — раскрывающаяся секция (открыта максимум одна),
+  // а то чек-листы сами по себе длинные и раздували бы панель целиком.
   const [filterOpen, setFilterOpen] = useState(false)
   const [filterSection, setFilterSection] = useState<'name' | 'pack' | 'plan' | null>(null)
-  const [nameSearch, setNameSearch] = useState('')
+  const [excludedName, setExcludedName] = useState<Set<string>>(new Set())
   const [excludedPack, setExcludedPack] = useState<Set<string>>(new Set())
   const [planMin, setPlanMin] = useState('')
   const [planMax, setPlanMax] = useState('')
@@ -132,26 +130,26 @@ export default function DataEditor() {
     return edits.productRenames[renameKey] ?? matrixLabel ?? p.product
   }
 
-  // Значения для чек-листа фасовки — как в Google Sheets, список всех
-  // встречающихся значений (независимо от того, что сейчас отфильтровано
-  // остальным — иначе список "прыгал" бы при каждом изменении).
+  // Значения для чек-листов «Название» и «Фасовка» — как в Google Sheets,
+  // список всех встречающихся значений (независимо от того, что сейчас
+  // отфильтровано остальным — иначе список "прыгал" бы при каждом изменении).
+  const nameValues = useMemo(() => [...new Set(productVariants.map(productMatrixName))].sort((a, b) => a.localeCompare(b)), [productVariants, matching, edits.productRenames])
   const packValues = useMemo(() => [...new Set(productVariants.map((p) => p.pack ?? '—'))].sort((a, b) => a.localeCompare(b)), [productVariants])
-  const nameSearchNeedle = nameSearch.trim().toLowerCase()
   const planMinNum = planMin.trim() ? Number(planMin.trim().replace(',', '.')) : null
   const planMaxNum = planMax.trim() ? Number(planMax.trim().replace(',', '.')) : null
 
   // Поиск бьёт и по фасовке — «Ягода в асс» ищется через конкретный вкус
   // (например «черника»), который в iiko виден только в фасовке, не в
-  // названии товара. Фильтр (значок у строки поиска) — отдельно: название
-  // (текстом, сразу и iiko, и матрица), фасовка (чек-лист), план (диапазон).
+  // названии товара. Фильтр (значок слева от поиска) — отдельно: название
+  // (чек-лист), фасовка (чек-лист), план (диапазон).
   const productVariantsFiltered = useMemo(() => {
     let list = productVariants
     if (needle) {
       list = list.filter((p) => p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || (p.pack ?? '').toLowerCase().includes(needle))
     }
-    if (nameSearchNeedle || excludedPack.size || planMinNum != null || planMaxNum != null) {
+    if (excludedName.size || excludedPack.size || planMinNum != null || planMaxNum != null) {
       list = list.filter((p) => {
-        if (nameSearchNeedle && !p.product.toLowerCase().includes(nameSearchNeedle) && !productMatrixName(p).toLowerCase().includes(nameSearchNeedle)) return false
+        if (excludedName.size && excludedName.has(productMatrixName(p))) return false
         if (excludedPack.has(p.pack ?? '—')) return false
         if (planMinNum != null || planMaxNum != null) {
           const { matrixPlan, planKey } = productMeta(p)
@@ -164,10 +162,10 @@ export default function DataEditor() {
       })
     }
     return list
-  }, [needle, productVariants, nameSearchNeedle, excludedPack, planMinNum, planMaxNum, matching, edits.productRenames, edits.planOverrides])
+  }, [needle, productVariants, excludedName, excludedPack, planMinNum, planMaxNum, matching, edits.productRenames, edits.planOverrides])
 
-  const activeFilterDims = (nameSearchNeedle ? 1 : 0) + (excludedPack.size ? 1 : 0) + (planMinNum != null || planMaxNum != null ? 1 : 0)
-  const resetAllFilters = () => { setNameSearch(''); setExcludedPack(new Set()); setPlanMin(''); setPlanMax('') }
+  const activeFilterDims = (excludedName.size ? 1 : 0) + (excludedPack.size ? 1 : 0) + (planMinNum != null || planMaxNum != null ? 1 : 0)
+  const resetAllFilters = () => { setExcludedName(new Set()); setExcludedPack(new Set()); setPlanMin(''); setPlanMax('') }
 
   // Компании без справочника (potentially typos of an existing поставщик,
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
@@ -183,23 +181,11 @@ export default function DataEditor() {
     [needle, restaurants],
   )
 
-  // Правки фасовки — созданные прямо на строке в «Проверке цен» (кнопка
-  // «Это тот же товар») или тут вручную; тут только просмотр/отмена.
-  const packAliasEntries = useMemo(() => Object.entries(edits.packAliases), [edits.packAliases])
-  const packAliasList = useMemo(
-    () => (needle
-      ? packAliasEntries.filter(([, v]) => [v.supplier, v.product, v.rawPack, v.targetPack].some((x) => x.toLowerCase().includes(needle)))
-      : packAliasEntries),
-    [needle, packAliasEntries],
-  )
-
   const shown = tab === 'suppliers' ? suppliers.slice(0, limit)
     : tab === 'products' ? productVariantsFiltered.slice(0, limit)
-    : tab === 'packs' ? packAliasList.slice(0, limit)
     : venues.slice(0, limit)
   const total = tab === 'suppliers' ? suppliers.length
     : tab === 'products' ? productVariantsFiltered.length
-    : tab === 'packs' ? packAliasList.length
     : venues.length
 
   const resetAddForm = () => {
@@ -227,7 +213,7 @@ export default function DataEditor() {
               <InfoTip text="Компании и товары приходят из iiko. Плановые цены обычно из вашего Excel-файла (матрицы), но их можно поправить и здесь, на вкладке «Товары»." />
             </div>
             <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
-              Если компании нет в матрице — «Добавить», чтобы отметить, что это действительно новый поставщик.
+              Если компании нет в матрице — «Сохранить», чтобы отметить, что это действительно новый поставщик.
               Правки сохраняются автоматически.
             </p>
           </div>
@@ -260,78 +246,75 @@ export default function DataEditor() {
             <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
             <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productVariants.length)})</button>
             <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
-            <button onClick={() => { setTab('packs'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'packs' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Фасовки ({fmt(packAliasEntries.length)})</button>
           </div>
-          <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
-            <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
-            <input
-              value={q}
-              onChange={(e) => { setQ(e.target.value); setLimit(60) }}
-              placeholder={tab === 'products' ? 'Поиск товара, поставщика или фасовки…' : tab === 'suppliers' ? 'Поиск компании…' : tab === 'packs' ? 'Поиск по товару, поставщику, фасовке…' : 'Поиск точки или города…'}
-              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-            />
-          </div>
-          {tab === 'products' && (
-            <div className="relative" ref={filterRef}>
-              <button
-                onClick={() => setFilterOpen((v) => !v)}
-                title="Фильтр по названиям, фасовке и плану (как в Google Sheets)"
-                className={`btn border px-3 py-2 text-xs ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
-              >
-                <IFilter width={14} height={14} /> Фильтр{activeFilterDims > 0 ? ` (${activeFilterDims})` : ''}
-              </button>
-              {filterOpen && (
-                <div className="animate-scale-in absolute right-0 z-30 mt-1 w-[320px] rounded-xl border border-ink-700 bg-ink-850 p-2 shadow-card">
-                  <FilterSection
-                    label="Название" active={!!nameSearchNeedle} open={filterSection === 'name'}
-                    onToggle={() => setFilterSection((s) => (s === 'name' ? null : 'name'))}
-                  >
-                    <input
-                      value={nameSearch}
-                      onChange={(e) => { setNameSearch(e.target.value); setLimit(60) }}
-                      autoFocus
-                      placeholder="например, «аво»…"
-                      className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-                    />
-                  </FilterSection>
-                  <FilterSection
-                    label="Фасовка" active={excludedPack.size > 0} open={filterSection === 'pack'}
-                    onToggle={() => setFilterSection((s) => (s === 'pack' ? null : 'pack'))}
-                  >
-                    <ValueChecklist values={packValues} excluded={excludedPack} onChange={(next) => { setLimit(60); setExcludedPack(next) }} />
-                  </FilterSection>
-                  <FilterSection
-                    label="План, ₸" active={planMinNum != null || planMaxNum != null} open={filterSection === 'plan'}
-                    onToggle={() => setFilterSection((s) => (s === 'plan' ? null : 'plan'))}
-                  >
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={planMin} onChange={(e) => { setPlanMin(e.target.value); setLimit(60) }} placeholder="От" inputMode="decimal"
-                        className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-                      />
-                      <span className="text-slate-500">—</span>
-                      <input
-                        value={planMax} onChange={(e) => { setPlanMax(e.target.value); setLimit(60) }} placeholder="До" inputMode="decimal"
-                        className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-                      />
+          {/* Поиск — на любой вкладке в одном и том же месте этой группы; на
+              Товарах перед ним появляется значок фильтра, слева от поиска. */}
+          <div className="flex flex-1 items-center justify-end gap-2">
+            {tab === 'products' && (
+              <div className="relative" ref={filterRef}>
+                <button
+                  onClick={() => setFilterOpen((v) => !v)}
+                  title="Фильтр по названиям, фасовке и плану (как в Google Sheets)"
+                  className={`btn border px-3 py-2 text-xs ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+                >
+                  <IFilter width={14} height={14} /> Фильтр{activeFilterDims > 0 ? ` (${activeFilterDims})` : ''}
+                </button>
+                {filterOpen && (
+                  <div className="animate-scale-in absolute left-0 z-30 mt-1 w-[320px] rounded-xl border border-ink-700 bg-ink-850 p-2 shadow-card">
+                    <FilterSection
+                      label="Название" active={excludedName.size > 0} open={filterSection === 'name'}
+                      onToggle={() => setFilterSection((s) => (s === 'name' ? null : 'name'))}
+                    >
+                      <ValueChecklist values={nameValues} excluded={excludedName} onChange={(next) => { setLimit(60); setExcludedName(next) }} />
+                    </FilterSection>
+                    <FilterSection
+                      label="Фасовка" active={excludedPack.size > 0} open={filterSection === 'pack'}
+                      onToggle={() => setFilterSection((s) => (s === 'pack' ? null : 'pack'))}
+                    >
+                      <ValueChecklist values={packValues} excluded={excludedPack} onChange={(next) => { setLimit(60); setExcludedPack(next) }} />
+                    </FilterSection>
+                    <FilterSection
+                      label="План, ₸" active={planMinNum != null || planMaxNum != null} open={filterSection === 'plan'}
+                      onToggle={() => setFilterSection((s) => (s === 'plan' ? null : 'plan'))}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={planMin} onChange={(e) => { setPlanMin(e.target.value); setLimit(60) }} placeholder="От" inputMode="decimal"
+                          className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+                        />
+                        <span className="text-slate-500">—</span>
+                        <input
+                          value={planMax} onChange={(e) => { setPlanMax(e.target.value); setLimit(60) }} placeholder="До" inputMode="decimal"
+                          className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+                        />
+                      </div>
+                    </FilterSection>
+                    <div className="mt-1 flex items-center justify-between px-1 pt-2">
+                      <button onClick={resetAllFilters} className="text-xs text-slate-500 hover:text-bad">Сбросить всё</button>
+                      <button onClick={() => setFilterOpen(false)} className="text-xs text-brand-300 hover:text-brand-200">Готово</button>
                     </div>
-                  </FilterSection>
-                  <div className="mt-1 flex items-center justify-between px-1 pt-2">
-                    <button onClick={resetAllFilters} className="text-xs text-slate-500 hover:text-bad">Сбросить всё</button>
-                    <button onClick={() => setFilterOpen(false)} className="text-xs text-brand-300 hover:text-brand-200">Готово</button>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            )}
+            <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
+              <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
+              <input
+                value={q}
+                onChange={(e) => { setQ(e.target.value); setLimit(60) }}
+                placeholder={tab === 'products' ? 'Поиск товара, поставщика или фасовки…' : tab === 'suppliers' ? 'Поиск компании…' : 'Поиск точки или города…'}
+                className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+              />
             </div>
-          )}
-          {tab === 'venues' && (
-            <button
-              onClick={() => setAddOpen((v) => !v)}
-              className={`btn border px-3 py-2 text-xs ${addOpen ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
-            >
-              <IPlus width={14} height={14} /> Добавить точку
-            </button>
-          )}
+            {tab === 'venues' && (
+              <button
+                onClick={() => setAddOpen((v) => !v)}
+                className={`btn border px-3 py-2 text-xs ${addOpen ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+              >
+                <IPlus width={14} height={14} /> Добавить точку
+              </button>
+            )}
+          </div>
         </div>
 
         {addOpen && tab === 'venues' && (
@@ -378,8 +361,8 @@ export default function DataEditor() {
         {tab === 'suppliers' && (
           <p className="mb-3 text-xs text-slate-500">
             Список формируется из закупок в iiko за выбранный период. «Нет в справочнике» — этой компании нет в вашей
-            матрице ни под каким известным написанием; «Добавить» ничего не меняет в сопоставлении, просто убирает
-            позицию из списка новых, чтобы не проверять её повторно каждый раз.
+            матрице ни под каким известным написанием; «Сохранить» ничего не меняет в сопоставлении, просто убирает
+            позицию из списка новых, чтобы не проверять её повторно каждый раз. «Вернуть» отменяет эту отметку.
           </p>
         )}
 
@@ -391,14 +374,6 @@ export default function DataEditor() {
             сами (влияет только на подпись в «Проверке цен», не на сопоставление). «Фасовка» — просто как записана в iiko,
             без изменений. «План» — плановая цена: по умолчанию из матрицы, но можно задать или поправить прямо
             здесь — тогда эта цена побеждает.
-          </p>
-        )}
-
-        {tab === 'packs' && (
-          <p className="mb-3 text-xs text-slate-500">
-            Список правок вида «эта фасовка из iiko на самом деле вот эта фасовка из матрицы» — реально влияют на
-            сопоставление с планом, а не только на подпись. Здесь можно посмотреть и отменить; удаление возвращает
-            автоматику как было.
           </p>
         )}
 
@@ -425,7 +400,7 @@ export default function DataEditor() {
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-[42%]">Название (iiko)</th>
-                  <th className="th w-[28%]">Название из матрицы <InfoTip text="Название компании, обычно как в матрице — можно поправить вручную, например переименовать ИП. Влияет только на подпись, не на сопоставление. «Нет в справочнике» — этой компании нет в матрице ни под каким известным написанием; если это действительно новый поставщик — нажмите «Добавить»." /></th>
+                  <th className="th w-[28%]">Название из матрицы <InfoTip text="Название компании, обычно как в матрице — можно поправить вручную, например переименовать ИП. Влияет только на подпись, не на сопоставление. «Нет в справочнике» — этой компании нет в матрице ни под каким известным написанием; если это действительно новый поставщик — нажмите «Сохранить»." /></th>
                   <th className="th w-[12%] text-right">Позиций</th>
                   <th className="th w-[18%] text-center">Действие</th>
                 </tr>
@@ -436,21 +411,13 @@ export default function DataEditor() {
                   <th className="th w-[24%]">Фасовка <InfoTip text="Ровно как записана фасовка в отчёте iiko, без изменений." /></th>
                   <th className="th w-[24%] text-right">План <InfoTip text="Плановая цена. По умолчанию — из матрицы; можно задать или поправить прямо здесь, тогда эта цена побеждает при сопоставлении с фактом." align="right" /></th>
                 </tr>
-              ) : tab === 'venues' ? (
+              ) : (
                 <tr>
                   <th className="th w-[25%]">Точка</th>
                   <th className="th w-[14%]">Город</th>
                   <th className="th w-[16%]">Бренд</th>
                   <th className="th w-[21%]">Юрлицо</th>
                   <th className="th w-[14%]">Категория</th>
-                  <th className="th w-[10%] text-center">Действие</th>
-                </tr>
-              ) : (
-                <tr>
-                  <th className="th w-[20%]">Поставщик</th>
-                  <th className="th w-[26%]">Товар</th>
-                  <th className="th w-[24%]">Как в iiko</th>
-                  <th className="th w-[20%]">Считаем той же фасовкой из матрицы</th>
                   <th className="th w-[10%] text-center">Действие</th>
                 </tr>
               )}
@@ -484,7 +451,7 @@ export default function DataEditor() {
                                 {possibleDuplicate(s.name) && (
                                   <span className="flex items-center gap-1 text-[11px] text-slate-500">
                                     похоже на «{possibleDuplicate(s.name)}»?
-                                    <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Добавить» стоит свериться с матрицей." align="left" />
+                                    <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Сохранить» стоит свериться с матрицей." align="left" />
                                   </span>
                                 )}
                               </div>
@@ -494,12 +461,12 @@ export default function DataEditor() {
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
                         <td className="td text-center">
                           {acknowledged ? (
-                            <button onClick={() => unacknowledgeSupplier(s.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-white" title="Отменить отметку">
-                              <IReset width={13} height={13} />
+                            <button onClick={() => unacknowledgeSupplier(s.name)} className="btn mx-auto border border-bad/40 bg-bad/10 px-2 py-1 text-xs text-bad hover:bg-bad/20" title="Вернуть — снова считать нерешённым, показывать в «Нет в справочнике»">
+                              <IReset width={13} height={13} /> Вернуть
                             </button>
                           ) : !canon ? (
-                            <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:border-good/50 hover:text-good" title="Это действительно новый поставщик">
-                              <IPlus width={12} height={12} /> Добавить
+                            <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:border-good/50 hover:text-good" title="Сохранить — это действительно новый поставщик">
+                              <ICheck width={12} height={12} /> Сохранить
                             </button>
                           ) : null}
                         </td>
@@ -537,8 +504,7 @@ export default function DataEditor() {
                       </tr>
                     )
                   })
-                : tab === 'venues'
-                ? (shown as typeof venues).map((r) => {
+                : (shown as typeof venues).map((r) => {
                     const manual = edits.newVenues[r.name] === true
                     return (
                       <tr key={r.name} className="row-hover hover:bg-ink-800/40">
@@ -561,26 +527,7 @@ export default function DataEditor() {
                         </td>
                       </tr>
                     )
-                  })
-                : (shown as typeof packAliasList).map(([key, v]) => (
-                    <tr key={key} className="row-hover hover:bg-ink-800/40">
-                      <td className="td overflow-hidden text-slate-400">
-                        <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={v.supplier} /></span>
-                      </td>
-                      <td className="td overflow-hidden text-slate-100"><HoverName text={v.product} /></td>
-                      <td className="td overflow-hidden">
-                        <span className="flex min-w-0 items-center gap-2 text-slate-400">
-                          <IScale width={13} height={13} className="shrink-0 text-slate-600" /><HoverName text={v.rawPack} />
-                        </span>
-                      </td>
-                      <td className="td overflow-hidden text-good"><HoverName text={v.targetPack} /></td>
-                      <td className="td text-center">
-                        <button onClick={() => setPackAlias(key, null)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Отменить правку — вернуть автоматическое сопоставление">
-                          <ITrash width={13} height={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  })}
             </tbody>
           </table>
           {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено.</div>}
@@ -715,22 +662,5 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
     >
       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${checked ? 'translate-x-[18px]' : 'translate-x-1'}`} />
     </button>
-  )
-}
-
-/** Чекбокс под общий стиль (тема/цвет акцента) — вместо базового браузерного. */
-function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
-  return (
-    <span className="relative inline-flex h-4 w-4 shrink-0">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onChange}
-        className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
-      />
-      <span className="pointer-events-none flex h-4 w-4 items-center justify-center rounded-[5px] border border-ink-600 bg-ink-900/60 text-transparent transition-all duration-150 peer-checked:border-brand-500 peer-checked:bg-brand-500 peer-checked:text-white peer-hover:border-ink-500 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
-        <ICheck width={10} height={10} strokeWidth={3} />
-      </span>
-    </span>
   )
 }
