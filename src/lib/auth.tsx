@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react'
+import { clearLocalEditsCache } from './edits'
 
 const TOKEN_KEY = 'pricecheck-token'
 
@@ -20,6 +21,18 @@ interface Ctx {
 
 const AuthContext = createContext<Ctx | null>(null)
 
+// Правки (localStorage) держатся отдельным ключом, общим для браузера, а не
+// по организации/пользователю — EditsProvider монтируется заново при каждом
+// входе, так что без явной очистки на общем компьютере смена аккаунта на
+// другую организацию первое время (а при сбое /api/edits — и дольше)
+// показывала бы чужие правки поверх данных новой организации. Чистим и при
+// явном logout(), и здесь — когда сохранённый токен оказался невалиден/
+// истёк (та же смена личности, просто без клика «Выйти»).
+function clearLocalSession() {
+  try { localStorage.removeItem(TOKEN_KEY) } catch { /* ignore */ }
+  clearLocalEditsCache()
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
@@ -29,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) { setLoading(false); return }
     fetch('/api/auth/me', { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : null))
-      .then((u) => setUser(u))
+      .then((u) => { if (!u) clearLocalSession(); setUser(u) })
       .catch(() => setUser(null))
       .finally(() => setLoading(false))
   }, [])
@@ -51,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
-    try { localStorage.removeItem(TOKEN_KEY) } catch { /* ignore */ }
+    clearLocalSession()
     setUser(null)
   }, [])
 

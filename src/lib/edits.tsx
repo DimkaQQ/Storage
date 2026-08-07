@@ -30,6 +30,21 @@ function load(): Edits {
   }
 }
 
+/**
+ * Локальный кэш правок (localStorage) специально не привязан к организации —
+ * это просто offline-first слепок того, что уже подтверждено сервером,
+ * чтобы не мигать пустым экраном при перезагрузке. Но именно поэтому его
+ * обязательно чистить при выходе: EditsProvider монтируется заново при
+ * каждом входе (см. AppRoot — он живёт только пока есть user), и без этого
+ * на общем компьютере смена аккаунта на ДРУГУЮ организацию первое время (а
+ * если запрос /api/edits не пройдёт — то и постоянно) показывала бы чужие
+ * переименования/плановые цены из прошлой сессии поверх данных новой
+ * организации. Вызывается из auth.tsx при logout.
+ */
+export function clearLocalEditsCache() {
+  try { localStorage.removeItem(KEY) } catch { /* ignore */ }
+}
+
 function diffKeys<T>(current: Record<string, T>, target: Record<string, T>): string[] {
   return [...new Set([...Object.keys(current), ...Object.keys(target)])].filter(
     (k) => JSON.stringify(current[k]) !== JSON.stringify(target[k]),
