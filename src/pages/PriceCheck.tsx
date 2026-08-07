@@ -148,7 +148,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // нет вовсе (не покупали), под ним просто фасовка.
                       <>
                         <HoverName text={r.product} />
-                        {isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
                       </>
                     ) : r.productLabel || r.product !== r.productRaw ? (
                       // Крупным — название из матрицы, если товар с ней совпал,
@@ -168,9 +168,17 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         />
                       </>
                     ) : (
+                      // Ни совпадения с матрицей, ни ручного названия — обычно
+                      // "голую" фасовку (кг/шт/л) тут не показываем, она ничего
+                      // не уточняет. НО если это категория-ассортимент, голая
+                      // фасовка означает, что iiko вообще не записал, какой
+                      // именно вкус/вариант купили (например "Ягода в асс" —
+                      // просто "кг", без ягоды) — это и есть причина, почему
+                      // товар не сопоставился, так что лучше показать даже
+                      // такую фасовку, чем молча скрыть саму неопределённость.
                       <>
                         <HoverName text={r.product} />
-                        {isPrecisePack(r.pack) && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
                       </>
                     )}
                   </td>
