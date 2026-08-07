@@ -38,6 +38,17 @@ export function bundledMatching(period?: string | null): MatchingTable {
 /** Latest period's matrix — used wherever a period isn't in scope (e.g. default fn params). */
 export const BUNDLED_MATCHING: MatchingTable = bundledMatching()
 
+/**
+ * Пустая матрица — для тестового режима «только что загрузили отчёт iiko,
+ * матрицы ещё нет» (Справочники → переключатель). Ничего не сопоставлено
+ * заранее: «Название из матрицы» и «План» везде пустые, можно вписать
+ * руками и посмотреть результат. Ручные правки (edits) при этом всё равно
+ * работают как обычно — они всегда побеждают матрицу, пустую или нет.
+ */
+export const EMPTY_MATCHING: MatchingTable = {
+  supplierAlias: {}, planPairs: {}, planPairsByPack: {}, productLabels: {}, noPriceExact: {},
+}
+
 export const norm = (s: string) => String(s || '').trim().toLowerCase()
 
 /**

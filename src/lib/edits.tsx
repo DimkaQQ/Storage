@@ -1,8 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
+// Локальный флаг устройства (не серверный) — «тестовый режим без матрицы».
+// Специально не в edits/на сервере: это не правка данных, а просто способ
+// временно посмотреть на интерфейс так, будто матрицу ещё не загружали.
+const NO_MATRIX_KEY = 'pricecheck-no-matrix-test'
 
 function normalize(p: any): Edits {
   return {
@@ -95,6 +99,9 @@ interface Ctx {
   replaceAll: (e: Edits) => void
   undo: () => void
   canUndo: boolean
+  // тестовый режим «без матрицы» — только на этом устройстве, не на сервере
+  noMatrixTest: boolean
+  setNoMatrixTest: (v: boolean) => void
 }
 
 const EditsContext = createContext<Ctx | null>(null)
@@ -109,6 +116,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [syncing, setSyncing] = useState(false)
   const history = useRef<Edits[]>([])
   const [canUndo, setCanUndo] = useState(false)
+  const [noMatrixTest, setNoMatrixTestState] = useState<boolean>(() => {
+    try { return localStorage.getItem(NO_MATRIX_KEY) === '1' } catch { return false }
+  })
+  const setNoMatrixTest = useCallback((v: boolean) => {
+    setNoMatrixTestState(v)
+    try { localStorage.setItem(NO_MATRIX_KEY, v ? '1' : '0') } catch { /* ignore */ }
+  }, [])
 
   // Every mutation goes through here instead of setEdits directly, so each
   // committed change (not every keystroke — inputs only call onCommit on
@@ -185,8 +199,10 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   // Матрица версионирована по периодам так же, как факты — цены реально
   // отличаются месяц к месяцу, так что план всегда должен браться из
-  // матрицы ТОГО ЖЕ периода, что и просматриваемые факты.
-  const matching = useMemo(() => bundledMatching(periodKey), [periodKey])
+  // матрицы ТОГО ЖЕ периода, что и просматриваемые факты. В тестовом режиме
+  // (noMatrixTest) матрицу подменяем на пустую везде, где она используется —
+  // «Проверка цен», Справочники и т.д. видят её через этот же matching.
+  const matching = useMemo(() => (noMatrixTest ? EMPTY_MATCHING : bundledMatching(periodKey)), [periodKey, noMatrixTest])
   const rows = useMemo(() => computeRows(parsed.base, edits, matching), [parsed, edits, matching])
 
   // key = "товар::поставщик" (composed by the caller — DataEditor). Ставит
@@ -342,6 +358,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setPlanOverride,
     reset, replaceAll, undo, canUndo,
+    noMatrixTest, setNoMatrixTest,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }

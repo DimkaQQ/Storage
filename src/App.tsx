@@ -30,7 +30,7 @@ export default function App() {
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
-  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants } = useEdits()
+  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, noMatrixTest } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
@@ -115,6 +115,11 @@ export default function App() {
         {/* Main */}
         <div className="ml-64 min-w-0 flex-1">
           <header className="sticky top-0 z-10 border-b border-ink-700/50 bg-ink-950">
+            {noMatrixTest && (
+              <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
+                Тестовый режим: матрица отключена — везде как будто только что загружен отчёт iiko, без сопоставления. Выключить — в Справочниках.
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-8 py-4">
               <div className="min-w-0">
                 <h1 className="text-lg font-bold text-white">{nav.find((n) => n.id === page)!.label}</h1>

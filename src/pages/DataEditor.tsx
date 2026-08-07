@@ -17,6 +17,7 @@ export default function DataEditor() {
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setPackAlias, setPlanOverride, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching,
+    noMatrixTest, setNoMatrixTest,
   } = useEdits()
   const [tab, setTab] = useState<Tab>('suppliers')
   const [q, setQ] = useState('')
@@ -239,6 +240,16 @@ export default function DataEditor() {
             title="Отменить последнее изменение"
             className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
           ><IUndo width={16} height={16} /> Отменить</button>
+        </div>
+      </div>
+
+      {/* тестовый режим — матрицу подменяем на пустую, чтобы всё выглядело
+          как сразу после загрузки отчёта iiko, без единого сопоставления */}
+      <div className={`card flex flex-wrap items-center gap-3 p-3.5 transition-colors ${noMatrixTest ? 'border-warn/40 bg-warn/[0.06]' : ''}`}>
+        <ToggleSwitch checked={noMatrixTest} onChange={setNoMatrixTest} />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className={`text-sm font-medium ${noMatrixTest ? 'text-warn' : 'text-slate-300'}`}>Тестовый режим: без матрицы</span>
+          <InfoTip text="Показывает всё приложение так, будто только что загрузили отчёт из iiko, а матрицу (план-цены, «название из матрицы») ещё не подключали — везде пусто. Можно вписать «Название из матрицы» и «План» самому прямо в Товарах и посмотреть, как это отразится в «Проверке цен». На реальные данные не влияет — переключатель хранится только в этом браузере, выключите его, чтобы вернуть матрицу как было." />
         </div>
       </div>
 
@@ -689,6 +700,21 @@ function ValueChecklist({ values, excluded, onChange }: {
         ))}
       </div>
     </div>
+  )
+}
+
+/** Переключатель-пилюля под общий стиль — для настроек уровня "вкл/выкл всё". */
+function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${checked ? 'bg-warn' : 'bg-ink-700'}`}
+    >
+      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${checked ? 'translate-x-[18px]' : 'translate-x-1'}`} />
+    </button>
   )
 }
 
