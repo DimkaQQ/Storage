@@ -103,6 +103,22 @@ export default function DataEditor() {
     return result
   }, [rows])
 
+  // Индекс "pairKey -> все её ключи в planPairsByPack" — считаем один раз на
+  // весь matching (там тысячи записей), а не пересканированием на каждую
+  // строку Товаров через Object.keys(...).filter(...). Раньше это было
+  // ровно так и с ростом матрицы (после реального листа "Сырьё" — тысячи
+  // строк) ощутимо подвешивало вкладку: пересканирование шло на каждую
+  // позицию (их сотни), причём по нескольку раз на одну и ту же.
+  const packKeysByPair = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const k of Object.keys(matching.planPairsByPack)) {
+      const pairKey = k.slice(0, k.lastIndexOf('::'))
+      const arr = map.get(pairKey)
+      if (arr) arr.push(k); else map.set(pairKey, [k])
+    }
+    return map
+  }, [matching])
+
   // То же самое, что каждая строка Товаров считает сама себе для показа —
   // вынесено отдельно, чтобы фильтр по колонке (ниже) и сам рендер строки
   // не считали дважды и не могли разойтись.
@@ -116,9 +132,8 @@ export default function DataEditor() {
     // Не ассортимент (p.pack === null) — если у пары в матрице ровно один
     // прайсованный вариант фасовки, берём его описание/план; иначе — просто
     // плоская запись без привязки к конкретной упаковке.
-    const prefix = `${pairKey}::`
     const soleKey = !tripleKey
-      ? (() => { const ks = Object.keys(matching.planPairsByPack).filter((k) => k.startsWith(prefix)); return ks.length === 1 ? ks[0] : null })()
+      ? (() => { const ks = packKeysByPair.get(pairKey); return ks && ks.length === 1 ? ks[0] : null })()
       : null
     const matrixLabel = (tripleKey && matching.productLabels[tripleKey])
       ?? (soleKey && matching.productLabels[soleKey])
