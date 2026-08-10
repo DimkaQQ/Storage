@@ -5,10 +5,13 @@ import { createPortal } from 'react-dom'
  * Как EditableText, но с выпадающим списком — начали печатать, список сам
  * сужается по подстроке (везде, где встречается введённый текст, не только
  * с начала), как автопоиск в выпадающем списке Google Sheets. Используется
- * и для товаров (список всех известных названий из матрицы — тогда у
- * подсказки виден ещё и поставщик, чтобы не перепутать, откуда какое
- * описание), и для компаний (список всех известных названий поставщиков —
- * там supplier не нужен, каждая подсказка сама по себе имя).
+ * и для товаров (список всех известных названий из матрицы — у части
+ * подсказок одинаковый текст на самом деле означает разные товары у разных
+ * поставщиков; поставщик виден при наведении на подсказку, всплывающей
+ * табличкой, а не постоянной второй строкой — не захламляет список тем,
+ * кто и так узнаёт нужный товар по названию), и для компаний (список всех
+ * известных названий поставщиков — там supplier не нужен, каждая подсказка
+ * сама по себе имя).
  *
  * Список рендерится в портал (document.body), а не обычным потомком поля —
  * иначе его обрезает ячейка таблицы (у неё overflow-hidden, чтобы длинный
@@ -27,6 +30,7 @@ export default function ProductLabelSuggest({
   const [v, setV] = useState(value)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null)
+  const [tip, setTip] = useState<{ left: number; top: number; text: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
 
@@ -38,10 +42,28 @@ export default function ProductLabelSuggest({
       if (inputRef.current?.contains(t)) return
       if (dropRef.current?.contains(t)) return
       setOpen(false)
+      setTip(null)
     }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
+
+  const TIP_WIDTH = 240
+
+  // Поставщик у подсказки товара — не постоянной второй строкой (список
+  // тогда становится вдвое выше и захламляется для тех, кто и так узнаёт
+  // товар по названию), а всплывающей табличкой только при наведении —
+  // так же, как ⓘ у InfoTip. Пробуем показать справа от подсказки; если
+  // справа не хватает места (список у правого края экрана) — слева.
+  const openTip = (el: HTMLElement, text: string) => {
+    const r = el.getBoundingClientRect()
+    const m = 10
+    const onRight = window.innerWidth - r.right >= TIP_WIDTH + 16
+    const left = onRight ? r.right + 8 : Math.max(m, r.left - TIP_WIDTH - 8)
+    const top = Math.max(m, Math.min(r.top, window.innerHeight - m - 50))
+    setTip({ left, top, text })
+  }
+  const closeTip = () => setTip(null)
 
   const DROPDOWN_MAX_H = 256 // max-h-64
 
@@ -105,6 +127,7 @@ export default function ProductLabelSuggest({
     // что и так уже стоит), это не правка, коммитить нечего.
     if (next !== value) onCommit(next)
     setOpen(false)
+    setTip(null)
   }
 
   // Сужаем по подстроке (не только с начала слова) — "лос" находит и
@@ -146,12 +169,23 @@ export default function ProductLabelSuggest({
               // onMouseDown (не onClick) + preventDefault — иначе onBlur инпута
               // срабатывает раньше клика и закрывает список до выбора.
               onMouseDown={(e) => { e.preventDefault(); commit(s.label) }}
-              className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-ink-800"
+              onMouseEnter={(e) => { if (s.supplier) openTip(e.currentTarget, s.supplier) }}
+              onMouseLeave={closeTip}
+              className="block w-full truncate px-3 py-2 text-left text-sm text-slate-200 hover:bg-ink-800"
             >
-              <span className="w-full truncate text-sm text-slate-200">{s.label}</span>
-              {s.supplier && <span className="w-full truncate text-[11px] text-slate-500">{s.supplier}</span>}
+              {s.label}
             </button>
           ))}
+        </div>,
+        document.body,
+      )}
+      {tip && createPortal(
+        <div
+          role="tooltip"
+          style={{ position: 'fixed', left: tip.left, top: tip.top, width: TIP_WIDTH }}
+          className="pointer-events-none z-[110] rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-xs leading-snug text-slate-300 shadow-xl"
+        >
+          {tip.text}
         </div>,
         document.body,
       )}
