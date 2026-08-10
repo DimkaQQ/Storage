@@ -164,14 +164,38 @@ export default function DataEditor() {
   const restaurantValues = useMemo(() => [...new Set(productVariants.map((p) => p.restaurant))].sort((a, b) => a.localeCompare(b)), [productVariants])
   const nameValues = useMemo(() => [...new Set(productVariants.map(productMatrixName))].sort((a, b) => a.localeCompare(b)), [productVariants, matching, edits.productRenames])
   const packValues = useMemo(() => [...new Set(productVariants.map((p) => p.pack ?? '—'))].sort((a, b) => a.localeCompare(b)), [productVariants])
-  // Автопоиск при переименовании товара — все названия из ВСЕЙ матрицы
-  // (не только из закупленного в этом периоде) плюс уже введённые правки,
-  // чтобы можно было найти и переиспользовать существующее название, даже
-  // если этот конкретный товар в этом периоде ещё не покупали.
-  const productLabelSuggestions = useMemo(
-    () => [...new Set([...Object.values(realMatching.productLabels), ...Object.values(edits.productRenames)])].sort((a, b) => a.localeCompare(b)).map((label) => ({ label })),
-    [realMatching, edits.productRenames],
-  )
+  // norm(каноническое название поставщика) -> отображаемое написание — то же
+  // сопоставление, что строит computeRows в data.ts, нужно здесь отдельно,
+  // чтобы у подсказки товара показать поставщика человеческим написанием, а
+  // не нормализованным куском ключа матрицы.
+  const supplierDisplayByNorm = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const canon of Object.values(realMatching.supplierAlias)) map.set(norm(canon), canon)
+    return map
+  }, [realMatching])
+
+  // Автопоиск при переименовании товара — все названия из ВСЕЙ матрицы (не
+  // только из закупленного в этом периоде) плюс уже введённые правки, чтобы
+  // можно было найти и переиспользовать существующее название, даже если
+  // этот конкретный товар в этом периоде ещё не покупали. У каждой подсказки
+  // рядом виден поставщик — одно и то же название ("Тушка лосося с/м")
+  // нередко встречается у разных поставщиков как разный товар, и без
+  // поставщика в списке их не отличить друг от друга.
+  const productLabelSuggestions = useMemo(() => {
+    const seen = new Map<string, { label: string; supplier?: string }>()
+    for (const [key, label] of Object.entries(realMatching.productLabels)) {
+      const supplierNorm = key.split('::')[1]
+      const supplier = supplierDisplayByNorm.get(supplierNorm) ?? undefined
+      seen.set(`${label}::${supplier ?? ''}`, { label, supplier })
+    }
+    for (const [renameKey, label] of Object.entries(edits.productRenames)) {
+      const rawSupplier = renameKey.split('::')[1]
+      const supplier = rawSupplier ? (realMatching.supplierAlias[norm(rawSupplier)] ?? rawSupplier) : undefined
+      const dedupeKey = `${label}::${supplier ?? ''}`
+      if (!seen.has(dedupeKey)) seen.set(dedupeKey, { label, supplier })
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || (a.supplier ?? '').localeCompare(b.supplier ?? ''))
+  }, [realMatching, edits.productRenames, supplierDisplayByNorm])
   const planMinNum = planMin.trim() ? Number(planMin.trim().replace(',', '.')) : null
   const planMaxNum = planMax.trim() ? Number(planMax.trim().replace(',', '.')) : null
 
