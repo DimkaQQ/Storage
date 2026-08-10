@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 /**
  * Как EditableText, но с выпадающим списком — начали печатать, список сам
@@ -8,6 +9,12 @@ import { useEffect, useRef, useState } from 'react'
  * подсказки виден ещё и поставщик, чтобы не перепутать, откуда какое
  * описание), и для компаний (список всех известных названий поставщиков —
  * там supplier не нужен, каждая подсказка сама по себе имя).
+ *
+ * Список рендерится в портал (document.body), а не обычным потомком поля —
+ * иначе его обрезает ячейка таблицы (у неё overflow-hidden, чтобы длинный
+ * текст не ломал ширину колонки), и на узком экране видна едва ли одна
+ * строка списка вместо всего выпадающего меню. Та же причина и то же
+ * решение, что уже применено в InfoTip.
  */
 export default function ProductLabelSuggest({
   value, suggestions, onCommit, className = '',
@@ -19,15 +26,33 @@ export default function ProductLabelSuggest({
 }) {
   const [v, setV] = useState(value)
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dropRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => setV(value), [value])
 
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const h = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (inputRef.current?.contains(t)) return
+      if (dropRef.current?.contains(t)) return
+      setOpen(false)
+    }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
+
+  const openDropdown = () => {
+    const el = inputRef.current
+    if (el) {
+      const r = el.getBoundingClientRect()
+      const width = Math.max(r.width, 260)
+      const left = Math.min(r.left, window.innerWidth - width - 10)
+      setPos({ left: Math.max(10, left), top: r.bottom + 4, width })
+    }
+    setOpen(true)
+  }
 
   const commit = (next: string) => {
     setV(next)
@@ -51,12 +76,13 @@ export default function ProductLabelSuggest({
   ).slice(0, 200)
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative">
       <input
+        ref={inputRef}
         value={v}
         title={v}
-        onFocus={() => setOpen(true)}
-        onChange={(e) => { setV(e.target.value); setOpen(true) }}
+        onFocus={openDropdown}
+        onChange={(e) => { setV(e.target.value); openDropdown() }}
         // Коммитим только если реально поменяли значение — иначе просто
         // кликнуть в поле и выйти (например, случайно проходя табом) молча
         // "замораживает" текущую подсказку как ручное переименование.
@@ -64,8 +90,12 @@ export default function ProductLabelSuggest({
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
         className={`w-full max-w-md rounded-md border border-ink-700/50 bg-ink-900/40 px-2 py-1 text-sm text-slate-100 transition-colors hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70 focus:outline-none ${className}`}
       />
-      {open && filtered.length > 0 && (
-        <div className="animate-scale-in absolute left-0 z-30 mt-1 max-h-64 w-80 overflow-y-auto rounded-xl border border-ink-700 bg-ink-850 shadow-card">
+      {open && pos && filtered.length > 0 && createPortal(
+        <div
+          ref={dropRef}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: pos.width }}
+          className="animate-scale-in z-[100] max-h-64 overflow-y-auto rounded-xl border border-ink-700 bg-ink-850 shadow-xl"
+        >
           {filtered.map((s, i) => (
             <button
               key={i}
@@ -78,7 +108,8 @@ export default function ProductLabelSuggest({
               {s.supplier && <span className="w-full truncate text-[11px] text-slate-500">{s.supplier}</span>}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
