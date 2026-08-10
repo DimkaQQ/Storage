@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, plural, normPack } from '../lib/data'
+import { fmt, plural, normPack, bundledMatching } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -16,9 +16,16 @@ export default function DataEditor() {
     edits, editCount, rows, renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setPlanOverride, undo, canUndo,
-    suppliers: suppliersBase, restaurants, matching,
+    suppliers: suppliersBase, restaurants, matching, periodKey,
     noMatrixTest, setNoMatrixTest,
   } = useEdits()
+  // Подсказки автопоиска (Компании/Товары) должны предлагать то, что уже
+  // реально известно, даже когда включён тестовый режим "без матрицы" —
+  // там `matching` подменяется на пустую специально, чтобы показать
+  // приложение так, будто матрицы вообще нет, но подсказки при этом не
+  // должны исчезать: печатаем "лос" — ищем среди уже известных названий
+  // (настоящей матрицы), а не среди пустоты теста.
+  const realMatching = useMemo(() => bundledMatching(periodKey), [periodKey])
   const [tab, setTab] = useState<Tab>('suppliers')
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
@@ -162,8 +169,8 @@ export default function DataEditor() {
   // чтобы можно было найти и переиспользовать существующее название, даже
   // если этот конкретный товар в этом периоде ещё не покупали.
   const productLabelSuggestions = useMemo(
-    () => [...new Set([...Object.values(matching.productLabels), ...Object.values(edits.productRenames)])].sort((a, b) => a.localeCompare(b)).map((label) => ({ label })),
-    [matching, edits.productRenames],
+    () => [...new Set([...Object.values(realMatching.productLabels), ...Object.values(edits.productRenames)])].sort((a, b) => a.localeCompare(b)).map((label) => ({ label })),
+    [realMatching, edits.productRenames],
   )
   const planMinNum = planMin.trim() ? Number(planMin.trim().replace(',', '.')) : null
   const planMaxNum = planMax.trim() ? Number(planMax.trim().replace(',', '.')) : null
@@ -202,7 +209,7 @@ export default function DataEditor() {
   // Компании без справочника (potentially typos of an existing поставщик,
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
   // "Объединить" убрали сознательно, тут только подсказка "проверьте matrix".
-  const canonicalSupplierNames = useMemo(() => [...new Set(Object.values(matching.supplierAlias))], [matching])
+  const canonicalSupplierNames = useMemo(() => [...new Set(Object.values(realMatching.supplierAlias))], [realMatching])
   const possibleDuplicate = (name: string) => {
     const top = rankSimilar(name, canonicalSupplierNames, (x) => x, 0.45)[0]
     return top?.item ?? null
