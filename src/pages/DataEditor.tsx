@@ -157,6 +157,14 @@ export default function DataEditor() {
   const restaurantValues = useMemo(() => [...new Set(productVariants.map((p) => p.restaurant))].sort((a, b) => a.localeCompare(b)), [productVariants])
   const nameValues = useMemo(() => [...new Set(productVariants.map(productMatrixName))].sort((a, b) => a.localeCompare(b)), [productVariants, matching, edits.productRenames])
   const packValues = useMemo(() => [...new Set(productVariants.map((p) => p.pack ?? '—'))].sort((a, b) => a.localeCompare(b)), [productVariants])
+  // Автопоиск при переименовании товара — все названия из ВСЕЙ матрицы
+  // (не только из закупленного в этом периоде) плюс уже введённые правки,
+  // чтобы можно было найти и переиспользовать существующее название, даже
+  // если этот конкретный товар в этом периоде ещё не покупали.
+  const productLabelSuggestions = useMemo(
+    () => [...new Set([...Object.values(matching.productLabels), ...Object.values(edits.productRenames)])].sort((a, b) => a.localeCompare(b)).map((label) => ({ label })),
+    [matching, edits.productRenames],
+  )
   const planMinNum = planMin.trim() ? Number(planMin.trim().replace(',', '.')) : null
   const planMaxNum = planMax.trim() ? Number(planMax.trim().replace(',', '.')) : null
 
@@ -199,6 +207,14 @@ export default function DataEditor() {
     const top = rankSimilar(name, canonicalSupplierNames, (x) => x, 0.45)[0]
     return top?.item ?? null
   }
+  // Автопоиск при переименовании — все уже известные названия (из матрицы
+  // + уже введённые вручную правки), чтобы не плодить разные написания
+  // одного и того же поставщика/товара: набрали "ази" — нашли "Азик Трейд",
+  // даже если он уже был переименован кем-то другим, а не только в матрице.
+  const supplierNameSuggestions = useMemo(
+    () => [...new Set([...canonicalSupplierNames, ...Object.values(edits.supplierRenames)])].sort((a, b) => a.localeCompare(b)).map((label) => ({ label })),
+    [canonicalSupplierNames, edits.supplierRenames],
+  )
 
   const venues = useMemo(
     () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
@@ -467,8 +483,9 @@ export default function DataEditor() {
                         </td>
                         <td className="td overflow-hidden">
                           <div className="flex items-center gap-1.5">
-                            <EditableText
+                            <ProductLabelSuggest
                               value={supplierRename ?? canon ?? ''}
+                              suggestions={supplierNameSuggestions}
                               onCommit={(v) => renameSupplier(s.name, v)}
                               className={supplierRename ? undefined : canon ? 'text-good' : undefined}
                             />
@@ -508,7 +525,6 @@ export default function DataEditor() {
                 : tab === 'products'
                 ? (shown as typeof productVariantsFiltered).map((p) => {
                     const { pairKey, matrixLabel, renameKey, planKey, matrixPlan } = productMeta(p)
-                    const suggestions = matrixLabel ? [{ label: matrixLabel, supplier: p.supplier }] : []
                     const overridden = edits.planOverrides[planKey]
                     return (
                       <tr key={`${pairKey}::${p.pack ?? ''}`} className="row-hover hover:bg-ink-800/40">
@@ -522,7 +538,7 @@ export default function DataEditor() {
                         <td className="td">
                           <ProductLabelSuggest
                             value={edits.productRenames[renameKey] ?? matrixLabel ?? p.product}
-                            suggestions={suggestions}
+                            suggestions={productLabelSuggestions}
                             onCommit={(v) => renameProduct(renameKey, v)}
                           />
                         </td>
