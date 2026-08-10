@@ -43,16 +43,60 @@ export default function ProductLabelSuggest({
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  const openDropdown = () => {
+  const DROPDOWN_MAX_H = 256 // max-h-64
+
+  const updatePos = () => {
     const el = inputRef.current
-    if (el) {
-      const r = el.getBoundingClientRect()
-      const width = Math.max(r.width, 260)
-      const left = Math.min(r.left, window.innerWidth - width - 10)
-      setPos({ left: Math.max(10, left), top: r.bottom + 4, width })
-    }
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    // visualViewport — реально видимая область; на мобильном при открытой
+    // клавиатуре она заметно меньше window.innerHeight (тот остаётся
+    // полным размером страницы даже под клавиатурой), из-за чего список,
+    // посчитанный по window.innerHeight, мог оказаться отрисован НИЖЕ
+    // видимой части экрана — визуально неотличимо от "не появился вовсе".
+    const vv = window.visualViewport
+    const viewportH = vv?.height ?? window.innerHeight
+    const viewportW = vv?.width ?? window.innerWidth
+    const width = Math.max(r.width, 260)
+    const left = Math.max(10, Math.min(r.left, viewportW - width - 10))
+    // Обычно открываем прямо под полем; если снизу видимой области не
+    // хватает места (клавиатура съела низ экрана) — прижимаем к низу
+    // видимой области, а не туда, где список гарантированно скрыт.
+    const spaceBelow = viewportH - r.bottom
+    const top = spaceBelow >= 80 ? r.bottom + 4 : Math.max(10, viewportH - DROPDOWN_MAX_H - 10)
+    setPos({ left, top, width })
+  }
+
+  const openDropdown = () => {
+    updatePos()
     setOpen(true)
   }
+
+  // Пока список открыт — пересчитываем позицию при скролле/ресайзе.
+  // Особенно важно на мобильном: фокус на поле открывает клавиатуру, а
+  // вьюпорт "доезжает" (скроллится/сжимается) уже ПОСЛЕ момента фокуса —
+  // разовый расчёт координат в openDropdown к этому моменту устаревает, и
+  // список рисуется не там, где кажется, будто его нет вовсе. capture:true
+  // на scroll — таблица обычно сама горизонтально скроллится (overflow-x),
+  // и это тоже "скролл", но не всплывает без capture. visualViewport —
+  // отдельно, потому что на iOS Safari появление клавиатуры не всегда
+  // генерирует обычный window resize, а visualViewport.resize — надёжнее.
+  useEffect(() => {
+    if (!open) return
+    updatePos()
+    const vv = window.visualViewport
+    window.addEventListener('scroll', updatePos, true)
+    window.addEventListener('resize', updatePos)
+    vv?.addEventListener('resize', updatePos)
+    vv?.addEventListener('scroll', updatePos)
+    return () => {
+      window.removeEventListener('scroll', updatePos, true)
+      window.removeEventListener('resize', updatePos)
+      vv?.removeEventListener('resize', updatePos)
+      vv?.removeEventListener('scroll', updatePos)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const commit = (next: string) => {
     setV(next)
