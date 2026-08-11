@@ -43,6 +43,10 @@ export default function DataEditor() {
   // секция (открыта максимум одна), а то чек-листы сами по себе длинные и
   // раздували бы панель целиком.
   const [filterOpen, setFilterOpen] = useState(false)
+  // «Нет в матрице» свёрнута по умолчанию — список может быть длинным
+  // (десятки закупок), а внимания требует не постоянно, только когда
+  // реально нужно кого-то привязать.
+  const [unmatchedOpen, setUnmatchedOpen] = useState(false)
   const [filterSection, setFilterSection] = useState<'restaurant' | 'name' | 'pack' | null>(null)
   const [excludedRestaurant, setExcludedRestaurant] = useState<Set<string>>(new Set())
   const [excludedName, setExcludedName] = useState<Set<string>>(new Set())
@@ -457,11 +461,16 @@ export default function DataEditor() {
 
         {tab === 'products' && unmatchedRows.length > 0 && (
           <div className="mb-4 overflow-hidden rounded-xl border border-purple-400/30 bg-purple-400/[0.04]">
-            <div className="flex items-center gap-1.5 border-b border-purple-400/20 px-3 py-2">
+            <button
+              onClick={() => setUnmatchedOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 border-b border-purple-400/20 px-3 py-2 text-left"
+            >
               <span className="h-1.5 w-1.5 rounded-full bg-purple-400" />
               <span className="text-xs font-medium text-purple-300">Нет в матрице ({fmt(unmatchedRows.length)})</span>
               <InfoTip text="Закупки этого периода, для которых нет строки в матрице ни по прямому совпадению названия, ни по привязке. Либо это реально новый товар — его предстоит завести в самой Google-таблице («Сырьё F»); либо просто у iiko другое написание того же товара — тогда привяжите его прямо здесь, выбрав нужный товар из матрицы." align="left" />
-            </div>
+              <IChevron width={13} height={13} className={`ml-auto shrink-0 text-purple-300/70 transition-transform duration-150 ${unmatchedOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {unmatchedOpen && (
             <div className="overflow-x-auto">
               <table className="w-full table-fixed">
                 <thead className="bg-ink-850">
@@ -510,6 +519,7 @@ export default function DataEditor() {
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         )}
 
