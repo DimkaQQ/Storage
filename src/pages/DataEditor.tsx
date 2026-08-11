@@ -557,6 +557,16 @@ export default function DataEditor() {
                 ? (shown as typeof productVariantsFiltered).map((p) => {
                     const { pairKey, matrixLabel, renameKey, planKey, matrixPlan } = productMeta(p)
                     const overridden = edits.planOverrides[planKey]
+                    // «В матрице» здесь означает буквально «есть план-цена для
+                    // этой ровно позиции» — из настоящей матрицы или заданная
+                    // тут же вручную, неважно откуда: это ровно то, что
+                    // resolveRowPlan в «Проверке цен» использует, чтобы
+                    // показать статус «По матрице» вместо «Нет в матрице»,
+                    // так что бейдж тут заранее говорит, что там увидим.
+                    // Название из матрицы на статус не влияет — это только
+                    // подпись, полноценно достроить матрицу для позиции можно
+                    // только вписав план (и не обязательно оба сразу).
+                    const inMatrix = (overridden ?? matrixPlan) != null
                     return (
                       <tr key={`${pairKey}::${p.pack ?? ''}`} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-xs text-slate-400">
@@ -582,6 +592,13 @@ export default function DataEditor() {
                             overridden={overridden != null}
                             onCommit={(v) => setPlanOverride(planKey, v)}
                           />
+                          <span
+                            className={`chip ml-auto mt-1 w-fit border-transparent text-[10px] ${inMatrix ? 'bg-good/10 text-good' : 'bg-purple-400/10 text-purple-300'}`}
+                            title={inMatrix ? 'Для этой позиции есть план-цена — в «Проверке цен» она будет со статусом «По матрице».' : 'План-цены нет — в «Проверке цен» позиция будет со статусом «Нет в матрице», пока не впишете план.'}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${inMatrix ? 'bg-good' : 'bg-purple-400'}`} />
+                            {inMatrix ? 'в матрице' : 'нет в матрице'}
+                          </span>
                         </td>
                       </tr>
                     )
