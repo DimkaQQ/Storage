@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -15,6 +15,7 @@ function normalize(p: any): Edits {
     acknowledgedSuppliers: p?.acknowledgedSuppliers ?? {},
     productPackOverride: p?.productPackOverride ?? {},
     packAliases: p?.packAliases ?? {},
+    productLinks: p?.productLinks ?? {},
     planOverrides: p?.planOverrides ?? {},
     venueOverrides: p?.venueOverrides ?? {},
     newVenues: p?.newVenues ?? {},
@@ -74,6 +75,8 @@ function syncUndoToServer(current: Edits, target: Edits) {
     applyEditOp('setProductPackOverride', { product: k, value: target.productPackOverride[k] ?? null })
   for (const k of diffKeys(current.packAliases, target.packAliases))
     applyEditOp('setPackAlias', { key: k, value: target.packAliases[k] ?? null })
+  for (const k of diffKeys(current.productLinks, target.productLinks))
+    applyEditOp('setProductLink', { key: k, value: target.productLinks[k] ?? null })
   for (const k of diffKeys(current.planOverrides, target.planOverrides))
     applyEditOp('setPlanOverride', { key: k, value: target.planOverrides[k] ?? null })
 }
@@ -109,6 +112,7 @@ interface Ctx {
   unacknowledgeSupplier: (rawName: string) => void
   setProductPackOverride: (product: string, value: boolean | null) => void
   setPackAlias: (key: string, value: PackAlias | null) => void
+  setProductLink: (key: string, value: ProductLink | null) => void
   setPlanOverride: (key: string, value: number | null) => void
   reset: () => void
   replaceAll: (e: Edits) => void
@@ -317,6 +321,22 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('setPackAlias', { key, value })
   }, [updateEdits])
 
+  // "Это iiko-название на самом деле вот этот товар из матрицы" — key =
+  // "поставщик(канон)::iiko-название" (норм.), см. Edits.productLinks и
+  // resolveRowPlan. Назначается либо со стороны строки матрицы (колонка
+  // «Название из iiko»), либо со стороны непривязанной закупки (секция
+  // «Нет в матрице» — «это на самом деле…») — оба пути пишут в одну и ту
+  // же карту. null — снять привязку.
+  const setProductLink = useCallback((key: string, value: ProductLink | null) => {
+    updateEdits((e) => {
+      const next = { ...e.productLinks }
+      if (value === null) delete next[key]
+      else next[key] = value
+      return { ...e, productLinks: next }
+    })
+    applyEditOp('setProductLink', { key, value })
+  }, [updateEdits])
+
   // Ручная плановая цена (Справочники → Товары → «План») — key в той же
   // ключевой области, что и matching.planPairsByPack/planPairs (см.
   // resolveRowPlan). null — снять правку, вернуться к цене из матрицы.
@@ -341,6 +361,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       acknowledgedSuppliers: e.acknowledgedSuppliers ?? {},
       productPackOverride: e.productPackOverride ?? {},
       packAliases: e.packAliases ?? {},
+      productLinks: e.productLinks ?? {},
       planOverrides: e.planOverrides ?? {},
       venueOverrides: e.venueOverrides ?? {},
       newVenues: e.newVenues ?? {},
@@ -355,6 +376,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.acknowledgedSuppliers).length +
     Object.keys(edits.productPackOverride).length +
     Object.keys(edits.packAliases).length +
+    Object.keys(edits.productLinks).length +
     Object.keys(edits.planOverrides).length +
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newVenues).length
@@ -371,7 +393,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     backendOnline, status, syncing, refresh, reloadStatus,
     renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setPlanOverride,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride,
     reset, replaceAll, undo, canUndo,
     noMatrixTest, setNoMatrixTest,
   }

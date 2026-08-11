@@ -195,18 +195,37 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
  */
 export interface PackAlias { targetPack: string; supplier: string; product: string; rawPack: string }
 
+/**
+ * Привязка "это iiko-название на самом деле вот этот товар из матрицы" —
+ * реально влияет на сопоставление (см. resolveRowPlan), полный разворот
+ * прежней модели. Раньше приложение шло от факта закупки (iiko) и ИСКАЛО
+ * его в матрице по точному совпадению текста; теперь источник истины —
+ * сама матрица (лист «Сырьё F»), а название из iiko — то, что мы САМИ
+ * назначаем конкретной строке матрицы (одна компания может привезти два
+ * разных товара под одним и тем же iiko-названием — различать их по
+ * голому тексту нельзя, нужна явная привязка).
+ *
+ * Ключ (для лукапа в resolveRowPlan) — "поставщик(канон)::iiko-название"
+ * (норм., БЕЗ ресторана — тот же поставщик называет товар одинаково во
+ * всех точках). targetProduct — третий сегмент ключа matching.planPairs/
+ * planPairsByPack (норм.), то есть "вот эта строка матрицы". supplier/
+ * rawProduct — их же написание, только для показа в Справочниках.
+ */
+export interface ProductLink { targetProduct: string; supplier: string; rawProduct: string }
+
 export interface Edits {
   productRenames: Record<string, string>   // "товар::поставщик::фасовка" (raw, как в iiko) -> название из матрицы для этой ровно позиции
   supplierRenames: Record<string, string>  // iiko-имя поставщика (raw) -> название из матрицы — только подпись (HoverName/"Справочник"), на сопоставление с матрицей не влияет
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). Ручной override автоматики (см. resolveRowPlan)
   packAliases: Record<string, PackAlias>   // "поставщик(канон)::товар::фасовка как в iiko" (норм.) -> правка
-  planOverrides: Record<string, number>    // "ресторан::поставщик(канон)::товар::фасовка" или без фасовки (норм.) -> план цена, задана вручную в Справочниках — та же ключевая область, что у matching.planPairsByPack/planPairs
+  productLinks: Record<string, ProductLink> // "поставщик(канон)::iiko-название" (норм.) -> привязка к строке матрицы, см. ProductLink
+  planOverrides: Record<string, number>    // legacy — ручные план-цены больше не выставляются из приложения (цена только из матрицы), поле остаётся только чтобы не потерять то, что уже сохранено у существующих организаций
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
 }
 export const EMPTY_EDITS: Edits = {
-  productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
+  productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, productLinks: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -328,7 +347,17 @@ function buildKnownFlatIndex(matching: MatchingTable): Set<string> {
 function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex, knownFlatPairs: Set<string>): Resolved {
   const supplierCanon = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
   const restaurant = norm(b.restaurant)
-  const product = norm(b.product0)
+
+  // Привязка "это iiko-название на самом деле вот этот товар из матрицы"
+  // (Справочники → Товары, колонка «Название из iiko» — или назначена
+  // прямо из «Нет в матрице») — подставляем ДО построения ключа, дальше
+  // вся логика работает уже с названием строки матрицы, как будто iiko
+  // изначально прислал именно его. Без привязки — просто прямое текстовое
+  // совпадение (как и раньше): часто этого достаточно само по себе, если
+  // строка матрицы когда-то была заведена под тем же названием.
+  const productLinkKey = `${supplierCanon}::${norm(b.product0)}`
+  const productLink = edits.productLinks[productLinkKey]
+  const product = productLink ? norm(productLink.targetProduct) : norm(b.product0)
   const rawPack = normPack(b.pack)
 
   // Ручная правка "эта фасовка из iiko на самом деле вот эта фасовка из
@@ -355,13 +384,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // остальное. Считаем по СЫРОЙ фасовке из iiko (не через packAlias) —
   // это независимый, более прямой способ поправить/задать цену, а не ещё
   // один слой поверх сопоставления фасовки.
-  const rawTripleKey = rawPack ? `${pairKey}::${rawPack}` : null
-  if (rawTripleKey && edits.planOverrides[rawTripleKey] != null) {
-    return { plan: edits.planOverrides[rawTripleKey], status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[rawTripleKey]), unpricedMatch: false, matchedKey: rawTripleKey, ...NONE }
-  }
-  if (!isAssortment && edits.planOverrides[pairKey] != null) {
-    return { plan: edits.planOverrides[pairKey], status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, ...NONE }
-  }
+  // Ручных план-цен из приложения больше нет — цена только из матрицы
+  // (лист «Сырьё F»); поправить неверную цену теперь можно только в самой
+  // Google-таблице, не здесь. edits.planOverrides — legacy-поле, дальше не
+  // читается (см. Edits.planOverrides).
 
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
@@ -473,7 +499,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment }
 }
 
-const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
+export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {

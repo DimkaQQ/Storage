@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, plural, normPack, bundledMatching } from '../lib/data'
+import { fmt, plural, normPack, bundledMatching, capitalize, money } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -13,9 +13,9 @@ type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
-    edits, editCount, rows, renameProduct, renameSupplier, setVenue,
+    edits, editCount, rows, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setPlanOverride, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey,
     noMatrixTest, setNoMatrixTest,
   } = useEdits()
@@ -39,16 +39,14 @@ export default function DataEditor() {
 
   // Фильтр Товаров (значок слева от строки поиска). Название и Фасовка — оба
   // чек-лист с поиском внутри, как в Google Sheets (значений в каждом не
-  // так много, чтобы это было неудобно). План — диапазон, это число, а не
-  // текст. Каждая категория — раскрывающаяся секция (открыта максимум одна),
-  // а то чек-листы сами по себе длинные и раздували бы панель целиком.
+  // так много, чтобы это было неудобно). Каждая категория — раскрывающаяся
+  // секция (открыта максимум одна), а то чек-листы сами по себе длинные и
+  // раздували бы панель целиком.
   const [filterOpen, setFilterOpen] = useState(false)
-  const [filterSection, setFilterSection] = useState<'restaurant' | 'name' | 'pack' | 'plan' | null>(null)
+  const [filterSection, setFilterSection] = useState<'restaurant' | 'name' | 'pack' | null>(null)
   const [excludedRestaurant, setExcludedRestaurant] = useState<Set<string>>(new Set())
   const [excludedName, setExcludedName] = useState<Set<string>>(new Set())
   const [excludedPack, setExcludedPack] = useState<Set<string>>(new Set())
-  const [planMin, setPlanMin] = useState('')
-  const [planMax, setPlanMax] = useState('')
   const filterRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -76,159 +74,177 @@ export default function DataEditor() {
     return list
   }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBase, matching])
 
-  // Товары — одна строка на товар+поставщика. Фасовку показываем отдельными
-  // строками только там, где под одним названием в iiko на самом деле разные
-  // товары (категории-ассортименты вроде "Пюре в асс" — вкус виден только в
-  // фасовке, см. Row.isAssortment в data.ts); иначе фасовка — просто размер
-  // упаковки одного и того же товара, разносить по строкам незачем.
-  interface ProductVariant { restaurant: string; product: string; supplier: string; pack: string | null; count: number }
-  const productVariants = useMemo(() => {
-    const groups = new Map<string, { restaurant: string; product: string; supplier: string; isAssortment: boolean; packs: Map<string, string>; count: number }>()
-    for (const r of rows) {
-      if (r.unit == null) continue // не реальная закупка — позиция из матрицы, ещё не куплена в этом периоде
-      const key = `${norm(r.restaurant)}::${norm(r.productRaw)}::${norm(r.supplier)}`
-      let g = groups.get(key)
-      if (!g) { g = { restaurant: r.restaurant, product: r.productRaw, supplier: r.supplier, isAssortment: r.isAssortment, packs: new Map(), count: 0 }; groups.set(key, g) }
-      g.count++
-      const rawNorm = normPack(r.pack)
-      if (!g.packs.has(rawNorm)) g.packs.set(rawNorm, r.pack)
+  // norm(каноническое название поставщика) -> отображаемое написание — то же
+  // сопоставление, что строит computeRows в data.ts, нужно здесь отдельно
+  // для показа поставщика человеческим написанием, а не нормализованным
+  // куском ключа матрицы.
+  const supplierDisplayByNorm = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const canon of Object.values(realMatching.supplierAlias)) map.set(norm(canon), canon)
+    return map
+  }, [realMatching])
+  const restaurantDisplayByNorm = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const r of restaurants) map.set(norm(r.name), r.name)
+    return map
+  }, [restaurants])
+
+  // Товары — теперь строятся ОТ МАТРИЦЫ, а не от закупок iiko: раньше шли
+  // от факта покупки и искали его в матрице по точному совпадению текста;
+  // источник истины теперь сама матрица (лист «Сырьё F»), а название из
+  // iiko — то, что мы САМИ назначаем конкретной строке (см. Edits.
+  // productLinks в data.ts) — одна компания может привезти два разных
+  // товара под одним и тем же iiko-названием, различить их по голому
+  // тексту нельзя. Одна строка — restaurant+supplier+товар матрицы (+
+  // фасовка, если матрица прайсует её отдельно); дедуп "с фасовкой
+  // побеждает плоскую запись" — та же логика, что уже строит computeRows
+  // для строк "план есть, ещё не куплено" в Проверке цен.
+  interface MatrixRow {
+    key: string; restaurantNorm: string; restaurant: string
+    supplierNorm: string; supplier: string
+    productSegment: string; matrixLabel: string
+    pack: string; plan: number
+  }
+  const matrixRows = useMemo(() => {
+    const packBrokenDownPairKeys = new Set(
+      Object.keys(matching.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
+    )
+    const result: MatrixRow[] = []
+    const push = (key: string, restaurantNorm: string, supplierNorm: string, productSegment: string, pack: string, plan: number) => {
+      const restaurant = restaurantDisplayByNorm.get(restaurantNorm)
+      if (!restaurant) return // ресторан вне текущего охвата приложения — не показываем
+      result.push({
+        key, restaurantNorm, restaurant,
+        supplierNorm, supplier: supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm,
+        productSegment, matrixLabel: matching.productLabels[key] ?? capitalize(productSegment),
+        pack, plan,
+      })
     }
-    // Порядок — как в самой «Проверке цен» (то есть как в отчёте iiko), а не
-    // по числу закупок: `groups` — Map, ключи создаются по первому появлению
-    // в rows, и Map всегда перебирается в порядке вставки, так что просто не
-    // пересортировываем результат — он уже в нужном порядке сам по себе.
-    const result: ProductVariant[] = []
-    for (const g of groups.values()) {
-      if (g.isAssortment) {
-        for (const [, rawDisplay] of g.packs) {
-          result.push({ restaurant: g.restaurant, product: g.product, supplier: g.supplier, pack: rawDisplay, count: g.count })
-        }
-      } else {
-        result.push({ restaurant: g.restaurant, product: g.product, supplier: g.supplier, pack: null, count: g.count })
-      }
+    for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
+      const [restaurantNorm, supplierNorm, productSegment, pack] = key.split('::')
+      push(key, restaurantNorm, supplierNorm, productSegment, pack, plan)
+    }
+    for (const [key, plan] of Object.entries(matching.planPairs)) {
+      if (packBrokenDownPairKeys.has(key)) continue
+      const [restaurantNorm, supplierNorm, productSegment] = key.split('::')
+      push(key, restaurantNorm, supplierNorm, productSegment, '', plan)
     }
     return result
-  }, [rows])
+  }, [matching, restaurantDisplayByNorm, supplierDisplayByNorm])
 
-  // Индекс "pairKey -> все её ключи в planPairsByPack" — считаем один раз на
-  // весь matching (там тысячи записей), а не пересканированием на каждую
-  // строку Товаров через Object.keys(...).filter(...). Раньше это было
-  // ровно так и с ростом матрицы (после реального листа "Сырьё" — тысячи
-  // строк) ощутимо подвешивало вкладку: пересканирование шло на каждую
-  // позицию (их сотни), причём по нескольку раз на одну и ту же.
-  const packKeysByPair = useMemo(() => {
-    const map = new Map<string, string[]>()
-    for (const k of Object.keys(matching.planPairsByPack)) {
-      const pairKey = k.slice(0, k.lastIndexOf('::'))
-      const arr = map.get(pairKey)
-      if (arr) arr.push(k); else map.set(pairKey, [k])
+  // Варианты для назначения — уникальные (по описанию) товары матрицы на
+  // поставщика, вне зависимости от ресторана/фасовки: сама привязка
+  // "iiko-название -> товар из матрицы" ресторано-независима (тот же
+  // поставщик называет товар одинаково во всех точках), см. ProductLink.
+  const matrixProductOptionsBySupplier = useMemo(() => {
+    const map = new Map<string, { label: string; targetProduct: string }[]>()
+    const seen = new Set<string>()
+    for (const row of matrixRows) {
+      const dedupeKey = `${row.supplierNorm}::${row.productSegment}`
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+      const opt = { label: row.matrixLabel, targetProduct: row.productSegment }
+      const arr = map.get(row.supplierNorm)
+      if (arr) arr.push(opt); else map.set(row.supplierNorm, [opt])
     }
     return map
-  }, [matching])
+  }, [matrixRows])
 
-  // То же самое, что каждая строка Товаров считает сама себе для показа —
-  // вынесено отдельно, чтобы фильтр по колонке (ниже) и сам рендер строки
-  // не считали дважды и не могли разойтись.
-  const productMeta = (p: ProductVariant) => {
-    const restaurantNorm = norm(p.restaurant)
-    const supplierCanon = norm(matching.supplierAlias[norm(p.supplier)] ?? p.supplier)
-    const productNorm = norm(p.product)
-    const pairKey = `${restaurantNorm}::${supplierCanon}::${productNorm}`
-    const packNorm = p.pack ? normPack(p.pack) : null
-    const tripleKey = packNorm ? `${pairKey}::${packNorm}` : null
-    // Не ассортимент (p.pack === null) — если у пары в матрице ровно один
-    // прайсованный вариант фасовки, берём его описание/план; иначе — просто
-    // плоская запись без привязки к конкретной упаковке.
-    const soleKey = !tripleKey
-      ? (() => { const ks = packKeysByPair.get(pairKey); return ks && ks.length === 1 ? ks[0] : null })()
-      : null
-    const matrixLabel = (tripleKey && matching.productLabels[tripleKey])
-      ?? (soleKey && matching.productLabels[soleKey])
-      ?? matching.productLabels[pairKey] ?? null
-    const renameKey = tripleKey ? `${p.product}::${p.supplier}::${p.pack}` : `${p.product}::${p.supplier}`
-    const planKey = tripleKey ?? pairKey
-    const matrixPlan = (tripleKey && matching.planPairsByPack[tripleKey])
-      ?? (soleKey && matching.planPairsByPack[soleKey])
-      ?? matching.planPairs[pairKey] ?? null
-    return { pairKey, matrixLabel, renameKey, planKey, matrixPlan }
+  // Автопоиск для колонки «Название из iiko» у строки матрицы — реально
+  // встреченные в закупках названия ЭТОГО поставщика (не вся матрица —
+  // тут нужно то, что iiko присылает по факту, а не описание из матрицы).
+  const iikoNameOptionsBySupplier = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const r of rows) {
+      if (r.unit == null) continue
+      const supplierNorm = norm(matching.supplierAlias[norm(r.supplier)] ?? r.supplier)
+      const set = map.get(supplierNorm) ?? new Set<string>()
+      set.add(r.productRaw)
+      map.set(supplierNorm, set)
+    }
+    return map
+  }, [rows, matching])
+
+  // Уже назначенное название из iiko для конкретной строки матрицы —
+  // обратный индекс по edits.productLinks (сами правки хранятся по
+  // iiko-названию как по ключу, см. Edits.productLinks), считаем один раз,
+  // а не пересканированием на каждую строку.
+  const linkedRawNameByTarget = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const link of Object.values(edits.productLinks)) {
+      map.set(`${norm(link.supplier)}::${norm(link.targetProduct)}`, link.rawProduct)
+    }
+    return map
+  }, [edits.productLinks])
+
+  const commitMatrixIikoName = (row: MatrixRow, currentLinked: string, nextRaw: string) => {
+    const next = nextRaw.trim()
+    if (next === currentLinked) return
+    // Название сменили (не просто дописали) — старая привязка была на
+    // другом ключе (ключ — само iiko-название), её надо снять отдельно,
+    // иначе в списке правок останется висеть значение в никуда.
+    if (currentLinked) setProductLink(`${row.supplierNorm}::${norm(currentLinked)}`, null)
+    if (next) setProductLink(`${row.supplierNorm}::${norm(next)}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next })
   }
-  const productMatrixName = (p: ProductVariant) => {
-    const { matrixLabel, renameKey } = productMeta(p)
-    return edits.productRenames[renameKey] ?? matrixLabel ?? p.product
+
+  // «Нет в матрице» — закупки этого периода, для которых ни прямое
+  // совпадение текста, ни привязка не нашли ни строки в матрице вообще
+  // (см. Row.status в data.ts). Отдельная секция: это либо реально новый
+  // товар (предстоит завести в самой Google-таблице), либо просто
+  // разошедшееся написание — тогда достаточно привязать эту закупку к уже
+  // существующему товару из матрицы прямо здесь.
+  interface UnmatchedRow { restaurant: string; supplier: string; supplierNorm: string; product: string; pack: string | null; count: number }
+  const unmatchedRows = useMemo(() => {
+    const groups = new Map<string, UnmatchedRow>()
+    for (const r of rows) {
+      if (r.unit == null || r.status !== 'nomatrix') continue
+      const supplierNorm = norm(matching.supplierAlias[norm(r.supplier)] ?? r.supplier)
+      const key = `${norm(r.restaurant)}::${supplierNorm}::${norm(r.productRaw)}::${r.pack ? normPack(r.pack) : ''}`
+      let g = groups.get(key)
+      if (!g) { g = { restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0 }; groups.set(key, g) }
+      g.count++
+    }
+    return [...groups.values()]
+  }, [rows, matching])
+
+  const commitUnmatchedLink = (u: UnmatchedRow, targetProduct: string | undefined) => {
+    const key = `${u.supplierNorm}::${norm(u.product)}`
+    if (!targetProduct) { setProductLink(key, null); return }
+    setProductLink(key, { targetProduct, supplier: u.supplier, rawProduct: u.product })
   }
 
   // Значения для чек-листов «Ресторан», «Название» и «Фасовка» — как в
   // Google Sheets, список всех встречающихся значений (независимо от того,
   // что сейчас отфильтровано остальным — иначе список "прыгал" бы при
   // каждом изменении).
-  const restaurantValues = useMemo(() => [...new Set(productVariants.map((p) => p.restaurant))].sort((a, b) => a.localeCompare(b)), [productVariants])
-  const nameValues = useMemo(() => [...new Set(productVariants.map(productMatrixName))].sort((a, b) => a.localeCompare(b)), [productVariants, matching, edits.productRenames])
-  const packValues = useMemo(() => [...new Set(productVariants.map((p) => p.pack ?? '—'))].sort((a, b) => a.localeCompare(b)), [productVariants])
-  // norm(каноническое название поставщика) -> отображаемое написание — то же
-  // сопоставление, что строит computeRows в data.ts, нужно здесь отдельно,
-  // чтобы у подсказки товара показать поставщика человеческим написанием, а
-  // не нормализованным куском ключа матрицы.
-  const supplierDisplayByNorm = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const canon of Object.values(realMatching.supplierAlias)) map.set(norm(canon), canon)
-    return map
-  }, [realMatching])
+  const restaurantValues = useMemo(() => [...new Set(matrixRows.map((r) => r.restaurant))].sort((a, b) => a.localeCompare(b)), [matrixRows])
+  const nameValues = useMemo(() => [...new Set(matrixRows.map((r) => r.matrixLabel))].sort((a, b) => a.localeCompare(b)), [matrixRows])
+  const packValues = useMemo(() => [...new Set(matrixRows.map((r) => r.pack || '—'))].sort((a, b) => a.localeCompare(b)), [matrixRows])
 
-  // Автопоиск при переименовании товара — все названия из ВСЕЙ матрицы (не
-  // только из закупленного в этом периоде) плюс уже введённые правки, чтобы
-  // можно было найти и переиспользовать существующее название, даже если
-  // этот конкретный товар в этом периоде ещё не покупали. У каждой подсказки
-  // рядом виден поставщик — одно и то же название ("Тушка лосося с/м")
-  // нередко встречается у разных поставщиков как разный товар, и без
-  // поставщика в списке их не отличить друг от друга.
-  const productLabelSuggestions = useMemo(() => {
-    const seen = new Map<string, { label: string; supplier?: string }>()
-    for (const [key, label] of Object.entries(realMatching.productLabels)) {
-      const supplierNorm = key.split('::')[1]
-      const supplier = supplierDisplayByNorm.get(supplierNorm) ?? undefined
-      seen.set(`${label}::${supplier ?? ''}`, { label, supplier })
-    }
-    for (const [renameKey, label] of Object.entries(edits.productRenames)) {
-      const rawSupplier = renameKey.split('::')[1]
-      const supplier = rawSupplier ? (realMatching.supplierAlias[norm(rawSupplier)] ?? rawSupplier) : undefined
-      const dedupeKey = `${label}::${supplier ?? ''}`
-      if (!seen.has(dedupeKey)) seen.set(dedupeKey, { label, supplier })
-    }
-    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || (a.supplier ?? '').localeCompare(b.supplier ?? ''))
-  }, [realMatching, edits.productRenames, supplierDisplayByNorm])
-  const planMinNum = planMin.trim() ? Number(planMin.trim().replace(',', '.')) : null
-  const planMaxNum = planMax.trim() ? Number(planMax.trim().replace(',', '.')) : null
-
-  // Поиск бьёт и по фасовке — «Ягода в асс» ищется через конкретный вкус
-  // (например «черника»), который в iiko виден только в фасовке, не в
-  // названии товара. Фильтр (значок слева от поиска) — отдельно: ресторан
-  // (чек-лист — выбрать одну точку и работать только по ней), название
-  // (чек-лист), фасовка (чек-лист), план (диапазон).
-  const productVariantsFiltered = useMemo(() => {
-    let list = productVariants
+  // Поиск бьёт и по фасовке, и по уже назначенному названию из iiko.
+  // Фильтр (значок слева от поиска) — ресторан (чек-лист — выбрать одну
+  // точку и работать только по ней), название (чек-лист), фасовка
+  // (чек-лист). «План» больше не фильтр — цена не редактируется, смотреть
+  // диапазон незачем, поправить неверную цену теперь можно только в самой
+  // Google-таблице.
+  const matrixRowsFiltered = useMemo(() => {
+    let list = matrixRows
     if (needle) {
-      list = list.filter((p) => p.restaurant.toLowerCase().includes(needle) || p.product.toLowerCase().includes(needle) || p.supplier.toLowerCase().includes(needle) || (p.pack ?? '').toLowerCase().includes(needle))
-    }
-    if (excludedRestaurant.size || excludedName.size || excludedPack.size || planMinNum != null || planMaxNum != null) {
-      list = list.filter((p) => {
-        if (excludedRestaurant.has(p.restaurant)) return false
-        if (excludedName.size && excludedName.has(productMatrixName(p))) return false
-        if (excludedPack.has(p.pack ?? '—')) return false
-        if (planMinNum != null || planMaxNum != null) {
-          const { matrixPlan, planKey } = productMeta(p)
-          const plan = edits.planOverrides[planKey] ?? matrixPlan
-          if (plan == null) return false
-          if (planMinNum != null && plan < planMinNum) return false
-          if (planMaxNum != null && plan > planMaxNum) return false
-        }
-        return true
+      list = list.filter((r) => {
+        const linked = linkedRawNameByTarget.get(`${r.supplierNorm}::${r.productSegment}`) ?? ''
+        return r.restaurant.toLowerCase().includes(needle) || r.supplier.toLowerCase().includes(needle) ||
+          r.matrixLabel.toLowerCase().includes(needle) || r.pack.toLowerCase().includes(needle) || linked.toLowerCase().includes(needle)
       })
     }
+    if (excludedRestaurant.size || excludedName.size || excludedPack.size) {
+      list = list.filter((r) =>
+        !excludedRestaurant.has(r.restaurant) && !excludedName.has(r.matrixLabel) && !excludedPack.has(r.pack || '—'))
+    }
     return list
-  }, [needle, productVariants, excludedRestaurant, excludedName, excludedPack, planMinNum, planMaxNum, matching, edits.productRenames, edits.planOverrides])
+  }, [needle, matrixRows, excludedRestaurant, excludedName, excludedPack, linkedRawNameByTarget])
 
-  const activeFilterDims = (excludedRestaurant.size ? 1 : 0) + (excludedName.size ? 1 : 0) + (excludedPack.size ? 1 : 0) + (planMinNum != null || planMaxNum != null ? 1 : 0)
-  const resetAllFilters = () => { setExcludedRestaurant(new Set()); setExcludedName(new Set()); setExcludedPack(new Set()); setPlanMin(''); setPlanMax('') }
+  const activeFilterDims = (excludedRestaurant.size ? 1 : 0) + (excludedName.size ? 1 : 0) + (excludedPack.size ? 1 : 0)
+  const resetAllFilters = () => { setExcludedRestaurant(new Set()); setExcludedName(new Set()); setExcludedPack(new Set()) }
 
   // Компании без справочника (potentially typos of an existing поставщик,
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
@@ -253,10 +269,10 @@ export default function DataEditor() {
   )
 
   const shown = tab === 'suppliers' ? suppliers.slice(0, limit)
-    : tab === 'products' ? productVariantsFiltered.slice(0, limit)
+    : tab === 'products' ? matrixRowsFiltered.slice(0, limit)
     : venues.slice(0, limit)
   const total = tab === 'suppliers' ? suppliers.length
-    : tab === 'products' ? productVariantsFiltered.length
+    : tab === 'products' ? matrixRowsFiltered.length
     : venues.length
 
   const resetAddForm = () => {
@@ -281,7 +297,7 @@ export default function DataEditor() {
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
               Справочники
-              <InfoTip text="Компании и товары приходят из iiko. Плановые цены обычно из вашего Excel-файла (матрицы), но их можно поправить и здесь, на вкладке «Товары»." />
+              <InfoTip text="Компании — из iiko. Товары теперь строятся от самой матрицы (лист «Сырьё F») — там же и плановая цена; здесь можно назначить, каким названием их называет iiko в закупках." />
             </div>
             <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
               Если компании нет в матрице — «Сохранить», чтобы отметить, что это действительно новый поставщик.
@@ -306,7 +322,7 @@ export default function DataEditor() {
         <ToggleSwitch checked={noMatrixTest} onChange={setNoMatrixTest} />
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className={`text-sm font-medium ${noMatrixTest ? 'text-warn' : 'text-slate-300'}`}>Тестовый режим: без матрицы</span>
-          <InfoTip text="Показывает всё приложение так, будто только что загрузили отчёт из iiko, а матрицу (план-цены, «название из матрицы») ещё не подключали — везде пусто. Можно вписать «Название из матрицы» и «План» самому прямо в Товарах и посмотреть, как это отразится в «Проверке цен». На реальные данные не влияет — переключатель хранится только в этом браузере, выключите его, чтобы вернуть матрицу как было." />
+          <InfoTip text="Показывает всё приложение так, будто только что загрузили отчёт из iiko, а матрицу (план-цены, товары) ещё не подключали — везде пусто, список Товаров пуст, все закупки — в «Нет в матрице». На реальные данные не влияет — переключатель хранится только в этом браузере, выключите его, чтобы вернуть матрицу как было." />
         </div>
       </div>
 
@@ -315,7 +331,7 @@ export default function DataEditor() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
             <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
-            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(productVariants.length)})</button>
+            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(matrixRows.length)})</button>
             <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
           </div>
           {/* Поиск — на любой вкладке в одном и том же месте этой группы; на
@@ -325,7 +341,7 @@ export default function DataEditor() {
               <div className="relative" ref={filterRef}>
                 <button
                   onClick={() => setFilterOpen((v) => !v)}
-                  title="Фильтр по ресторану, названиям, фасовке и плану (как в Google Sheets)"
+                  title="Фильтр по ресторану, названиям и фасовке (как в Google Sheets)"
                   className={`btn border px-3 py-2 text-xs ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
                 >
                   <IFilter width={14} height={14} /> Фильтр{activeFilterDims > 0 ? ` (${activeFilterDims})` : ''}
@@ -349,22 +365,6 @@ export default function DataEditor() {
                       onToggle={() => setFilterSection((s) => (s === 'pack' ? null : 'pack'))}
                     >
                       <ValueChecklist values={packValues} excluded={excludedPack} onChange={(next) => { setLimit(60); setExcludedPack(next) }} />
-                    </FilterSection>
-                    <FilterSection
-                      label="План, ₸" active={planMinNum != null || planMaxNum != null} open={filterSection === 'plan'}
-                      onToggle={() => setFilterSection((s) => (s === 'plan' ? null : 'plan'))}
-                    >
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={planMin} onChange={(e) => { setPlanMin(e.target.value); setLimit(60) }} placeholder="От" inputMode="decimal"
-                          className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-                        />
-                        <span className="text-slate-500">—</span>
-                        <input
-                          value={planMax} onChange={(e) => { setPlanMax(e.target.value); setLimit(60) }} placeholder="До" inputMode="decimal"
-                          className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
-                        />
-                      </div>
                     </FilterSection>
                     <div className="mt-1 flex items-center justify-between px-1 pt-2">
                       <button onClick={resetAllFilters} className="text-xs text-slate-500 hover:text-bad">Сбросить всё</button>
@@ -445,14 +445,72 @@ export default function DataEditor() {
 
         {tab === 'products' && (
           <p className="mb-3 text-xs text-slate-500">
-            Одна строка — товар у конкретного поставщика в конкретном ресторане (план-цена в матрице обычно своя
-            у каждой точки); фасовку показываем отдельными строками только там, где под одним названием в iiko на
-            самом деле разные товары (пюре/ягода в ассортименте и т.п.) — для остального фасовка не важна и не
-            разносится по строкам. «Название из матрицы» — как товар называют они сами (влияет только на подпись
-            в «Проверке цен», не на сопоставление). «Фасовка» — просто как записана в iiko, без изменений. «План» —
-            плановая цена: по умолчанию из матрицы, но можно задать или поправить прямо здесь — тогда эта цена
-            побеждает. Фильтром слева от поиска можно выбрать конкретный ресторан и работать только по нему.
+            Список строится из самой матрицы (лист «Сырьё F») — одна строка на ресторан+поставщика+товар (+фасовку,
+            если матрица прайсует её отдельно). «Название из матрицы» и «План» — как в самой матрице, здесь не
+            редактируются: поправить неверную цену или описание теперь можно только в самой Google-таблице.
+            «Название из iiko» — то, что вы назначаете сами: как именно iiko называет этот товар в закупках (одна
+            компания может привезти два разных товара под одним и тем же названием в iiko — разносить их можно
+            только явной привязкой, не текстом). Закупки, для которых такой привязки ещё нет и текст не совпал сам
+            собой — ниже, в «Нет в матрице».
           </p>
+        )}
+
+        {tab === 'products' && unmatchedRows.length > 0 && (
+          <div className="mb-4 overflow-hidden rounded-xl border border-purple-400/30 bg-purple-400/[0.04]">
+            <div className="flex items-center gap-1.5 border-b border-purple-400/20 px-3 py-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-purple-400" />
+              <span className="text-xs font-medium text-purple-300">Нет в матрице ({fmt(unmatchedRows.length)})</span>
+              <InfoTip text="Закупки этого периода, для которых нет строки в матрице ни по прямому совпадению названия, ни по привязке. Либо это реально новый товар — его предстоит завести в самой Google-таблице («Сырьё F»); либо просто у iiko другое написание того же товара — тогда привяжите его прямо здесь, выбрав нужный товар из матрицы." align="left" />
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full table-fixed">
+                <thead className="bg-ink-850">
+                  <tr>
+                    <th className="th w-[14%]">Ресторан</th>
+                    <th className="th w-[18%]">Поставщик</th>
+                    <th className="th w-[24%]">Название (iiko)</th>
+                    <th className="th w-[12%]">Фасовка</th>
+                    <th className="th w-[8%] text-right">Раз</th>
+                    <th className="th w-[24%]">Это на самом деле…</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unmatchedRows.map((u, i) => {
+                    const options = matrixProductOptionsBySupplier.get(u.supplierNorm) ?? []
+                    // Обычно после успешной привязки строка сама пропадает из
+                    // этого списка (статус перестаёт быть «нет в матрице») —
+                    // поле стартует пустым. Но если привязка уже стоит, а
+                    // статус всё равно не сошёлся (например, разошлась ещё и
+                    // фасовка) — не молчим об этом пустым полем, показываем,
+                    // что уже назначено.
+                    const currentLink = edits.productLinks[`${u.supplierNorm}::${norm(u.product)}`]
+                    const currentLabel = currentLink
+                      ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
+                      : ''
+                    return (
+                      <tr key={i} className="row-hover hover:bg-ink-800/40">
+                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={u.restaurant} /></td>
+                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={u.supplier} /></td>
+                        <td className="td overflow-hidden text-slate-100"><HoverName text={u.product} /></td>
+                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={u.pack || '—'} /></td>
+                        <td className="td text-right tabnum text-slate-500">{fmt(u.count)}</td>
+                        <td className="td">
+                          <ProductLabelSuggest
+                            value={currentLabel}
+                            suggestions={options}
+                            onCommit={(v) => {
+                              const picked = options.find((o) => o.label === v)
+                              commitUnmatchedLink(u, picked?.targetProduct)
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
         {tab === 'suppliers' && (
@@ -484,11 +542,12 @@ export default function DataEditor() {
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-[16%]">Ресторан <InfoTip text="Точка, к которой относится эта позиция — план-цена в матрице обычно своя у каждого ресторана, даже для того же товара и поставщика." /></th>
-                  <th className="th w-[22%]">Название (iiko)</th>
-                  <th className="th w-[22%]">Название из матрицы <InfoTip text="Как этот товар называют они сами (столбец I матрицы) для этой позиции — можно поправить. Название из iiko при этом не трогается, остаётся якорем." /></th>
-                  <th className="th w-[20%]">Фасовка <InfoTip text="Ровно как записана фасовка в отчёте iiko, без изменений." /></th>
-                  <th className="th w-[20%] text-right">План <InfoTip text="Плановая цена. По умолчанию — из матрицы; можно задать или поправить прямо здесь, тогда эта цена побеждает при сопоставлении с фактом." align="right" /></th>
+                  <th className="th w-[12%]">Ресторан <InfoTip text="Точка, к которой относится эта позиция — план-цена в матрице обычно своя у каждого ресторана, даже для того же товара и поставщика." /></th>
+                  <th className="th w-[16%]">Поставщик</th>
+                  <th className="th w-[24%]">Название из матрицы <InfoTip text="Их собственное описание товара (столбец I матрицы) — из самой Google-таблицы, здесь не редактируется." /></th>
+                  <th className="th w-[12%]">Фасовка <InfoTip text="Как записана в самой матрице." /></th>
+                  <th className="th w-[24%]">Название из iiko <InfoTip text="Как этот товар называют в закупках iiko — назначьте сами, чтобы закупки под этим названием сопоставлялись именно с этой строкой матрицы. Без привязки сопоставление всё равно сработает, если текст совпадёт сам собой." /></th>
+                  <th className="th w-[12%] text-right">План <InfoTip text="Плановая цена — из самой матрицы, здесь не редактируется. Поправить неверную цену можно только в Google-таблице." align="right" /></th>
                 </tr>
               ) : (
                 <tr>
@@ -554,52 +613,26 @@ export default function DataEditor() {
                     )
                   })
                 : tab === 'products'
-                ? (shown as typeof productVariantsFiltered).map((p) => {
-                    const { pairKey, matrixLabel, renameKey, planKey, matrixPlan } = productMeta(p)
-                    const overridden = edits.planOverrides[planKey]
-                    // «В матрице» здесь означает буквально «есть план-цена для
-                    // этой ровно позиции» — из настоящей матрицы или заданная
-                    // тут же вручную, неважно откуда: это ровно то, что
-                    // resolveRowPlan в «Проверке цен» использует, чтобы
-                    // показать статус «По матрице» вместо «Нет в матрице»,
-                    // так что бейдж тут заранее говорит, что там увидим.
-                    // Название из матрицы на статус не влияет — это только
-                    // подпись, полноценно достроить матрицу для позиции можно
-                    // только вписав план (и не обязательно оба сразу).
-                    const inMatrix = (overridden ?? matrixPlan) != null
+                ? (shown as typeof matrixRowsFiltered).map((row) => {
+                    const linked = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}`) ?? ''
+                    const iikoOptions = [...(iikoNameOptionsBySupplier.get(row.supplierNorm) ?? [])]
+                      .sort((a, b) => a.localeCompare(b)).map((label) => ({ label }))
                     return (
-                      <tr key={`${pairKey}::${p.pack ?? ''}`} className="row-hover hover:bg-ink-800/40">
+                      <tr key={row.key} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-xs text-slate-400">
-                          <span className="flex min-w-0 items-center gap-1.5"><IPin width={12} height={12} className="shrink-0 text-slate-600" /><HoverName text={p.restaurant} /></span>
+                          <span className="flex min-w-0 items-center gap-1.5"><IPin width={12} height={12} className="shrink-0 text-slate-600" /><HoverName text={row.restaurant} /></span>
                         </td>
-                        <td className="td overflow-hidden">
-                          <HoverName text={p.product} className="font-medium text-slate-100" />
-                          <HoverName text={p.supplier} className="block text-[11px] font-normal text-slate-500" />
-                        </td>
+                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={row.supplier} /></td>
+                        <td className="td overflow-hidden"><HoverName text={row.matrixLabel} className="font-medium text-slate-100" /></td>
+                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={row.pack || '—'} /></td>
                         <td className="td">
                           <ProductLabelSuggest
-                            value={edits.productRenames[renameKey] ?? matrixLabel ?? p.product}
-                            suggestions={productLabelSuggestions}
-                            onCommit={(v) => renameProduct(renameKey, v)}
+                            value={linked}
+                            suggestions={iikoOptions}
+                            onCommit={(v) => commitMatrixIikoName(row, linked, v)}
                           />
                         </td>
-                        <td className="td overflow-hidden text-xs text-slate-400">
-                          <HoverName text={p.pack || '—'} />
-                        </td>
-                        <td className="td">
-                          <PlanPriceInput
-                            value={overridden ?? matrixPlan}
-                            overridden={overridden != null}
-                            onCommit={(v) => setPlanOverride(planKey, v)}
-                          />
-                          <span
-                            className={`chip ml-auto mt-1 w-fit border-transparent text-[10px] ${inMatrix ? 'bg-good/10 text-good' : 'bg-purple-400/10 text-purple-300'}`}
-                            title={inMatrix ? 'Для этой позиции есть план-цена — в «Проверке цен» она будет со статусом «По матрице».' : 'План-цены нет — в «Проверке цен» позиция будет со статусом «Нет в матрице», пока не впишете план.'}
-                          >
-                            <span className={`h-1.5 w-1.5 rounded-full ${inMatrix ? 'bg-good' : 'bg-purple-400'}`} />
-                            {inMatrix ? 'в матрице' : 'нет в матрице'}
-                          </span>
-                        </td>
+                        <td className="td text-right tabnum text-slate-200">{money(row.plan)}</td>
                       </tr>
                     )
                   })
@@ -639,42 +672,6 @@ export default function DataEditor() {
         )}
       </Section>
     </div>
-  )
-}
-
-/**
- * План — число, коммитится по blur/Enter, пустое поле = снять правку
- * (вернуться к автоматической цене из матрицы). Ручные правки подсвечены,
- * чтобы отличать от того, что подтянулось из матрицы само.
- */
-function PlanPriceInput({ value, overridden, onCommit }: {
-  value: number | null; overridden: boolean; onCommit: (v: number | null) => void
-}) {
-  const [v, setV] = useState(value == null ? '' : String(value))
-  useEffect(() => setV(value == null ? '' : String(value)), [value])
-  const commit = () => {
-    const trimmed = v.trim().replace(',', '.')
-    const next = trimmed ? Number(trimmed) : null
-    if (next !== null && Number.isNaN(next)) return
-    // Как и в остальных полях справочника — просто кликнуть и выйти не
-    // должно "замораживать" текущее значение как ручную правку.
-    if (next !== value) onCommit(next)
-  }
-  return (
-    <input
-      value={v}
-      title={overridden ? 'Цена задана вручную — побеждает матрицу. Очистите поле, чтобы вернуться к автоматике.' : 'Цена из матрицы. Впишите своё значение, чтобы задать вручную.'}
-      inputMode="decimal"
-      onChange={(e) => setV(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-      placeholder="—"
-      className={`w-full rounded-md border px-2 py-1.5 text-right text-sm tabnum transition-colors focus:outline-none ${
-        overridden
-          ? 'border-brand-500/40 bg-brand-500/[0.06] text-brand-200 hover:border-brand-500/60 focus:border-brand-500'
-          : 'border-ink-700/50 bg-ink-900/40 text-slate-100 hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70'
-      }`}
-    />
   )
 }
 

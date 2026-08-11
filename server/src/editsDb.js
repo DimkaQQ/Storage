@@ -26,10 +26,11 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS acknowledged_suppliers (org_id TEXT NOT NULL, raw_name TEXT NOT NULL, PRIMARY KEY (org_id, raw_name));
   CREATE TABLE IF NOT EXISTS product_pack_override (org_id TEXT NOT NULL, product TEXT NOT NULL, pack_matters INTEGER NOT NULL, PRIMARY KEY (org_id, product));
   CREATE TABLE IF NOT EXISTS pack_aliases     (org_id TEXT NOT NULL, key TEXT NOT NULL, target_pack TEXT NOT NULL, supplier TEXT NOT NULL, product TEXT NOT NULL, raw_pack TEXT NOT NULL, PRIMARY KEY (org_id, key));
+  CREATE TABLE IF NOT EXISTS product_links    (org_id TEXT NOT NULL, key TEXT NOT NULL, target_product TEXT NOT NULL, supplier TEXT NOT NULL, raw_product TEXT NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS plan_overrides    (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (org_id, key));
 `)
 
-const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'plan_overrides']
+const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -57,9 +58,12 @@ export function getEditsForOrg(orgId) {
   const packAliases = Object.fromEntries(
     db.prepare('SELECT key, target_pack, supplier, product, raw_pack FROM pack_aliases WHERE org_id=?').all(orgId)
       .map((r) => [r.key, { targetPack: r.target_pack, supplier: r.supplier, product: r.product, rawPack: r.raw_pack }]))
+  const productLinks = Object.fromEntries(
+    db.prepare('SELECT key, target_product, supplier, raw_product FROM product_links WHERE org_id=?').all(orgId)
+      .map((r) => [r.key, { targetProduct: r.target_product, supplier: r.supplier, rawProduct: r.raw_product }]))
   const planOverrides = Object.fromEntries(
     db.prepare('SELECT key, price FROM plan_overrides WHERE org_id=?').all(orgId).map((r) => [r.key, r.price]))
-  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, planOverrides }
+  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides }
 }
 
 function hasAnyRows(orgId) {
@@ -178,6 +182,18 @@ export function setPackAlias(orgId, key, value) {
   }
 }
 
+/** value: { targetProduct, supplier, rawProduct } — "это iiko-название на самом деле вот этот товар из матрицы"; null — снять привязку. */
+export function setProductLink(orgId, key, value) {
+  const k = str(key)
+  if (!k) return
+  if (value === null || value === undefined) { db.prepare('DELETE FROM product_links WHERE org_id=? AND key=?').run(orgId, k); return }
+  const v = value && typeof value === 'object' ? value : {}
+  db.prepare(`
+    INSERT INTO product_links (org_id, key, target_product, supplier, raw_product) VALUES (?,?,?,?,?)
+    ON CONFLICT(org_id, key) DO UPDATE SET target_product=excluded.target_product, supplier=excluded.supplier, raw_product=excluded.raw_product
+  `).run(orgId, k, String(v.targetProduct || ''), String(v.supplier || ''), String(v.rawProduct || ''))
+}
+
 /** value: число — план цена вручную из Справочников; null — снять правку (вернуться к цене из матрицы). Не число (в т.ч. NaN от мусорного ввода) — молча игнорируем, не затираем существующую правку невалидным значением. */
 export function setPlanOverride(orgId, key, value) {
   const k = str(key)
@@ -240,6 +256,12 @@ export function replaceAllEdits(orgId, e) {
       const v = plainObject(vRaw)
       db.prepare('INSERT INTO pack_aliases (org_id, key, target_pack, supplier, product, raw_pack) VALUES (?,?,?,?,?,?)')
         .run(orgId, k, String(v.targetPack || ''), String(v.supplier || ''), String(v.product || ''), String(v.rawPack || ''))
+    }
+    for (const [key, vRaw] of Object.entries(plainObject(edits.productLinks))) {
+      const k = str(key); if (!k) continue
+      const v = plainObject(vRaw)
+      db.prepare('INSERT INTO product_links (org_id, key, target_product, supplier, raw_product) VALUES (?,?,?,?,?)')
+        .run(orgId, k, String(v.targetProduct || ''), String(v.supplier || ''), String(v.rawProduct || ''))
     }
     for (const [key, price] of Object.entries(plainObject(edits.planOverrides))) {
       const k = str(key); if (!k) continue
