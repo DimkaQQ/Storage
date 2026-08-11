@@ -155,6 +155,7 @@ export interface Row {
   note: string | null  // их комментарий к этой закупке в iiko, либо пояснение "нет плановой цены" для unpriced-совпадений
   availableFasovki: FasovkaOption[]  // прайсованные варианты фасовки у этого же поставщика, ни один не совпал с фактом — предложить выбрать вручную (см. packFixKey)
   packFixKey: string | null  // ключ для setPackAlias — есть, только когда availableFasovki непусто
+  matchedKey: string | null  // ключ matching.planPairs/planPairsByPack, который эта закупка реально притянула (status === 'ok') — нужен, чтобы показать в Справочниках, какое именно iiko-название сейчас подтягивается к строке матрицы, даже когда это чистое текстовое совпадение, без явной привязки
 }
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
@@ -578,7 +579,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, pack: b.pack, qty: b.qty, unit: b.unit, plan,
-      diffPct, status, designatedSuppliers, note, availableFasovki, packFixKey,
+      diffPct, status, designatedSuppliers, note, availableFasovki, packFixKey, matchedKey,
     }
   })
 
@@ -607,7 +608,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
       supplier: supplierDisplay, supplierLabel: null,
       product: label ?? capitalize(product), productRaw: '', productLabel: pack || null, isAssortment,
       pack, qty: 0, unit: null, plan,
-      diffPct: null, status: 'ok', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null,
+      diffPct: null, status: 'ok', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null, matchedKey: key,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {

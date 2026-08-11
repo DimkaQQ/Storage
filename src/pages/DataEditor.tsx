@@ -169,10 +169,10 @@ export default function DataEditor() {
     return map
   }, [rows, matching])
 
-  // Уже назначенное название из iiko для конкретной строки матрицы —
-  // обратный индекс по edits.productLinks (сами правки хранятся по
-  // iiko-названию как по ключу, см. Edits.productLinks), считаем один раз,
-  // а не пересканированием на каждую строку.
+  // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
+  // замене — см. commitMatrixIikoName) — обратный индекс по edits.
+  // productLinks, считаем один раз, а не пересканированием на каждую
+  // строку.
   const linkedRawNameByTarget = useMemo(() => {
     const map = new Map<string, string>()
     for (const link of Object.values(edits.productLinks)) {
@@ -181,13 +181,34 @@ export default function DataEditor() {
     return map
   }, [edits.productLinks])
 
-  const commitMatrixIikoName = (row: MatrixRow, currentLinked: string, nextRaw: string) => {
+  // Что РЕАЛЬНО подтягивается к этой строке матрицы прямо сейчас — не
+  // только явные привязки (linkedRawNameByTarget), но и обычное прямое
+  // совпадение текста, которое работает и без всякой привязки. Строим из
+  // уже посчитанных `rows`: у каждой купленной позиции есть matchedKey —
+  // ключ матрицы, который она реально притянула (см. Row.matchedKey и
+  // resolveRowPlan) — тот же самый ключ, что у строки матрицы здесь.
+  const matchedRawNamesByKey = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const r of rows) {
+      if (r.unit == null || !r.matchedKey || !r.productRaw) continue
+      const set = map.get(r.matchedKey) ?? new Set<string>()
+      set.add(r.productRaw)
+      map.set(r.matchedKey, set)
+    }
+    return map
+  }, [rows])
+
+  const commitMatrixIikoName = (row: MatrixRow, displayedName: string, nextRaw: string) => {
     const next = nextRaw.trim()
-    if (next === currentLinked) return
-    // Название сменили (не просто дописали) — старая привязка была на
-    // другом ключе (ключ — само iiko-название), её надо снять отдельно,
-    // иначе в списке правок останется висеть значение в никуда.
-    if (currentLinked) setProductLink(`${row.supplierNorm}::${norm(currentLinked)}`, null)
+    if (next === displayedName) return
+    // То, что сейчас показано в поле, могло быть обычным прямым
+    // совпадением текста (без всякой привязки) — тогда снимать нечего.
+    // Явную старую привязку (если реально была) ищем отдельно по тому же
+    // ключу строки матрицы, а не по тому, что было в поле — иначе при
+    // замене названия рискуем не найти, что удалять.
+    const targetKey = `${row.supplierNorm}::${row.productSegment}`
+    const explicitLink = linkedRawNameByTarget.get(targetKey)
+    if (explicitLink) setProductLink(`${row.supplierNorm}::${norm(explicitLink)}`, null)
     if (next) setProductLink(`${row.supplierNorm}::${norm(next)}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next })
   }
 
@@ -225,19 +246,20 @@ export default function DataEditor() {
   const nameValues = useMemo(() => [...new Set(matrixRows.map((r) => r.matrixLabel))].sort((a, b) => a.localeCompare(b)), [matrixRows])
   const packValues = useMemo(() => [...new Set(matrixRows.map((r) => r.pack || '—'))].sort((a, b) => a.localeCompare(b)), [matrixRows])
 
-  // Поиск бьёт и по фасовке, и по уже назначенному названию из iiko.
-  // Фильтр (значок слева от поиска) — ресторан (чек-лист — выбрать одну
-  // точку и работать только по ней), название (чек-лист), фасовка
-  // (чек-лист). «План» больше не фильтр — цена не редактируется, смотреть
-  // диапазон незачем, поправить неверную цену теперь можно только в самой
-  // Google-таблице.
+  // Поиск бьёт и по фасовке, и по тому, что реально подтягивается из iiko
+  // (см. matchedRawNamesByKey — прямое совпадение текста тоже считается,
+  // не только явная привязка). Фильтр (значок слева от поиска) — ресторан
+  // (чек-лист — выбрать одну точку и работать только по ней), название
+  // (чек-лист), фасовка (чек-лист). «План» больше не фильтр — цена не
+  // редактируется, смотреть диапазон незачем, поправить неверную цену
+  // теперь можно только в самой Google-таблице.
   const matrixRowsFiltered = useMemo(() => {
     let list = matrixRows
     if (needle) {
       list = list.filter((r) => {
-        const linked = linkedRawNameByTarget.get(`${r.supplierNorm}::${r.productSegment}`) ?? ''
+        const matched = [...(matchedRawNamesByKey.get(r.key) ?? [])].join(' ')
         return r.restaurant.toLowerCase().includes(needle) || r.supplier.toLowerCase().includes(needle) ||
-          r.matrixLabel.toLowerCase().includes(needle) || r.pack.toLowerCase().includes(needle) || linked.toLowerCase().includes(needle)
+          r.matrixLabel.toLowerCase().includes(needle) || r.pack.toLowerCase().includes(needle) || matched.toLowerCase().includes(needle)
       })
     }
     if (excludedRestaurant.size || excludedName.size || excludedPack.size) {
@@ -245,7 +267,7 @@ export default function DataEditor() {
         !excludedRestaurant.has(r.restaurant) && !excludedName.has(r.matrixLabel) && !excludedPack.has(r.pack || '—'))
     }
     return list
-  }, [needle, matrixRows, excludedRestaurant, excludedName, excludedPack, linkedRawNameByTarget])
+  }, [needle, matrixRows, excludedRestaurant, excludedName, excludedPack, matchedRawNamesByKey])
 
   const activeFilterDims = (excludedRestaurant.size ? 1 : 0) + (excludedName.size ? 1 : 0) + (excludedPack.size ? 1 : 0)
   const resetAllFilters = () => { setExcludedRestaurant(new Set()); setExcludedName(new Set()); setExcludedPack(new Set()) }
@@ -452,10 +474,11 @@ export default function DataEditor() {
             Список строится из самой матрицы (лист «Сырьё F») — одна строка на ресторан+поставщика+товар (+фасовку,
             если матрица прайсует её отдельно). «Название из матрицы» и «План» — как в самой матрице, здесь не
             редактируются: поправить неверную цену или описание теперь можно только в самой Google-таблице.
-            «Название из iiko» — то, что вы назначаете сами: как именно iiko называет этот товар в закупках (одна
-            компания может привезти два разных товара под одним и тем же названием в iiko — разносить их можно
-            только явной привязкой, не текстом). Закупки, для которых такой привязки ещё нет и текст не совпал сам
-            собой — ниже, в «Нет в матрице».
+            «Название из iiko» — что реально подтягивается к этой строке прямо сейчас: зелёным и меткой
+            «автоматически», если название в iiko просто само совпало с матрицей, без всякой привязки; меткой
+            «назначено» — если привязали вручную (одна компания может привезти два разных товара под одним и тем
+            же названием в iiko — разносить их можно только явной привязкой, не текстом). Закупки, для которых
+            ничего не подтянулось само и привязки ещё нет — ниже, в «Нет в матрице».
           </p>
         )}
 
@@ -556,7 +579,7 @@ export default function DataEditor() {
                   <th className="th w-[16%]">Поставщик</th>
                   <th className="th w-[24%]">Название из матрицы <InfoTip text="Их собственное описание товара (столбец I матрицы) — из самой Google-таблицы, здесь не редактируется." /></th>
                   <th className="th w-[12%]">Фасовка <InfoTip text="Как записана в самой матрице." /></th>
-                  <th className="th w-[24%]">Название из iiko <InfoTip text="Как этот товар называют в закупках iiko — назначьте сами, чтобы закупки под этим названием сопоставлялись именно с этой строкой матрицы. Без привязки сопоставление всё равно сработает, если текст совпадёт сам собой." /></th>
+                  <th className="th w-[24%]">Название из iiko <InfoTip text="Что реально подтягивается сюда из закупок прямо сейчас — зелёным цветом и меткой «автоматически», если текст просто сам совпал с матрицей, без всякой привязки; меткой «назначено», если привязали вручную. Значок «+N» — под этим же товаром матрицы встречаются и другие написания в iiko. Впишите/выберите название сами, чтобы закупки под ним точно сопоставлялись именно с этой строкой." /></th>
                   <th className="th w-[12%] text-right">План <InfoTip text="Плановая цена — из самой матрицы, здесь не редактируется. Поправить неверную цену можно только в Google-таблице." align="right" /></th>
                 </tr>
               ) : (
@@ -624,7 +647,18 @@ export default function DataEditor() {
                   })
                 : tab === 'products'
                 ? (shown as typeof matrixRowsFiltered).map((row) => {
-                    const linked = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}`) ?? ''
+                    const targetKey = `${row.supplierNorm}::${row.productSegment}`
+                    const explicitLink = linkedRawNameByTarget.get(targetKey)
+                    // Что реально сейчас подтягивается — не только явная
+                    // привязка, но и обычное прямое совпадение текста (см.
+                    // matchedRawNamesByKey). Явную привязку показываем в
+                    // поле первой, если она есть (это то, что назначили
+                    // сами); если совпало ещё что-то (несколько разных
+                    // написаний у одного и того же товара) — не молчим,
+                    // считаем отдельным значком рядом.
+                    const matchedNames = [...(matchedRawNamesByKey.get(row.key) ?? [])]
+                    const primary = explicitLink && matchedNames.includes(explicitLink) ? explicitLink : (matchedNames[0] ?? explicitLink ?? '')
+                    const extra = matchedNames.filter((n) => n !== primary)
                     const iikoOptions = [...(iikoNameOptionsBySupplier.get(row.supplierNorm) ?? [])]
                       .sort((a, b) => a.localeCompare(b)).map((label) => ({ label }))
                     return (
@@ -636,11 +670,27 @@ export default function DataEditor() {
                         <td className="td overflow-hidden"><HoverName text={row.matrixLabel} className="font-medium text-slate-100" /></td>
                         <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={row.pack || '—'} /></td>
                         <td className="td">
-                          <ProductLabelSuggest
-                            value={linked}
-                            suggestions={iikoOptions}
-                            onCommit={(v) => commitMatrixIikoName(row, linked, v)}
-                          />
+                          <div className="flex items-center gap-1.5">
+                            <ProductLabelSuggest
+                              value={primary}
+                              suggestions={iikoOptions}
+                              onCommit={(v) => commitMatrixIikoName(row, primary, v)}
+                              className={primary && !explicitLink ? 'text-good' : undefined}
+                            />
+                            {extra.length > 0 && (
+                              <span
+                                className="chip shrink-0 border-transparent bg-ink-700 text-[10px] text-slate-400"
+                                title={`Ещё встречается под другим написанием: ${extra.join(', ')}`}
+                              >
+                                +{extra.length}
+                              </span>
+                            )}
+                          </div>
+                          {primary && (
+                            explicitLink === primary
+                              ? <span className="chip mt-1 w-fit border-transparent bg-brand-500/10 text-[10px] text-brand-300">назначено</span>
+                              : <span className="chip mt-1 w-fit border-transparent bg-ink-700 text-[10px] text-slate-500">автоматически</span>
+                          )}
                         </td>
                         <td className="td text-right tabnum text-slate-200">{money(row.plan)}</td>
                       </tr>
