@@ -157,13 +157,13 @@ export default function ProductLabelSuggest({
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
         className={`w-full max-w-md rounded-md border border-ink-700/50 bg-ink-900/40 px-2 py-1 text-sm text-slate-100 transition-colors hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70 focus:outline-none ${className}`}
       />
-      {open && pos && filtered.length > 0 && createPortal(
+      {open && pos && createPortal(
         <div
           ref={dropRef}
           style={{ position: 'fixed', left: pos.left, top: pos.top, width: pos.width }}
           className="animate-scale-in z-[100] max-h-64 overflow-y-auto rounded-xl border border-ink-700 bg-ink-850 shadow-xl"
         >
-          {filtered.map((s, i) => (
+          {filtered.length > 0 ? filtered.map((s, i) => (
             <button
               key={i}
               // onMouseDown (не onClick) + preventDefault — иначе onBlur инпута
@@ -175,7 +175,17 @@ export default function ProductLabelSuggest({
             >
               {s.label}
             </button>
-          ))}
+          )) : (
+            // Пустой список подсказок молча пропадал совсем — на вид
+            // неотличимо от "поле сломалось". Список суженный по подстроке
+            // ищет только среди того, что уже известно ИМЕННО этому
+            // поставщику — если печатаете что-то от другой компании,
+            // подсказок закономерно не будет; но поле всё равно рабочее,
+            // можно вписать текст свободно, просто без автоподбора.
+            <div className="px-3 py-2.5 text-xs text-slate-500">
+              Ничего не найдено среди уже известного — можно вписать своим текстом.
+            </div>
+          )}
         </div>,
         document.body,
       )}

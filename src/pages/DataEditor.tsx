@@ -677,8 +677,18 @@ export default function DataEditor() {
                     // написаний у одного и того же товара) — не молчим,
                     // считаем отдельным значком рядом.
                     const matchedNames = [...(matchedRawNamesByKey.get(row.key) ?? [])]
-                    const primary = explicitLink && matchedNames.includes(explicitLink) ? explicitLink : (matchedNames[0] ?? explicitLink ?? '')
+                    // Явная привязка побеждает; иначе — реально подтверждённое
+                    // покупкой название; а если и покупки не было ни разу —
+                    // всё равно есть с чем сравнивать: сама строка матрицы уже
+                    // хранит iiko-название (то, из чего её когда-то собрали),
+                    // просто в нормализованном виде — показываем его как есть
+                    // (с заглавной буквы), это буквально то, с чем сверяется
+                    // сопоставление прямо сейчас, даже без единой покупки.
+                    const fromMatrixKey = capitalize(row.productSegment)
+                    const primary = explicitLink && matchedNames.includes(explicitLink) ? explicitLink
+                      : matchedNames[0] ?? explicitLink ?? fromMatrixKey
                     const extra = matchedNames.filter((n) => n !== primary)
+                    const confirmedByPurchase = matchedNames.includes(primary)
                     const iikoOptions = [...(iikoNameOptionsBySupplier.get(row.supplierNorm) ?? [])]
                       .sort((a, b) => a.localeCompare(b)).map((label) => ({ label }))
                     return (
@@ -695,7 +705,7 @@ export default function DataEditor() {
                               value={primary}
                               suggestions={iikoOptions}
                               onCommit={(v) => commitMatrixIikoName(row, primary, v)}
-                              className={primary && !explicitLink ? 'text-good' : undefined}
+                              className={confirmedByPurchase && !explicitLink ? 'text-good' : undefined}
                             />
                             {extra.length > 0 && (
                               <span
@@ -706,11 +716,18 @@ export default function DataEditor() {
                               </span>
                             )}
                           </div>
-                          {primary && (
-                            explicitLink === primary
-                              ? <span className="chip mt-1 w-fit border-transparent bg-brand-500/10 text-[10px] text-brand-300">назначено</span>
-                              : <span className="chip mt-1 w-fit border-transparent bg-ink-700 text-[10px] text-slate-500">автоматически</span>
-                          )}
+                          {explicitLink === primary
+                            ? <span className="chip mt-1 w-fit border-transparent bg-brand-500/10 text-[10px] text-brand-300">назначено</span>
+                            : confirmedByPurchase
+                            ? <span className="chip mt-1 w-fit border-transparent bg-ink-700 text-[10px] text-slate-500">автоматически</span>
+                            : (
+                              <span
+                                className="chip mt-1 w-fit border-transparent bg-purple-400/10 text-[10px] text-purple-300"
+                                title="Ни одна закупка (за оба периода) это ещё не подтвердила — так называется товар в самой матрице, с этим текстом и сравнивается сопоставление."
+                              >
+                                по матрице, не куплено
+                              </span>
+                            )}
                         </td>
                       </tr>
                     )
