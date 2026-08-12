@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, plural, normPack, bundledMatching, bundledDataset, capitalize, BUNDLED_PERIODS, parseDataset, computeRows, Row } from '../lib/data'
+import { fmt, plural, normPack, bundledMatching, bundledDataset, capitalize, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -27,6 +27,14 @@ export default function DataEditor() {
   // (настоящей матрицы), а не среди пустоты теста.
   const realMatching = useMemo(() => bundledMatching(periodKey), [periodKey])
   const [tab, setTab] = useState<Tab>('suppliers')
+  // Товары — не вкладка по умолчанию (открывается Компании), а расчёт
+  // "уже известных названий за все периоды" (см. otherPeriodsRows ниже) —
+  // самая дорогая часть Справочников; не считаем её, пока реально не
+  // открыли Товары, чтобы заход на Справочники не платил эту цену просто
+  // так. once true — остаётся true, дальше кэш живёт независимо от того,
+  // переключаются ли обратно на другие вкладки.
+  const [productsVisited, setProductsVisited] = useState(tab === 'products')
+  useEffect(() => { if (tab === 'products') setProductsVisited(true) }, [tab])
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
   const [sFilter, setSFilter] = useState<SupplierFilter>('all')
@@ -160,20 +168,29 @@ export default function DataEditor() {
   // приложении (май и июнь). То же самое название обычно повторяется
   // месяц к месяцу — если сейчас смотрим июнь, а купили только в мае,
   // это всё равно уже известное название, нет причин требовать покупку
-  // именно в этом периоде, чтобы его подставить. matchedKey — обычный
-  // текстовый ключ (ресторан+поставщик+товар, норм.), не привязан к
-  // конкретному объекту matching, так что ключ из майского пересчёта
-  // корректно ложится на строку матрицы, построенную из июньской.
-  const historicalRows = useMemo(() => {
+  // именно в этом периоде, чтобы его подставить.
+  //
+  // Считается С EMPTY_EDITS и ОДИН РАЗ (пустые deps), не на каждую правку:
+  // здесь нужен только r.productRaw (сырое название из iiko), а его edits
+  // не меняют вообще (правки бьют только по отображаемому product/
+  // matchedKey, не по productRaw). Раньше это гоняло полный computeRows по
+  // всей матрице (buildDesignatedIndex + buildKnownFlatIndex — тысячи
+  // ключей) на КАЖДУЮ правку — на реальных данных замерено ~35-85мс
+  // синхронной работы за раз, и это и было причиной подвисания вкладки.
+  // Дубликаты с "живыми" `rows` за текущий период (см. allKnownRows ниже)
+  // не страшны — productRaw у них одинаковый вне зависимости от edits, а
+  // Set/Map ниже и так дедуплицируют по значению. Не считаем вовсе, пока
+  // не открыли Товары (см. productsVisited) — эта нужна только там.
+  const otherPeriodsRows = useMemo(() => {
+    if (!productsVisited) return []
     const all: Row[] = []
     for (const p of BUNDLED_PERIODS) {
-      if (p.period === periodKey) continue // текущий период уже в `rows` — там же живые данные с бэкенда, если он есть
       const m = bundledMatching(p.period)
-      all.push(...computeRows(parseDataset(bundledDataset(p.period), m).base, edits, m))
+      all.push(...computeRows(parseDataset(bundledDataset(p.period), m).base, EMPTY_EDITS, m))
     }
     return all
-  }, [edits, periodKey])
-  const allKnownRows = useMemo(() => [...rows, ...historicalRows], [rows, historicalRows])
+  }, [productsVisited])
+  const allKnownRows = useMemo(() => [...rows, ...otherPeriodsRows], [rows, otherPeriodsRows])
 
   // Автопоиск для колонки «Название из iiko» у строки матрицы — реально
   // встреченные в закупках названия, за оба периода, без ограничения
