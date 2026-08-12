@@ -144,6 +144,37 @@ export default function DataEditor() {
     return result
   }, [matching, restaurantDisplayByNorm, supplierDisplayByNorm])
 
+  // «Настоящие» строки матрицы — НЕ зависят от тестового режима "без
+  // матрицы" (там `matching` подменяется на пустую, и основной список
+  // Товаров искусственно пустеет — так и задумано). Но подсказки для
+  // привязки в «Нет в матрице» должны продолжать предлагать реально
+  // известные товары даже тогда — тот же принцип, что и у остальных
+  // автопоисков в этом файле (см. комментарий у realMatching в начале).
+  const realMatrixRows = useMemo(() => {
+    const packBrokenDownPairKeys = new Set(
+      Object.keys(realMatching.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
+    )
+    const result: { restaurant: string; supplierNorm: string; supplier: string; productSegment: string; matrixLabel: string }[] = []
+    const push = (key: string, restaurantNorm: string, supplierNorm: string, productSegment: string) => {
+      const restaurant = restaurantDisplayByNorm.get(restaurantNorm)
+      if (!restaurant) return
+      result.push({
+        restaurant, supplierNorm, supplier: supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm,
+        productSegment, matrixLabel: realMatching.productLabels[key] ?? capitalize(productSegment),
+      })
+    }
+    for (const key of Object.keys(realMatching.planPairsByPack)) {
+      const [restaurantNorm, supplierNorm, productSegment] = key.split('::')
+      push(key, restaurantNorm, supplierNorm, productSegment)
+    }
+    for (const key of Object.keys(realMatching.planPairs)) {
+      if (packBrokenDownPairKeys.has(key)) continue
+      const [restaurantNorm, supplierNorm, productSegment] = key.split('::')
+      push(key, restaurantNorm, supplierNorm, productSegment)
+    }
+    return result
+  }, [realMatching, restaurantDisplayByNorm, supplierDisplayByNorm])
+
   // Варианты для назначения "нет в матрице -> товар из матрицы" — не
   // ограничиваем поставщиком: иногда закупка реально записана не за той
   // компанией (перепутали при вводе в iiko, или правда купили не у того,
@@ -152,16 +183,31 @@ export default function DataEditor() {
   // из выбранной подсказки, так что если выбранный товар в матрице на
   // самом деле числится за другим поставщиком, после привязки это
   // корректно всплывёт как «заказ не по матрице», а не тихо подменится.
-  // Поставщик каждой подсказки виден при наведении (ProductLabelSuggest),
-  // чтобы не перепутать похожие названия у разных компаний.
+  // Один и тот же поставщик+товар нередко прайсован сразу у нескольких
+  // ресторанов (лист «Сырьё F» — общий на всех) — при наведении на
+  // подсказку показываем не только поставщика, но и для каких точек он
+  // прайсован, чтобы сразу было видно, найдётся ли цена именно для
+  // текущего ресторана, или только у других.
+  const restaurantsByTarget = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const row of realMatrixRows) {
+      const key = `${row.supplierNorm}::${row.productSegment}`
+      const set = map.get(key) ?? new Set<string>()
+      set.add(row.restaurant)
+      map.set(key, set)
+    }
+    return map
+  }, [realMatrixRows])
   const allMatrixProductOptions = useMemo(() => {
     const seen = new Map<string, { label: string; targetProduct: string; supplier: string }>()
-    for (const row of matrixRows) {
+    for (const row of realMatrixRows) {
       const dedupeKey = `${row.supplierNorm}::${row.productSegment}`
-      if (!seen.has(dedupeKey)) seen.set(dedupeKey, { label: row.matrixLabel, targetProduct: row.productSegment, supplier: row.supplier })
+      if (seen.has(dedupeKey)) continue
+      const forRestaurants = [...(restaurantsByTarget.get(dedupeKey) ?? [])].join(', ')
+      seen.set(dedupeKey, { label: row.matrixLabel, targetProduct: row.productSegment, supplier: `${row.supplier} — прайсован: ${forRestaurants}` })
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || a.supplier.localeCompare(b.supplier))
-  }, [matrixRows])
+  }, [realMatrixRows, restaurantsByTarget])
 
   // «Уже известные» названия из iiko — не только из просматриваемого
   // прямо сейчас периода, а из ВСЕХ периодов, что вообще есть в
@@ -559,6 +605,15 @@ export default function DataEditor() {
                     const currentLabel = currentLink
                       ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
                       : ''
+                    // Привязали, но строка всё равно осталась тут (а не
+                    // пропала из списка) — значит, для ЭТОГО ресторана в
+                    // матрице всё равно нет цены на выбранный товар, хотя
+                    // сам товар+поставщик в Сырьё F есть (просто прайсован
+                    // для других точек). Отдельно от «этого товара вообще
+                    // нет в матрице» — тут не молчим, а прямо говорим, для
+                    // каких точек цена есть.
+                    const pricedFor = currentLink ? restaurantsByTarget.get(`${u.supplierNorm}::${norm(currentLink.targetProduct)}`) : null
+                    const notPricedHere = currentLink && !pricedFor?.has(u.restaurant)
                     return (
                       <tr key={i} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={u.restaurant} /></td>
@@ -575,6 +630,11 @@ export default function DataEditor() {
                               commitUnmatchedLink(u, picked?.targetProduct)
                             }}
                           />
+                          {notPricedHere && (
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              В матрице есть у: {[...(pricedFor ?? [])].join(', ') || '—'} — но не у «{u.restaurant}».
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )
