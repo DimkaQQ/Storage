@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, plural, normPack, bundledMatching, capitalize, money } from '../lib/data'
+import { fmt, plural, normPack, bundledMatching, bundledDataset, capitalize, BUNDLED_PERIODS, parseDataset, computeRows, Row } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -154,12 +154,32 @@ export default function DataEditor() {
     return map
   }, [matrixRows])
 
+  // «Уже известные» названия из iiko — не только из просматриваемого
+  // прямо сейчас периода, а из ВСЕХ периодов, что вообще есть в
+  // приложении (май и июнь). То же самое название обычно повторяется
+  // месяц к месяцу — если сейчас смотрим июнь, а купили только в мае,
+  // это всё равно уже известное название, нет причин требовать покупку
+  // именно в этом периоде, чтобы его подставить. matchedKey — обычный
+  // текстовый ключ (ресторан+поставщик+товар, норм.), не привязан к
+  // конкретному объекту matching, так что ключ из майского пересчёта
+  // корректно ложится на строку матрицы, построенную из июньской.
+  const historicalRows = useMemo(() => {
+    const all: Row[] = []
+    for (const p of BUNDLED_PERIODS) {
+      if (p.period === periodKey) continue // текущий период уже в `rows` — там же живые данные с бэкенда, если он есть
+      const m = bundledMatching(p.period)
+      all.push(...computeRows(parseDataset(bundledDataset(p.period), m).base, edits, m))
+    }
+    return all
+  }, [edits, periodKey])
+  const allKnownRows = useMemo(() => [...rows, ...historicalRows], [rows, historicalRows])
+
   // Автопоиск для колонки «Название из iiko» у строки матрицы — реально
   // встреченные в закупках названия ЭТОГО поставщика (не вся матрица —
   // тут нужно то, что iiko присылает по факту, а не описание из матрицы).
   const iikoNameOptionsBySupplier = useMemo(() => {
     const map = new Map<string, Set<string>>()
-    for (const r of rows) {
+    for (const r of allKnownRows) {
       if (r.unit == null) continue
       const supplierNorm = norm(matching.supplierAlias[norm(r.supplier)] ?? r.supplier)
       const set = map.get(supplierNorm) ?? new Set<string>()
@@ -167,7 +187,7 @@ export default function DataEditor() {
       map.set(supplierNorm, set)
     }
     return map
-  }, [rows, matching])
+  }, [allKnownRows, matching])
 
   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
   // замене — см. commitMatrixIikoName) — обратный индекс по edits.
@@ -189,14 +209,14 @@ export default function DataEditor() {
   // resolveRowPlan) — тот же самый ключ, что у строки матрицы здесь.
   const matchedRawNamesByKey = useMemo(() => {
     const map = new Map<string, Set<string>>()
-    for (const r of rows) {
+    for (const r of allKnownRows) {
       if (r.unit == null || !r.matchedKey || !r.productRaw) continue
       const set = map.get(r.matchedKey) ?? new Set<string>()
       set.add(r.productRaw)
       map.set(r.matchedKey, set)
     }
     return map
-  }, [rows])
+  }, [allKnownRows])
 
   const commitMatrixIikoName = (row: MatrixRow, displayedName: string, nextRaw: string) => {
     const next = nextRaw.trim()
@@ -472,13 +492,14 @@ export default function DataEditor() {
         {tab === 'products' && (
           <p className="mb-3 text-xs text-slate-500">
             Список строится из самой матрицы (лист «Сырьё F») — одна строка на ресторан+поставщика+товар (+фасовку,
-            если матрица прайсует её отдельно). «Название из матрицы» и «План» — как в самой матрице, здесь не
-            редактируются: поправить неверную цену или описание теперь можно только в самой Google-таблице.
-            «Название из iiko» — что реально подтягивается к этой строке прямо сейчас: зелёным и меткой
-            «автоматически», если название в iiko просто само совпало с матрицей, без всякой привязки; меткой
-            «назначено» — если привязали вручную (одна компания может привезти два разных товара под одним и тем
-            же названием в iiko — разносить их можно только явной привязкой, не текстом). Закупки, для которых
-            ничего не подтянулось само и привязки ещё нет — ниже, в «Нет в матрице».
+            если матрица прайсует её отдельно). «Название из матрицы» — как в самой матрице, здесь не редактируется:
+            поправить описание (и план-цену — её теперь тут вообще нет) можно только в самой Google-таблице.
+            «Название из iiko» — что реально подтягивается к этой строке: зелёным и меткой «автоматически», если
+            название в iiko просто само совпало с матрицей, без всякой привязки; меткой «назначено» — если
+            привязали вручную (одна компания может привезти два разных товара под одним и тем же названием в
+            iiko — разносить их можно только явной привязкой, не текстом). Учитываются оба периода, что есть в
+            приложении, не только просматриваемый сейчас. Закупки, для которых ничего не подтянулось само и
+            привязки ещё нет — ниже, в «Нет в матрице».
           </p>
         )}
 
@@ -575,12 +596,11 @@ export default function DataEditor() {
                 </tr>
               ) : tab === 'products' ? (
                 <tr>
-                  <th className="th w-[12%]">Ресторан <InfoTip text="Точка, к которой относится эта позиция — план-цена в матрице обычно своя у каждого ресторана, даже для того же товара и поставщика." /></th>
-                  <th className="th w-[16%]">Поставщик</th>
-                  <th className="th w-[24%]">Название из матрицы <InfoTip text="Их собственное описание товара (столбец I матрицы) — из самой Google-таблицы, здесь не редактируется." /></th>
-                  <th className="th w-[12%]">Фасовка <InfoTip text="Как записана в самой матрице." /></th>
-                  <th className="th w-[24%]">Название из iiko <InfoTip text="Что реально подтягивается сюда из закупок прямо сейчас — зелёным цветом и меткой «автоматически», если текст просто сам совпал с матрицей, без всякой привязки; меткой «назначено», если привязали вручную. Значок «+N» — под этим же товаром матрицы встречаются и другие написания в iiko. Впишите/выберите название сами, чтобы закупки под ним точно сопоставлялись именно с этой строкой." /></th>
-                  <th className="th w-[12%] text-right">План <InfoTip text="Плановая цена — из самой матрицы, здесь не редактируется. Поправить неверную цену можно только в Google-таблице." align="right" /></th>
+                  <th className="th w-[14%]">Ресторан <InfoTip text="Точка, к которой относится эта позиция — план-цена в матрице обычно своя у каждого ресторана, даже для того же товара и поставщика." /></th>
+                  <th className="th w-[18%]">Поставщик</th>
+                  <th className="th w-[26%]">Название из матрицы <InfoTip text="Их собственное описание товара (столбец I матрицы) — из самой Google-таблицы, здесь не редактируется." /></th>
+                  <th className="th w-[14%]">Фасовка <InfoTip text="Как записана в самой матрице." /></th>
+                  <th className="th w-[28%]">Название из iiko <InfoTip text="Что реально подтягивается сюда из закупок — за оба периода, что есть в приложении, не только за просматриваемый сейчас: то же название обычно повторяется месяц к месяцу. Зелёным и меткой «автоматически» — если текст просто сам совпал с матрицей, без всякой привязки; меткой «назначено» — если привязали вручную. Значок «+N» — под этим же товаром матрицы встречаются и другие написания в iiko. Впишите/выберите название сами, чтобы закупки под ним точно сопоставлялись именно с этой строкой." /></th>
                 </tr>
               ) : (
                 <tr>
@@ -692,7 +712,6 @@ export default function DataEditor() {
                               : <span className="chip mt-1 w-fit border-transparent bg-ink-700 text-[10px] text-slate-500">автоматически</span>
                           )}
                         </td>
-                        <td className="td text-right tabnum text-slate-200">{money(row.plan)}</td>
                       </tr>
                     )
                   })
