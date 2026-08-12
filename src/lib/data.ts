@@ -206,11 +206,16 @@ export interface PackAlias { targetPack: string; supplier: string; product: stri
  * разных товара под одним и тем же iiko-названием — различать их по
  * голому тексту нельзя, нужна явная привязка).
  *
- * Ключ (для лукапа в resolveRowPlan) — "поставщик(канон)::iiko-название"
- * (норм., БЕЗ ресторана — тот же поставщик называет товар одинаково во
- * всех точках). targetProduct — третий сегмент ключа matching.planPairs/
- * planPairsByPack (норм.), то есть "вот эта строка матрицы". supplier/
- * rawProduct — их же написание, только для показа в Справочниках.
+ * Ключ (для лукапа в resolveRowPlan) — само iiko-название (норм., без
+ * поставщика и без ресторана): по запросу — "Название из матрицы" +
+ * фасовка и так уже достаточно различают, какой это товар, поставщика в
+ * ключе решили не дублировать. targetProduct — третий сегмент ключа
+ * matching.planPairs/planPairsByPack (норм.), то есть "вот эта строка
+ * матрицы". supplier/rawProduct — их же написание, только для показа в
+ * Справочниках, на сам лукап не влияют. Раз ключ — голое название, один
+ * и тот же текст покупки у РАЗНЫХ поставщиков получит одну и ту же
+ * привязку — сознательный компромисс: если два разных поставщика вдруг
+ * пришлют в iiko буквально одинаковый текст названия, привязка будет общей.
  */
 export interface ProductLink { targetProduct: string; supplier: string; rawProduct: string }
 
@@ -220,7 +225,7 @@ export interface Edits {
   acknowledgedSuppliers: Record<string, true> // iiko-имя, которого нет в справочнике, но это реально НОВЫЙ поставщик (не опечатка/дубликат) — просто отметили, что видели
   productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). Ручной override автоматики (см. resolveRowPlan)
   packAliases: Record<string, PackAlias>   // "поставщик(канон)::товар::фасовка как в iiko" (норм.) -> правка
-  productLinks: Record<string, ProductLink> // "поставщик(канон)::iiko-название" (норм.) -> привязка к строке матрицы, см. ProductLink
+  productLinks: Record<string, ProductLink> // iiko-название (норм.) -> привязка к строке матрицы, см. ProductLink
   planOverrides: Record<string, number>    // legacy — ручные план-цены больше не выставляются из приложения (цена только из матрицы), поле остаётся только чтобы не потерять то, что уже сохранено у существующих организаций
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
@@ -355,8 +360,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // вся логика работает уже с названием строки матрицы, как будто iiko
   // изначально прислал именно его. Без привязки — просто прямое текстовое
   // совпадение (как и раньше): часто этого достаточно само по себе, если
-  // строка матрицы когда-то была заведена под тем же названием.
-  const productLinkKey = `${supplierCanon}::${norm(b.product0)}`
+  // строка матрицы когда-то была заведена под тем же названием. Ключ —
+  // само название, без поставщика («Название из матрицы» + фасовка и так
+  // уже различают, какой это товар).
+  const productLinkKey = norm(b.product0)
   const productLink = edits.productLinks[productLinkKey]
   const product = productLink ? norm(productLink.targetProduct) : norm(b.product0)
   const rawPack = normPack(b.pack)

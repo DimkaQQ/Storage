@@ -258,11 +258,12 @@ export default function DataEditor() {
   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
   // замене — см. commitMatrixIikoName) — обратный индекс по edits.
   // productLinks, считаем один раз, а не пересканированием на каждую
-  // строку.
+  // строку. Ключ привязки — голое название (без поставщика, см. Edits.
+  // productLinks в data.ts), так что и здесь ключ по targetProduct one-to-one.
   const linkedRawNameByTarget = useMemo(() => {
     const map = new Map<string, string>()
     for (const link of Object.values(edits.productLinks)) {
-      map.set(`${norm(link.supplier)}::${norm(link.targetProduct)}`, link.rawProduct)
+      map.set(norm(link.targetProduct), link.rawProduct)
     }
     return map
   }, [edits.productLinks])
@@ -291,11 +292,11 @@ export default function DataEditor() {
     // совпадением текста (без всякой привязки) — тогда снимать нечего.
     // Явную старую привязку (если реально была) ищем отдельно по тому же
     // ключу строки матрицы, а не по тому, что было в поле — иначе при
-    // замене названия рискуем не найти, что удалять.
-    const targetKey = `${row.supplierNorm}::${row.productSegment}`
-    const explicitLink = linkedRawNameByTarget.get(targetKey)
-    if (explicitLink) setProductLink(`${row.supplierNorm}::${norm(explicitLink)}`, null)
-    if (next) setProductLink(`${row.supplierNorm}::${norm(next)}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next })
+    // замене названия рискуем не найти, что удалять. Ключ привязки — само
+    // название, без поставщика (см. Edits.productLinks в data.ts).
+    const explicitLink = linkedRawNameByTarget.get(row.productSegment)
+    if (explicitLink) setProductLink(norm(explicitLink), null)
+    if (next) setProductLink(norm(next), { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next })
   }
 
   // «Нет в матрице» — закупки этого периода, для которых ни прямое
@@ -319,7 +320,7 @@ export default function DataEditor() {
   }, [rows, matching])
 
   const commitUnmatchedLink = (u: UnmatchedRow, targetProduct: string | undefined) => {
-    const key = `${u.supplierNorm}::${norm(u.product)}`
+    const key = norm(u.product)
     if (!targetProduct) { setProductLink(key, null); return }
     setProductLink(key, { targetProduct, supplier: u.supplier, rawProduct: u.product })
   }
@@ -580,9 +581,9 @@ export default function DataEditor() {
               <IChevron width={13} height={13} className={`ml-auto shrink-0 text-purple-300/70 transition-transform duration-150 ${unmatchedOpen ? 'rotate-90' : ''}`} />
             </button>
             {unmatchedOpen && (
-            <div className="overflow-x-auto">
+            <div className="max-h-[60vh] overflow-auto">
               <table className="w-full table-fixed">
-                <thead className="bg-ink-850">
+                <thead className="sticky top-0 z-10 bg-ink-850">
                   <tr>
                     <th className="th w-[14%]">Ресторан</th>
                     <th className="th w-[18%]">Поставщик</th>
@@ -601,7 +602,7 @@ export default function DataEditor() {
                     // статус всё равно не сошёлся (например, разошлась ещё и
                     // фасовка) — не молчим об этом пустым полем, показываем,
                     // что уже назначено.
-                    const currentLink = edits.productLinks[`${u.supplierNorm}::${norm(u.product)}`]
+                    const currentLink = edits.productLinks[norm(u.product)]
                     const currentLabel = currentLink
                       ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
                       : ''
@@ -663,7 +664,13 @@ export default function DataEditor() {
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-xl border border-ink-700/50">
+        {/* max-h + overflow-y-auto — свой скролл-контейнер, а не просто
+            overflow-x-auto (был раньше): sticky-шапка колонок внутри него
+            фиксируется относительно ЭТОГО контейнера, а не всей страницы —
+            там она конфликтовала с sticky-шапкой самого приложения (тоже
+            top-0) и реально никогда не прилипала при скролле длинного
+            списка (477 строк в Товарах). */}
+        <div className="max-h-[70vh] overflow-auto rounded-xl border border-ink-700/50">
           <table className="w-full table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
@@ -746,8 +753,7 @@ export default function DataEditor() {
                   })
                 : tab === 'products'
                 ? (shown as typeof matrixRowsFiltered).map((row) => {
-                    const targetKey = `${row.supplierNorm}::${row.productSegment}`
-                    const explicitLink = linkedRawNameByTarget.get(targetKey)
+                    const explicitLink = linkedRawNameByTarget.get(row.productSegment)
                     // Что реально сейчас подтягивается — не только явная
                     // привязка, но и обычное прямое совпадение текста (см.
                     // matchedRawNamesByKey). Явную привязку показываем в
