@@ -258,12 +258,14 @@ export default function DataEditor() {
   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
   // замене — см. commitMatrixIikoName) — обратный индекс по edits.
   // productLinks, считаем один раз, а не пересканированием на каждую
-  // строку. Ключ привязки — голое название (без поставщика, см. Edits.
-  // productLinks в data.ts), так что и здесь ключ по targetProduct one-to-one.
+  // строку. Ключ — «поставщик(канон)::targetProduct»; поставщик всегда
+  // берём из самой строки матрицы (link.supplier), пользователь его не
+  // вводит вручную — это просто не даёт одинаковому тексту у разных
+  // поставщиков "слипнуться" в одну привязку (см. Edits.productLinks).
   const linkedRawNameByTarget = useMemo(() => {
     const map = new Map<string, string>()
     for (const link of Object.values(edits.productLinks)) {
-      map.set(norm(link.targetProduct), link.rawProduct)
+      map.set(`${norm(link.supplier)}::${norm(link.targetProduct)}`, link.rawProduct)
     }
     return map
   }, [edits.productLinks])
@@ -292,11 +294,10 @@ export default function DataEditor() {
     // совпадением текста (без всякой привязки) — тогда снимать нечего.
     // Явную старую привязку (если реально была) ищем отдельно по тому же
     // ключу строки матрицы, а не по тому, что было в поле — иначе при
-    // замене названия рискуем не найти, что удалять. Ключ привязки — само
-    // название, без поставщика (см. Edits.productLinks в data.ts).
-    const explicitLink = linkedRawNameByTarget.get(row.productSegment)
-    if (explicitLink) setProductLink(norm(explicitLink), null)
-    if (next) setProductLink(norm(next), { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next })
+    // замене названия рискуем не найти, что удалять.
+    const explicitLink = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}`)
+    if (explicitLink) setProductLink(`${row.supplierNorm}::${norm(explicitLink)}`, null)
+    if (next) setProductLink(`${row.supplierNorm}::${norm(next)}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next })
   }
 
   // «Нет в матрице» — закупки этого периода, для которых ни прямое
@@ -320,7 +321,7 @@ export default function DataEditor() {
   }, [rows, matching])
 
   const commitUnmatchedLink = (u: UnmatchedRow, targetProduct: string | undefined) => {
-    const key = norm(u.product)
+    const key = `${u.supplierNorm}::${norm(u.product)}`
     if (!targetProduct) { setProductLink(key, null); return }
     setProductLink(key, { targetProduct, supplier: u.supplier, rawProduct: u.product })
   }
@@ -602,7 +603,7 @@ export default function DataEditor() {
                     // статус всё равно не сошёлся (например, разошлась ещё и
                     // фасовка) — не молчим об этом пустым полем, показываем,
                     // что уже назначено.
-                    const currentLink = edits.productLinks[norm(u.product)]
+                    const currentLink = edits.productLinks[`${u.supplierNorm}::${norm(u.product)}`]
                     const currentLabel = currentLink
                       ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
                       : ''
@@ -753,7 +754,7 @@ export default function DataEditor() {
                   })
                 : tab === 'products'
                 ? (shown as typeof matrixRowsFiltered).map((row) => {
-                    const explicitLink = linkedRawNameByTarget.get(row.productSegment)
+                    const explicitLink = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}`)
                     // Что реально сейчас подтягивается — не только явная
                     // привязка, но и обычное прямое совпадение текста (см.
                     // matchedRawNamesByKey). Явную привязку показываем в
