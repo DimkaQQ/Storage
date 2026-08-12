@@ -258,14 +258,15 @@ export default function DataEditor() {
   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
   // замене — см. commitMatrixIikoName) — обратный индекс по edits.
   // productLinks, считаем один раз, а не пересканированием на каждую
-  // строку. Ключ — «поставщик(канон)::targetProduct»; поставщик всегда
-  // берём из самой строки матрицы (link.supplier), пользователь его не
-  // вводит вручную — это просто не даёт одинаковому тексту у разных
-  // поставщиков "слипнуться" в одну привязку (см. Edits.productLinks).
+  // строку. Ключ — «поставщик(канон)::targetProduct::фасовка»; поставщик
+  // и фасовка всегда берутся из самой строки матрицы (link.supplier/
+  // link.pack), пользователь их не вводит вручную — это просто не даёт
+  // одинаковому тексту у разных поставщиков/разных товаров-ассортиментов
+  // "слипнуться" в одну привязку (см. Edits.productLinks).
   const linkedRawNameByTarget = useMemo(() => {
     const map = new Map<string, string>()
     for (const link of Object.values(edits.productLinks)) {
-      map.set(`${norm(link.supplier)}::${norm(link.targetProduct)}`, link.rawProduct)
+      map.set(`${norm(link.supplier)}::${norm(link.targetProduct)}::${link.pack}`, link.rawProduct)
     }
     return map
   }, [edits.productLinks])
@@ -295,9 +296,9 @@ export default function DataEditor() {
     // Явную старую привязку (если реально была) ищем отдельно по тому же
     // ключу строки матрицы, а не по тому, что было в поле — иначе при
     // замене названия рискуем не найти, что удалять.
-    const explicitLink = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}`)
-    if (explicitLink) setProductLink(`${row.supplierNorm}::${norm(explicitLink)}`, null)
-    if (next) setProductLink(`${row.supplierNorm}::${norm(next)}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next })
+    const explicitLink = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}::${row.pack}`)
+    if (explicitLink) setProductLink(`${row.supplierNorm}::${norm(explicitLink)}::${row.pack}`, null)
+    if (next) setProductLink(`${row.supplierNorm}::${norm(next)}::${row.pack}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next, pack: row.pack })
   }
 
   // «Нет в матрице» — закупки этого периода, для которых ни прямое
@@ -321,9 +322,10 @@ export default function DataEditor() {
   }, [rows, matching])
 
   const commitUnmatchedLink = (u: UnmatchedRow, targetProduct: string | undefined) => {
-    const key = `${u.supplierNorm}::${norm(u.product)}`
+    const pack = u.pack ? normPack(u.pack) : ''
+    const key = `${u.supplierNorm}::${norm(u.product)}::${pack}`
     if (!targetProduct) { setProductLink(key, null); return }
-    setProductLink(key, { targetProduct, supplier: u.supplier, rawProduct: u.product })
+    setProductLink(key, { targetProduct, supplier: u.supplier, rawProduct: u.product, pack })
   }
 
   // Значения для чек-листов «Ресторан», «Название» и «Фасовка» — как в
@@ -603,7 +605,7 @@ export default function DataEditor() {
                     // статус всё равно не сошёлся (например, разошлась ещё и
                     // фасовка) — не молчим об этом пустым полем, показываем,
                     // что уже назначено.
-                    const currentLink = edits.productLinks[`${u.supplierNorm}::${norm(u.product)}`]
+                    const currentLink = edits.productLinks[`${u.supplierNorm}::${norm(u.product)}::${u.pack ? normPack(u.pack) : ''}`]
                     const currentLabel = currentLink
                       ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
                       : ''
@@ -754,7 +756,7 @@ export default function DataEditor() {
                   })
                 : tab === 'products'
                 ? (shown as typeof matrixRowsFiltered).map((row) => {
-                    const explicitLink = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}`)
+                    const explicitLink = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}::${row.pack}`)
                     // Что реально сейчас подтягивается — не только явная
                     // привязка, но и обычное прямое совпадение текста (см.
                     // matchedRawNamesByKey). Явную привязку показываем в
