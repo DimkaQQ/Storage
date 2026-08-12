@@ -136,22 +136,23 @@ export default function DataEditor() {
     return result
   }, [matching, restaurantDisplayByNorm, supplierDisplayByNorm])
 
-  // Варианты для назначения — уникальные (по описанию) товары матрицы на
-  // поставщика, вне зависимости от ресторана/фасовки: сама привязка
-  // "iiko-название -> товар из матрицы" ресторано-независима (тот же
-  // поставщик называет товар одинаково во всех точках), см. ProductLink.
-  const matrixProductOptionsBySupplier = useMemo(() => {
-    const map = new Map<string, { label: string; targetProduct: string }[]>()
-    const seen = new Set<string>()
+  // Варианты для назначения "нет в матрице -> товар из матрицы" — не
+  // ограничиваем поставщиком: иногда закупка реально записана не за той
+  // компанией (перепутали при вводе в iiko, или правда купили не у того,
+  // кого назначили) — привязка сама по себе безопасна и в этом случае:
+  // supplierCanon для сопоставления всегда берётся из САМОЙ закупки, не
+  // из выбранной подсказки, так что если выбранный товар в матрице на
+  // самом деле числится за другим поставщиком, после привязки это
+  // корректно всплывёт как «заказ не по матрице», а не тихо подменится.
+  // Поставщик каждой подсказки виден при наведении (ProductLabelSuggest),
+  // чтобы не перепутать похожие названия у разных компаний.
+  const allMatrixProductOptions = useMemo(() => {
+    const seen = new Map<string, { label: string; targetProduct: string; supplier: string }>()
     for (const row of matrixRows) {
       const dedupeKey = `${row.supplierNorm}::${row.productSegment}`
-      if (seen.has(dedupeKey)) continue
-      seen.add(dedupeKey)
-      const opt = { label: row.matrixLabel, targetProduct: row.productSegment }
-      const arr = map.get(row.supplierNorm)
-      if (arr) arr.push(opt); else map.set(row.supplierNorm, [opt])
+      if (!seen.has(dedupeKey)) seen.set(dedupeKey, { label: row.matrixLabel, targetProduct: row.productSegment, supplier: row.supplier })
     }
-    return map
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || a.supplier.localeCompare(b.supplier))
   }, [matrixRows])
 
   // «Уже известные» названия из iiko — не только из просматриваемого
@@ -175,19 +176,21 @@ export default function DataEditor() {
   const allKnownRows = useMemo(() => [...rows, ...historicalRows], [rows, historicalRows])
 
   // Автопоиск для колонки «Название из iiko» у строки матрицы — реально
-  // встреченные в закупках названия ЭТОГО поставщика (не вся матрица —
-  // тут нужно то, что iiko присылает по факту, а не описание из матрицы).
-  const iikoNameOptionsBySupplier = useMemo(() => {
-    const map = new Map<string, Set<string>>()
+  // встреченные в закупках названия, за оба периода, без ограничения
+  // поставщиком (та же логика, что и выше для «Нет в матрице» — привязка
+  // сама по себе безопасна, supplierCanon для сопоставления всегда берётся
+  // из закупки, а не из подсказки). Поставщик виден при наведении.
+  const allIikoNameOptions = useMemo(() => {
+    const seen = new Map<string, { label: string; supplier: string }>()
     for (const r of allKnownRows) {
       if (r.unit == null) continue
       const supplierNorm = norm(matching.supplierAlias[norm(r.supplier)] ?? r.supplier)
-      const set = map.get(supplierNorm) ?? new Set<string>()
-      set.add(r.productRaw)
-      map.set(supplierNorm, set)
+      const supplier = supplierDisplayByNorm.get(supplierNorm) ?? r.supplier
+      const dedupeKey = `${r.productRaw}::${supplier}`
+      if (!seen.has(dedupeKey)) seen.set(dedupeKey, { label: r.productRaw, supplier })
     }
-    return map
-  }, [allKnownRows, matching])
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || a.supplier.localeCompare(b.supplier))
+  }, [allKnownRows, matching, supplierDisplayByNorm])
 
   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
   // замене — см. commitMatrixIikoName) — обратный индекс по edits.
@@ -528,7 +531,7 @@ export default function DataEditor() {
                 </thead>
                 <tbody>
                   {unmatchedRows.map((u, i) => {
-                    const options = matrixProductOptionsBySupplier.get(u.supplierNorm) ?? []
+                    const options = allMatrixProductOptions
                     // Обычно после успешной привязки строка сама пропадает из
                     // этого списка (статус перестаёт быть «нет в матрице») —
                     // поле стартует пустым. Но если привязка уже стоит, а
@@ -687,8 +690,6 @@ export default function DataEditor() {
                     const primary = explicitLink && matchedNames.includes(explicitLink) ? explicitLink
                       : matchedNames[0] ?? explicitLink ?? fromMatrixKey
                     const extra = matchedNames.filter((n) => n !== primary)
-                    const iikoOptions = [...(iikoNameOptionsBySupplier.get(row.supplierNorm) ?? [])]
-                      .sort((a, b) => a.localeCompare(b)).map((label) => ({ label }))
                     return (
                       <tr key={row.key} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-xs text-slate-400">
@@ -701,7 +702,7 @@ export default function DataEditor() {
                           <div className="flex items-center gap-1.5">
                             <ProductLabelSuggest
                               value={primary}
-                              suggestions={iikoOptions}
+                              suggestions={allIikoNameOptions}
                               onCommit={(v) => commitMatrixIikoName(row, primary, v)}
                             />
                             {extra.length > 0 && (
