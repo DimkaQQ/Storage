@@ -204,8 +204,13 @@ export default function DataEditor() {
     for (const row of realMatrixRows) {
       const dedupeKey = `${row.supplierNorm}::${row.productSegment}`
       if (seen.has(dedupeKey)) continue
-      const forRestaurants = [...(restaurantsByTarget.get(dedupeKey) ?? [])].join(', ')
-      seen.set(dedupeKey, { label: row.matrixLabel, targetProduct: row.productSegment, supplier: `${row.supplier} — прайсован: ${forRestaurants}` })
+      const forRestaurants = [...(restaurantsByTarget.get(dedupeKey) ?? [])]
+      // Пока в приложении включена только Рене (см. RESTAURANT_SCOPE),
+      // список из одного ресторана ничего не добавляет к самому имени
+      // поставщика — только шум. Дописываем это только когда ресторанов
+      // в списке реально больше одного (когда откроют остальные точки).
+      const supplier = forRestaurants.length > 1 ? `${row.supplier} — прайсован: ${forRestaurants.join(', ')}` : row.supplier
+      seen.set(dedupeKey, { label: row.matrixLabel, targetProduct: row.productSegment, supplier })
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || a.supplier.localeCompare(b.supplier))
   }, [realMatrixRows, restaurantsByTarget])
