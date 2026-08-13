@@ -118,9 +118,12 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
         </div>
       </div>
 
-      {/* table */}
-      <div className="card overflow-y-visible p-0">
-        <div className="overflow-x-auto overflow-y-visible">
+      {/* table — свой скролл-контейнер (max-h в vh, не завязан на пиксели
+          шапки), чтобы шапка колонок надёжно прилипала внутри него; коробка
+          занимает почти весь экран, так что внешняя страница обычно не
+          скроллится сама и второго скролла на глаз не видно. */}
+      <div className="card overflow-hidden p-0">
+        <div className="max-h-[70vh] overflow-auto">
           <table className="w-full max-w-[1060px] table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>

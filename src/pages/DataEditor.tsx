@@ -590,7 +590,7 @@ export default function DataEditor() {
               <IChevron width={13} height={13} className={`ml-auto shrink-0 text-purple-300/70 transition-transform duration-150 ${unmatchedOpen ? 'rotate-90' : ''}`} />
             </button>
             {unmatchedOpen && (
-            <div className="overflow-x-auto overflow-y-visible">
+            <div className="max-h-[50vh] overflow-auto">
               <table className="w-full table-fixed">
                 <thead className="sticky top-0 z-10 bg-ink-850">
                   <tr>
@@ -673,7 +673,12 @@ export default function DataEditor() {
           </div>
         )}
 
-        <div className="overflow-x-auto overflow-y-visible rounded-xl border border-ink-700/50">
+        {/* Собственный скролл-контейнер — прилипание шапки колонок надёжно
+            работает только внутри реально скроллящегося бокса. Высота в vh
+            (не привязана к пикселям шапки/тулбара) — коробка занимает почти
+            весь экран, поэтому внешняя страница обычно вообще не скроллится
+            сама, и ощущения "двух скроллов" не возникает. */}
+        <div className="max-h-[70vh] overflow-auto rounded-xl border border-ink-700/50">
           <table className="w-full table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
