@@ -590,9 +590,9 @@ export default function DataEditor() {
               <IChevron width={13} height={13} className={`ml-auto shrink-0 text-purple-300/70 transition-transform duration-150 ${unmatchedOpen ? 'rotate-90' : ''}`} />
             </button>
             {unmatchedOpen && (
-            <div className="max-h-[60vh] overflow-auto">
+            <div className="overflow-x-auto">
               <table className="w-full table-fixed">
-                <thead className="sticky top-0 z-10 bg-ink-850">
+                <thead className="sticky z-10 bg-ink-850" style={{ top: 'var(--app-header-h, 88px)' }}>
                   <tr>
                     <th className="th w-[14%]">Ресторан</th>
                     <th className="th w-[18%]">Поставщик</th>
@@ -673,15 +673,15 @@ export default function DataEditor() {
           </div>
         )}
 
-        {/* max-h + overflow-y-auto — свой скролл-контейнер, а не просто
-            overflow-x-auto (был раньше): sticky-шапка колонок внутри него
-            фиксируется относительно ЭТОГО контейнера, а не всей страницы —
-            там она конфликтовала с sticky-шапкой самого приложения (тоже
-            top-0) и реально никогда не прилипала при скролле длинного
-            списка (477 строк в Товарах). */}
-        <div className="max-h-[70vh] overflow-auto rounded-xl border border-ink-700/50">
+        {/* Шапка колонок прилипает к странице (не к отдельному вложенному
+            скролл-контейнеру — тот заставлял скроллить список внутри
+            маленькой коробки вместо естественной прокрутки страницы), чуть
+            ниже шапки самого приложения — top берётся из --app-header-h
+            (App.tsx считает её реальную высоту через ResizeObserver, она
+            меняется, когда появляется/пропадает баннер тестового режима). */}
+        <div className="overflow-x-auto rounded-xl border border-ink-700/50">
           <table className="w-full table-fixed">
-            <thead className="sticky top-0 z-10 bg-ink-850">
+            <thead className="sticky z-10 bg-ink-850" style={{ top: 'var(--app-header-h, 88px)' }}>
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-[42%]">Название (iiko)</th>

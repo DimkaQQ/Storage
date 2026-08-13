@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
@@ -33,6 +33,23 @@ export default function App() {
   const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, noMatrixTest } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
+
+  // Высота этой шапки переменная (баннер тестового режима то есть, то нет),
+  // поэтому нельзя просто захардкодить отступ для sticky-шапок таблиц на
+  // страницах — публикуем реальную высоту CSS-переменной на весь документ,
+  // любая таблица в приложении может прилипать "sticky; top: var(--app-
+  // header-h)" и всегда точно упираться в низ этой шапки, а не съезжать
+  // под неё/над ней при появлении баннера.
+  const headerRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const set = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city))].sort(), [restaurants])
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
@@ -114,7 +131,7 @@ export default function App() {
 
         {/* Main */}
         <div className="ml-64 min-w-0 flex-1">
-          <header className="sticky top-0 z-10 border-b border-ink-700/50 bg-ink-950">
+          <header ref={headerRef} className="sticky top-0 z-10 border-b border-ink-700/50 bg-ink-950">
             {noMatrixTest && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
                 Тестовый режим: матрица отключена — везде как будто только что загружен отчёт iiko, без сопоставления. Выключить — в Справочниках.
