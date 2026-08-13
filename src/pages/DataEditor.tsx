@@ -151,6 +151,7 @@ export default function DataEditor() {
   // известные товары даже тогда — тот же принцип, что и у остальных
   // автопоисков в этом файле (см. комментарий у realMatching в начале).
   const realMatrixRows = useMemo(() => {
+    if (!productsVisited) return [] // нужно только для подсказок в Товарах — не считаем, пока вкладку не открыли
     const packBrokenDownPairKeys = new Set(
       Object.keys(realMatching.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
     )
@@ -173,7 +174,7 @@ export default function DataEditor() {
       push(key, restaurantNorm, supplierNorm, productSegment)
     }
     return result
-  }, [realMatching, restaurantDisplayByNorm, supplierDisplayByNorm])
+  }, [productsVisited, realMatching, restaurantDisplayByNorm, supplierDisplayByNorm])
 
   // Варианты для назначения "нет в матрице -> товар из матрицы" — не
   // ограничиваем поставщиком: иногда закупка реально записана не за той
