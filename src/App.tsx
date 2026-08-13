@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
@@ -54,24 +54,9 @@ export default function App() {
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
 
-  // Публикуем реальную высоту шапки приложения в CSS-переменную — она
-  // меняется (баннер тестового режима то есть, то нет), а таблицам ниже
-  // нужно знать, на сколько px отступить свою «липкую» шапку колонок,
-  // чтобы прилипать точно под шапкой приложения, а не под неё.
-  const headerRef = useRef<HTMLElement>(null)
-  useEffect(() => {
-    const el = headerRef.current
-    if (!el) return
-    const update = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [noMatrixTest])
-
   return (
     <>
-      <div className="hidden min-[1100px]:flex min-h-screen">
+      <div className="hidden h-screen overflow-hidden min-[1100px]:flex">
         {/* Sidebar */}
         <aside className="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-ink-700/50 bg-ink-900">
           <div className="flex items-center gap-3 px-5 py-5">
@@ -127,9 +112,12 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Main */}
-        <div className="ml-64 min-w-0 flex-1">
-          <header ref={headerRef} className="sticky top-0 z-20 border-b border-ink-700/50 bg-ink-950">
+        {/* Main — колонка на всю высоту экрана: шапка не скроллится сама
+            (она просто выше скролл-области), а скроллится только <main>.
+            Поэтому шапке таблицы внутри достаточно обычного sticky top-0,
+            как и у самой шапки приложения — без вычисления отступов. */}
+        <div className="flex h-full min-w-0 flex-1 flex-col ml-64">
+          <header className="shrink-0 border-b border-ink-700/50 bg-ink-950">
             {noMatrixTest && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
                 Тестовый режим: матрица отключена — везде как будто только что загружен отчёт iiko, без сопоставления. Выключить — в Справочниках.
@@ -163,7 +151,7 @@ export default function App() {
             </div>
           </header>
 
-          <main className="px-8 py-6">
+          <main className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
             <Suspense fallback={<PageLoading />}>
               <div key={page} className="animate-fade-in">
                 {page === 'dashboard' && <Dashboard rows={rows} onNav={(p) => setPage(p as PageId)} />}
@@ -173,11 +161,11 @@ export default function App() {
                 {page === 'users' && <UsersAdmin />}
               </div>
             </Suspense>
-          </main>
 
-          <footer className="px-8 pb-8 pt-2 text-center text-[11px] text-slate-600">
-            Проверка закупочных цен · план (матрица) против факта (iiko) · {period}
-          </footer>
+            <footer className="px-0 pb-2 pt-6 text-center text-[11px] text-slate-600">
+              Проверка закупочных цен · план (матрица) против факта (iiko) · {period}
+            </footer>
+          </main>
         </div>
       </div>
 

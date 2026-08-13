@@ -592,7 +592,7 @@ export default function DataEditor() {
             {unmatchedOpen && (
             <div className="overflow-x-auto overflow-y-visible">
               <table className="w-full table-fixed">
-                <thead className="sticky z-10 bg-ink-850" style={{ top: 'var(--app-header-h, 88px)' }}>
+                <thead className="sticky top-0 z-10 bg-ink-850">
                   <tr>
                     <th className="th w-[14%]">Ресторан</th>
                     <th className="th w-[18%]">Поставщик</th>
@@ -675,7 +675,7 @@ export default function DataEditor() {
 
         <div className="overflow-x-auto overflow-y-visible rounded-xl border border-ink-700/50">
           <table className="w-full table-fixed">
-            <thead className="sticky z-10 bg-ink-850" style={{ top: 'var(--app-header-h, 88px)' }}>
+            <thead className="sticky top-0 z-10 bg-ink-850">
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-[42%]">Название (iiko)</th>
