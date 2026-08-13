@@ -611,7 +611,7 @@ export default function DataEditor() {
                     <th className="th w-[24%]">Название (iiko)</th>
                     <th className="th w-[12%]">Фасовка</th>
                     <th className="th w-[8%] text-right">Раз</th>
-                    <th className="th w-[24%]">Это на самом деле…</th>
+                    <th className="th w-[24%]">Название из матрицы</th>
                   </tr>
                 </thead>
                 <tbody>
