@@ -56,7 +56,7 @@ export default function App() {
 
   return (
     <>
-      <div className="hidden h-screen min-[1100px]:flex">
+      <div className="hidden min-[1100px]:flex min-h-screen">
         {/* Sidebar */}
         <aside className="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-ink-700/50 bg-ink-900">
           <div className="flex items-center gap-3 px-5 py-5">
@@ -112,19 +112,9 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Main — колонка на всю высоту экрана: шапка обычная (не sticky,
-            ей и не нужно — она просто не в скроллящейся области), <main>
-            один и есть настоящий скролл-контейнер страницы. Раньше шапка
-            была sticky поверх обычного скролла всей страницы, а sticky-
-            шапки таблиц внутри страниц пытались прилипнуть туда же (top:
-            0) — конфликтовали между собой (обе метили в одну и ту же точку
-            экрана). Подгонка через JS-измеренную высоту шапки (--app-
-            header-h) не спасала — оказалась ненадёжной. Теперь конфликтовать
-            нечему: скроллится только <main>, шапка приложения в него не
-            входит вообще, а sticky-шапки таблиц внутри страниц просто top-0
-            относительно <main>, без всякой подгонки. */}
-        <div className="flex h-screen min-w-0 flex-1 flex-col">
-          <header className="shrink-0 border-b border-ink-700/50 bg-ink-950">
+        {/* Main */}
+        <div className="ml-64 min-w-0 flex-1">
+          <header className="sticky top-0 z-10 border-b border-ink-700/50 bg-ink-950">
             {noMatrixTest && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
                 Тестовый режим: матрица отключена — везде как будто только что загружен отчёт iiko, без сопоставления. Выключить — в Справочниках.
@@ -158,7 +148,7 @@ export default function App() {
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto px-8 py-6">
+          <main className="px-8 py-6">
             <Suspense fallback={<PageLoading />}>
               <div key={page} className="animate-fade-in">
                 {page === 'dashboard' && <Dashboard rows={rows} onNav={(p) => setPage(p as PageId)} />}
@@ -168,11 +158,11 @@ export default function App() {
                 {page === 'users' && <UsersAdmin />}
               </div>
             </Suspense>
-
-            <footer className="pb-2 pt-8 text-center text-[11px] text-slate-600">
-              Проверка закупочных цен · план (матрица) против факта (iiko) · {period}
-            </footer>
           </main>
+
+          <footer className="px-8 pb-8 pt-2 text-center text-[11px] text-slate-600">
+            Проверка закупочных цен · план (матрица) против факта (iiko) · {period}
+          </footer>
         </div>
       </div>
 

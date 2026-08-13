@@ -122,7 +122,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       <div className="card overflow-hidden p-0">
         <div>
           <table className="w-full max-w-[1060px] table-fixed">
-            <thead className="sticky top-0 z-10 bg-ink-850">
+            <thead className="bg-ink-850">
               <tr>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[12%]" tight>Ресторан</Th>
                 <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[18%]" tight>Поставщик</Th>

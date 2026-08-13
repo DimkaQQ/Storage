@@ -592,7 +592,7 @@ export default function DataEditor() {
             {unmatchedOpen && (
             <div className="overflow-x-auto">
               <table className="w-full table-fixed">
-                <thead className="sticky top-0 z-10 bg-ink-850">
+                <thead className="bg-ink-850">
                   <tr>
                     <th className="th w-[14%]">Ресторан</th>
                     <th className="th w-[18%]">Поставщик</th>
@@ -673,15 +673,9 @@ export default function DataEditor() {
           </div>
         )}
 
-        {/* Шапка колонок прилипает к странице (не к отдельному вложенному
-            скролл-контейнеру — тот заставлял скроллить список внутри
-            маленькой коробки вместо естественной прокрутки страницы).
-            Скроллится теперь только <main> в App.tsx — шапка самого
-            приложения туда не входит вообще, так что конфликтовать
-            sticky-top-0 здесь не с чем. */}
         <div className="overflow-x-auto rounded-xl border border-ink-700/50">
           <table className="w-full table-fixed">
-            <thead className="sticky top-0 z-10 bg-ink-850">
+            <thead className="bg-ink-850">
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-[42%]">Название (iiko)</th>
