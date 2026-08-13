@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
@@ -53,6 +53,21 @@ export default function App() {
   const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
+
+  // Публикуем реальную высоту шапки приложения в CSS-переменную — она
+  // меняется (баннер тестового режима то есть, то нет), а таблицам ниже
+  // нужно знать, на сколько px отступить свою «липкую» шапку колонок,
+  // чтобы прилипать точно под шапкой приложения, а не под неё.
+  const headerRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const update = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [noMatrixTest])
 
   return (
     <>
@@ -114,7 +129,7 @@ export default function App() {
 
         {/* Main */}
         <div className="ml-64 min-w-0 flex-1">
-          <header className="sticky top-0 z-10 border-b border-ink-700/50 bg-ink-950">
+          <header ref={headerRef} className="sticky top-0 z-20 border-b border-ink-700/50 bg-ink-950">
             {noMatrixTest && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
                 Тестовый режим: матрица отключена — везде как будто только что загружен отчёт iiko, без сопоставления. Выключить — в Справочниках.

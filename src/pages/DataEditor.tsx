@@ -590,9 +590,9 @@ export default function DataEditor() {
               <IChevron width={13} height={13} className={`ml-auto shrink-0 text-purple-300/70 transition-transform duration-150 ${unmatchedOpen ? 'rotate-90' : ''}`} />
             </button>
             {unmatchedOpen && (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-visible">
               <table className="w-full table-fixed">
-                <thead className="bg-ink-850">
+                <thead className="sticky z-10 bg-ink-850" style={{ top: 'var(--app-header-h, 88px)' }}>
                   <tr>
                     <th className="th w-[14%]">Ресторан</th>
                     <th className="th w-[18%]">Поставщик</th>
@@ -673,9 +673,9 @@ export default function DataEditor() {
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-xl border border-ink-700/50">
+        <div className="overflow-x-auto overflow-y-visible rounded-xl border border-ink-700/50">
           <table className="w-full table-fixed">
-            <thead className="bg-ink-850">
+            <thead className="sticky z-10 bg-ink-850" style={{ top: 'var(--app-header-h, 88px)' }}>
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-[42%]">Название (iiko)</th>
