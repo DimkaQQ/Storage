@@ -200,36 +200,31 @@ export default function DataEditor() {
     return map
   }, [realMatrixRows])
   const allMatrixProductOptions = useMemo(() => {
-    const seen = new Map<string, { label: string; targetProduct: string; supplier: string }>()
+    const seen = new Map<string, { label: string; targetProduct: string; supplierName: string }>()
     for (const row of realMatrixRows) {
       const dedupeKey = `${row.supplierNorm}::${row.productSegment}`
       if (seen.has(dedupeKey)) continue
-      const forRestaurants = [...(restaurantsByTarget.get(dedupeKey) ?? [])]
-      // Пока в приложении включена только Рене (см. RESTAURANT_SCOPE),
-      // список из одного ресторана ничего не добавляет к самому имени
-      // поставщика — только шум. Дописываем это только когда ресторанов
-      // в списке реально больше одного (когда откроют остальные точки).
-      const supplier = forRestaurants.length > 1 ? `${row.supplier} — прайсован: ${forRestaurants.join(', ')}` : row.supplier
-      seen.set(dedupeKey, { label: row.matrixLabel, targetProduct: row.productSegment, supplier })
+      seen.set(dedupeKey, { label: row.matrixLabel, targetProduct: row.productSegment, supplierName: row.supplier })
     }
     const list = [...seen.values()]
     // Название из самой матрицы (matrixLabel) — не гарантированно уникально
     // само по себе: разные поставщики нередко описывают свой товар одним и
     // тем же дженериковым текстом ("Ягода с/м в асс" и т.п.), а это РАЗНЫЕ
-    // строки матрицы (разный targetProduct). Раньше такие подсказки
-    // выглядели как неотличимые друг от друга дубли, а клик по любой из
-    // них выбирал ту, что первой попалась под .find() по тексту — молча не
-    // ту. Если текст встречается больше одного раза — дописываем поставщика
-    // прямо в подсказку, чтобы и видно было, что это разное, и клик бил
-    // точно по нужной записи (label используется как обратный ключ поиска
-    // при выборе — см. onCommit ниже).
+    // строки матрицы (разный targetProduct). Поставщика нигде не показываем
+    // (не украшает список) — но если текст реально встретился больше
+    // одного раза, без разметки эти строки стали бы неотличимыми друг от
+    // друга дублями, а клик по любой из них тихо попадал бы не в ту (label
+    // — обратный ключ поиска при выборе, см. onCommit ниже). Тут поставщик
+    // дописывается вынужденно, только когда без него никак не различить.
     const labelCount = new Map<string, number>()
     for (const o of list) labelCount.set(o.label, (labelCount.get(o.label) ?? 0) + 1)
-    for (const o of list) {
-      if ((labelCount.get(o.label) ?? 0) > 1) o.label = `${o.label} — ${o.supplier}`
-    }
-    return list.sort((a, b) => a.label.localeCompare(b.label) || a.supplier.localeCompare(b.supplier))
-  }, [realMatrixRows, restaurantsByTarget])
+    return list
+      .map((o) => ({
+        label: (labelCount.get(o.label) ?? 0) > 1 ? `${o.label} — ${o.supplierName}` : o.label,
+        targetProduct: o.targetProduct,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [realMatrixRows])
 
   // «Уже известные» названия из iiko — не только из просматриваемого
   // прямо сейчас периода, а из ВСЕХ периодов, что вообще есть в
@@ -264,32 +259,19 @@ export default function DataEditor() {
   // встреченные в закупках названия, за оба периода, без ограничения
   // поставщиком (та же логика, что и выше для «Нет в матрице» — привязка
   // сама по себе безопасна, supplierCanon для сопоставления всегда берётся
-  // из закупки, а не из подсказки). Дедуп — по самому тексту, а не
-  // тексту+поставщику: у дженериковых названий вроде "Ягода с/м в асс" одно
-  // и то же написание встречается у доброго десятка разных поставщиков —
-  // раньше это давало десяток внешне неотличимых друг от друга строк в
-  // списке (а выбор всё равно ставит только текст, поставщик тут не при
-  // чём — сам он всегда берётся из строки, не из подсказки, так что
-  // отдельная запись на каждого поставщика ничего не даёт, кроме шума).
-  // Поставщик(и), где видели этот текст — во всплывающей табличке.
+  // из закупки, а не из подсказки, поставщик тут вообще ни на что не
+  // влияет). Дедуп по самому тексту — список только текстов, без
+  // поставщика: показывать его (даже во всплывающей табличке) только
+  // захламляло список у дженериковых названий вроде "Ягода с/м в асс",
+  // которые под тем же текстом привозит добрый десяток разных компаний.
   const allIikoNameOptions = useMemo(() => {
-    const seen = new Map<string, Set<string>>()
+    const seen = new Set<string>()
     for (const r of allKnownRows) {
       if (r.unit == null) continue
-      const supplierNorm = norm(matching.supplierAlias[norm(r.supplier)] ?? r.supplier)
-      const supplier = supplierDisplayByNorm.get(supplierNorm) ?? r.supplier
-      const set = seen.get(r.productRaw) ?? new Set<string>()
-      set.add(supplier)
-      seen.set(r.productRaw, set)
+      seen.add(r.productRaw)
     }
-    return [...seen.entries()]
-      .map(([label, suppliers]) => {
-        const list = [...suppliers].sort((a, b) => a.localeCompare(b))
-        const supplier = list.length > 3 ? `${list.slice(0, 3).join(', ')} и ещё ${list.length - 3}` : list.join(', ')
-        return { label, supplier }
-      })
-      .sort((a, b) => a.label.localeCompare(b.label))
-  }, [allKnownRows, matching, supplierDisplayByNorm])
+    return [...seen].sort((a, b) => a.localeCompare(b)).map((label) => ({ label }))
+  }, [allKnownRows])
 
   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
   // замене — см. commitMatrixIikoName) — обратный индекс по edits.
