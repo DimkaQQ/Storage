@@ -122,10 +122,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       <div className="card overflow-hidden p-0">
         <div>
           <table className="w-full max-w-[1060px] table-fixed">
-            {/* top не 0 — иначе шапка таблицы конфликтует со sticky-шапкой
-                самого приложения (App.tsx) и никогда реально не прилипает;
-                --app-header-h — её настоящая высота, публикуется оттуда же. */}
-            <thead className="sticky z-10 bg-ink-850" style={{ top: 'var(--app-header-h, 88px)' }}>
+            <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[12%]" tight>Ресторан</Th>
                 <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[18%]" tight>Поставщик</Th>
