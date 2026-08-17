@@ -149,6 +149,7 @@ export interface Row {
   availableFasovki: FasovkaOption[]  // прайсованные варианты фасовки у этого же поставщика, ни один не совпал с фактом — предложить выбрать вручную (см. packFixKey)
   packFixKey: string | null  // ключ для setPackAlias — есть, только когда availableFasovki непусто
   matchedKey: string | null  // ключ matching.planPairs/planPairsByPack, который эта закупка реально притянула (status === 'ok') — нужен, чтобы показать в Справочниках, какое именно iiko-название сейчас подтягивается к строке матрицы, даже когда это чистое текстовое совпадение, без явной привязки
+  isTotalRow: boolean  // похоже на строку-итог из исходного отчёта ("...всего"), а не отдельную закупку — показать приглушённо, объяснение уже в note
 }
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
@@ -169,6 +170,7 @@ export interface BaseRow {
   sum: number
   unit: number
   comment: string | null
+  isTotalRow: boolean  // "поставщик" типа `ИП "Коженков" всего` — похоже на строку-итог из исходного отчёта, а не отдельную закупку (см. parseDataset)
 }
 
 /** Manual corrections to a venue's meta — for when auto-derived data is wrong. */
@@ -571,6 +573,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     // designatedNorm — нормализованные (нижний регистр) ключи из матрицы,
     // для показа переводим обратно в их же написание (колонка C).
     const designatedSuppliers = designatedNorm.map((s) => supplierDisplayByNorm.get(s) ?? s)
+    // isTotalRow — "поставщик" вида `... всего` похож на строку-итог из
+    // исходного отчёта, а не отдельную закупку (см. parseDataset); сумма
+    // тут может задваивать уже посчитанные отдельные строки. Показываем
+    // всегда, даже если у закупки уже есть свой комментарий из iiko —
+    // это не заменяет его, а дополняет.
+    //
     // Их же комментарий к этой закупке в iiko — если есть, показываем всегда,
     // независимо от статуса и один, без остального (это живой текст от них).
     // Иначе собираем то, что применимо: "нет плановой цены" для unpriced-
@@ -578,9 +586,10 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
     // кандидатов, и для "заказ не по матрице" — сколько должны были
     // заплатить у назначенного поставщика, если цена известна. Не
     // взаимоисключающие — можно показать сразу несколько.
-    let note: string | null = b.comment ?? null
-    if (!note) {
-      const parts: string[] = []
+    const parts: string[] = []
+    if (b.isTotalRow) parts.push('Похоже на строку "Итого" из исходного отчёта, а не отдельную закупку — сумма может задваивать уже посчитанные строки, сверяйте с осторожностью.')
+    if (b.comment) parts.push(b.comment)
+    else {
       if (unpricedMatch) parts.push(NO_PLAN_PRICE_NOTE)
       if (candidateNote) parts.push(candidateNote)
       if (status === 'wrongSupplier' && designatedNorm.length > 0) {
@@ -594,13 +603,13 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
           .filter((x): x is string => x != null)
         if (prices.length) parts.push(`По матрице должны были купить у: ${prices.join('; ')}.`)
       }
-      note = parts.length ? parts.join(' ') : null
     }
+    const note: string | null = parts.length ? parts.join(' ') : null
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, pack: b.pack, qty: b.qty, unit: b.unit, plan,
-      diffPct, status, designatedSuppliers, note, availableFasovki, packFixKey, matchedKey,
+      diffPct, status, designatedSuppliers, note, availableFasovki, packFixKey, matchedKey, isTotalRow: b.isTotalRow,
     }
   })
 
@@ -629,7 +638,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTab
       supplier: supplierDisplay, supplierLabel: null,
       product: label ?? capitalize(product), productRaw: '', productLabel: pack || null, isAssortment,
       pack, qty: 0, unit: null, plan,
-      diffPct: null, status: 'ok', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null, matchedKey: key,
+      diffPct: null, status: 'ok', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null, matchedKey: key, isTotalRow: false,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
@@ -682,11 +691,24 @@ export function parseDataset(data: RawDataset, matching: MatchingTable = bundled
   for (const r of restaurantsIn) {
     for (const it of r.items || []) {
       if (it.m < MIN_TURNOVER || it.q <= 0) continue
+      // "Поставщик" с двоеточием в названии ("G63: Бар G63", "Renee: Кухня
+      // Рене" и т.п.) — это не закупка у внешней компании, а внутреннее
+      // перемещение товара между точками сети, случайно попавшее в тот же
+      // отчёт. Ни один настоящий поставщик двоеточие в названии не
+      // использует (проверено по всем периодам) — не показываем вообще,
+      // это не должно ни попадать в список, ни считаться в сумму.
+      if (it.s.includes(':')) continue
       base.push({
         id: 'r' + seq++,
         restaurant: r.name, brand: r.brand, city: r.city || 'Алматы', entity: r.entity, category: r.category,
         supplier0: it.s, product0: it.p, pack: it.k,
         qty: it.q, sum: it.m, unit: it.m / it.q, comment: it.c ?? null,
+        // "ИП Коженков всего" и т.п. — похоже на строку "Итого по
+        // поставщику" из исходной таблицы, случайно попавшую в отчёт как
+        // обычная позиция закупки (пустая фасовка это подтверждает). Не
+        // прячем — сумма всё равно может быть настоящей, — но помечаем, а
+        // не молчим: см. note в computeRows.
+        isTotalRow: /всего\s*$/i.test(it.s.trim()),
       })
     }
   }
