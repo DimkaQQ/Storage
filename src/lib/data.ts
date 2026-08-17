@@ -85,31 +85,17 @@ export const isPrecisePack = (pack: string) => {
 
 /**
  * Их же описание товара (столбец I) — просто человекочитаемый текст и
- * иногда противоречит их же названию из iiko (D/E): например факт "Рыба
- * лосось... с/м." (свежемороженая), а их описание — "охлажденка"; или факт
- * "оливки б/к." (без косточки), а их описание — "с косточкой". Привязка
- * (D/E) при этом точная, так что план верный, но показывать противоречащую
- * подпись под товаром — вводить в заблуждение, лучше вообще без подписи.
+ * иногда расходится по формулировке с названием из iiko (D/E): например
+ * факт "Оливки б/к." (без косточки), а их описание — "с косточкой". Привязка
+ * (D/E) при этом точная, план верный — а название из iiko в приложении и
+ * так везде на последнем месте, после поставщика/фасовки/цены: сам iiko
+ * нередко заводит один артикул на несколько разных реальных товаров сразу
+ * (та же история, что с "Пюре в асс"/"Ягода с/м в асс"), так что его текст
+ * не показатель. Их собственное описание (то, что реально привезли) —
+ * доверенное, показываем всегда как есть, не сверяя с текстом из iiko.
  */
-function freezeState(s: string): 'frozen' | 'chilled' | null {
-  const t = norm(s)
-  if (t.includes('с/м') || t.includes('свежемороже') || t.includes('заморож')) return 'frozen'
-  if (t.includes('охлажд')) return 'chilled'
-  return null
-}
-function boneState(s: string): 'boneless' | 'bone' | null {
-  const t = norm(s)
-  if (t.includes('б/к') || /без\s+кост/.test(t)) return 'boneless'
-  if (/с\s+кост/.test(t) || /на\s+кост/.test(t)) return 'bone'
-  return null
-}
-function safeLabel(product: string, label: string | null | undefined): string | null {
-  if (!label) return null
-  const pf = freezeState(product), lf = freezeState(label)
-  if (pf && lf && pf !== lf) return null
-  const pb = boneState(product), lb = boneState(label)
-  if (pb && lb && pb !== lb) return null
-  return label
+function safeLabel(_product: string, label: string | null | undefined): string | null {
+  return label || null
 }
 
 /** Raw purchase fact as extracted from the iiko report. */
