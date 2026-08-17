@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
+import { BUNDLED, BUNDLED_PERIODS, BUNDLED_MATCHING_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -91,6 +91,12 @@ interface Ctx {
   periods: PeriodMeta[]
   setPeriod: (period: string) => void
   matching: MatchingTable
+  // Матрица за просматриваемый период реально не вшита в приложение (бэкенд
+  // знает период новее последней вшитой матрицы) — то, что видно в
+  // `matching`, на самом деле план-цены за matchingPeriodLabel, не за
+  // period. См. bundledMatching() в lib/data.ts.
+  matchingIsStale: boolean
+  matchingPeriodLabel: string
   city: string
   category: string
   restaurants: VenueMeta[]
@@ -222,6 +228,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // (noMatrixTest) матрицу подменяем на пустую везде, где она используется —
   // «Проверка цен», Справочники и т.д. видят её через этот же matching.
   const matching = useMemo(() => (noMatrixTest ? EMPTY_MATCHING : bundledMatching(periodKey)), [periodKey, noMatrixTest])
+  // Бэкенд может уже знать периоды новее последней вшитой в код матрицы
+  // (обновление из iiko идёт само, обновление матрицы — ручной шаг). Тогда
+  // bundledMatching() выше молча подставляет ближайшую прошлую матрицу —
+  // а план-цены реально отличаются месяц к месяцу. Не молчим об этом.
+  const matchingIsStale = !BUNDLED_MATCHING_PERIODS.includes(periodKey)
+  const matchingPeriodKey = matchingIsStale ? BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period : periodKey
+  const matchingPeriodLabel = periods.find((p) => p.period === matchingPeriodKey)?.periodLabel ?? matchingPeriodKey
   const rows = useMemo(() => computeRows(parsed.base, edits, matching), [parsed, edits, matching])
 
   // key = "товар::поставщик" (composed by the caller — DataEditor). Ставит
@@ -388,7 +401,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     edits, rows, editCount,
-    period: parsed.period, periodKey, periods, setPeriod, matching, city: parsed.city, category: parsed.category,
+    period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matchingPeriodLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
     renameProduct, renameSupplier, setVenue,

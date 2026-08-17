@@ -35,6 +35,13 @@ const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
 export function bundledMatching(period?: string | null): MatchingTable {
   return (period && BUNDLED_MATCHINGS[period]) || BUNDLED_MATCHINGS[BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period]
 }
+/** Периоды, для которых матрица реально есть (не запасной вариант). Бэкенд
+ * может знать про периоды новее последнего вшитого сюда — тогда
+ * bundledMatching() выше молча подставляет ближайшую прошлую матрицу, а
+ * это способно ощутимо разойтись с реальностью (план-цены гуляют месяц к
+ * месяцу). См. matchingIsStale в lib/edits.tsx — оттуда это и используется,
+ * чтобы такую подмену не молчать, а прямо показывать пользователю. */
+export const BUNDLED_MATCHING_PERIODS = Object.keys(BUNDLED_MATCHINGS)
 /** Latest period's matrix — used wherever a period isn't in scope (e.g. default fn params). */
 export const BUNDLED_MATCHING: MatchingTable = bundledMatching()
 
