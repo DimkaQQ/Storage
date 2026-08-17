@@ -325,7 +325,7 @@ export default function DataEditor() {
   // товар (предстоит завести в самой Google-таблице), либо просто
   // разошедшееся написание — тогда достаточно привязать эту закупку к уже
   // существующему товару из матрицы прямо здесь.
-  interface UnmatchedRow { restaurant: string; supplier: string; supplierNorm: string; product: string; pack: string | null; count: number }
+  interface UnmatchedRow { restaurant: string; supplier: string; supplierNorm: string; product: string; pack: string | null; count: number; note: string | null }
   const unmatchedRows = useMemo(() => {
     const groups = new Map<string, UnmatchedRow>()
     for (const r of rows) {
@@ -333,7 +333,11 @@ export default function DataEditor() {
       const supplierNorm = norm(matching.supplierAlias[norm(r.supplier)] ?? r.supplier)
       const key = `${norm(r.restaurant)}::${supplierNorm}::${norm(r.productRaw)}::${r.pack ? normPack(r.pack) : ''}`
       let g = groups.get(key)
-      if (!g) { g = { restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0 }; groups.set(key, g) }
+      // note — та же подсказка, что resolveRowPlan уже готовит (у поставщика
+      // есть цена по другой фасовке, но она не совпала) — раньше нигде не
+      // показывалась в «Нет в матрице», хотя это ровно то место, где она
+      // нужнее всего: объясняет, ПОЧЕМУ не сошлось, а не просто "не сошлось".
+      if (!g) { g = { restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0, note: r.note }; groups.set(key, g) }
       g.count++
     }
     return [...groups.values()]
@@ -656,6 +660,9 @@ export default function DataEditor() {
                             <div className="mt-1 text-[11px] text-slate-500">
                               В матрице есть у: {[...(pricedFor ?? [])].join(', ') || '—'} — но не у «{u.restaurant}».
                             </div>
+                          )}
+                          {!currentLink && u.note && (
+                            <div className="mt-1 text-[11px] text-slate-500">{u.note}</div>
                           )}
                         </td>
                       </tr>
