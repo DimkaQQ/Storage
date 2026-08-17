@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, plural, normPack, bundledMatching, bundledDataset, capitalize, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row } from '../lib/data'
+import { fmt, money, plural, normPack, bundledMatching, bundledDataset, capitalize, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -15,7 +15,7 @@ export default function DataEditor() {
   const {
     edits, editCount, rows, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setPackAlias, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey,
     noMatrixTest, setNoMatrixTest,
   } = useEdits()
@@ -325,7 +325,15 @@ export default function DataEditor() {
   // товар (предстоит завести в самой Google-таблице), либо просто
   // разошедшееся написание — тогда достаточно привязать эту закупку к уже
   // существующему товару из матрицы прямо здесь.
-  interface UnmatchedRow { restaurant: string; supplier: string; supplierNorm: string; product: string; pack: string | null; count: number; note: string | null }
+  interface UnmatchedRow {
+    restaurant: string; supplier: string; supplierNorm: string; product: string; pack: string | null; count: number; note: string | null
+    // У поставщика есть цена, но по ДРУГОЙ фасовке (см. resolveRowPlan) — не
+    // угадываем сами (кг ≠ пач. 10гр — не всегда безопасно пересчитать в одно
+    // и то же), а даём человеку одним кликом сказать "да, это она" —
+    // дальше это уже обычная привязка фасовки (edits.packAliases), не разовая
+    // догадка приложения.
+    availableFasovki: FasovkaOption[]; packFixKey: string | null
+  }
   const unmatchedRows = useMemo(() => {
     const groups = new Map<string, UnmatchedRow>()
     for (const r of rows) {
@@ -337,7 +345,13 @@ export default function DataEditor() {
       // есть цена по другой фасовке, но она не совпала) — раньше нигде не
       // показывалась в «Нет в матрице», хотя это ровно то место, где она
       // нужнее всего: объясняет, ПОЧЕМУ не сошлось, а не просто "не сошлось".
-      if (!g) { g = { restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0, note: r.note }; groups.set(key, g) }
+      if (!g) {
+        g = {
+          restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0, note: r.note,
+          availableFasovki: r.availableFasovki, packFixKey: r.packFixKey,
+        }
+        groups.set(key, g)
+      }
       g.count++
     }
     return [...groups.values()]
@@ -348,6 +362,16 @@ export default function DataEditor() {
     const key = `${u.supplierNorm}::${norm(u.product)}::${pack}`
     if (!targetProduct) { setProductLink(key, null); return }
     setProductLink(key, { targetProduct, supplier: u.supplier, rawProduct: u.product, pack })
+  }
+
+  // "У поставщика есть цена по фасовке X — это она же?" — человек решает
+  // сам, приложение не пересчитывает автоматически (кг ≠ пач. 10гр не
+  // всегда одно и то же по факту, гадать рискованно). После подтверждения
+  // это обычная фасовочная привязка — план-цена сравнивается уже как
+  // с любой другой совпавшей фасовкой, не разовым исключением.
+  const commitPackFix = (u: UnmatchedRow, option: FasovkaOption) => {
+    if (!u.packFixKey) return
+    setPackAlias(u.packFixKey, { targetPack: option.pack, supplier: u.supplier, product: u.product, rawPack: u.pack ? normPack(u.pack) : '' })
   }
 
   // Значения для чек-листов «Ресторан», «Название» и «Фасовка» — как в
@@ -663,6 +687,20 @@ export default function DataEditor() {
                           )}
                           {!currentLink && u.note && (
                             <div className="mt-1 text-[11px] text-slate-500">{u.note}</div>
+                          )}
+                          {!currentLink && u.packFixKey && u.availableFasovki.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {u.availableFasovki.map((f) => (
+                                <button
+                                  key={f.pack}
+                                  onClick={() => commitPackFix(u, f)}
+                                  title={f.label ?? undefined}
+                                  className="chip border-brand-500/40 text-brand-300 hover:bg-brand-500/10"
+                                >
+                                  Это «{f.pack}»: {money(f.price)}
+                                </button>
+                              ))}
+                            </div>
                           )}
                         </td>
                       </tr>
