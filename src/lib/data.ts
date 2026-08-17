@@ -504,8 +504,8 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   }
   const candidateNote = availableFasovki.length === 0 ? null
     : availableFasovki.length === 1
-    ? `В матрице у этого поставщика есть цена по фасовке «${availableFasovki[0].pack}»: ${money(availableFasovki[0].price)}${availableFasovki[0].label ? ` (${availableFasovki[0].label})` : ''} — но фасовка и цена этой закупки сильно отличаются, похоже на другой товар. Если это на самом деле он же — можно поправить фасовку прямо здесь.`
-    : `В матрице у этого поставщика есть ${availableFasovki.length} прайсованных варианта(ов) фасовки для этого товара, но ни один не совпал с фактом по названию — если это просто иначе записанная фасовка, поправьте её прямо здесь.`
+    ? `В матрице у этого поставщика есть цена по фасовке «${availableFasovki[0].pack}»: ${money(availableFasovki[0].price)}${availableFasovki[0].label ? ` (${availableFasovki[0].label})` : ''} — но фасовка и цена этой закупки сильно отличаются, похоже на другой товар. Если это на самом деле он же — можно поправить фасовку в Справочниках → «Нет в матрице».`
+    : `В матрице у этого поставщика есть ${availableFasovki.length} прайсованных варианта(ов) фасовки для этого товара, но ни один не совпал с фактом по названию — если это просто иначе записанная фасовка, поправьте её в Справочниках → «Нет в матрице».`
 
   // No price for THIS exact (supplier, pack) combo. Who's designated for
   // THIS EXACT variant (pack included) matters — e.g. Ayakaz and Alga73 both
