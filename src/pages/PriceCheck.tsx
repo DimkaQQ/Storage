@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
 import { Row, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -55,7 +54,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const setSortKey = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: -1 }))
 
-  const exportExcel = () => {
+  // xlsx — тяжёлая библиотека (основной вес чанка этой страницы), а нужна
+  // только по клику на "Excel" — грузим её именно в этот момент, а не сразу
+  // при заходе на Проверку цен, чтобы сама страница открывалась быстро.
+  const exportExcel = async () => {
+    const XLSX = await import('xlsx')
     const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у']
     const lines = filtered.map((r) => [
       r.restaurant, r.supplier, r.product, r.pack,

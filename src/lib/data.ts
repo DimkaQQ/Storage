@@ -291,8 +291,22 @@ interface DesignatedIndex {
   bySupplierProduct: Map<string, Set<string>>  // "restaurant::supplier::product" -> pack variants THIS supplier has priced
 }
 
-/** Built once per matching table, not per row. */
+// Комментарий обещал "строится один раз на таблицу", а по факту computeRows
+// вызывает buildDesignatedIndex/buildKnownFlatIndex заново на КАЖДУЮ правку
+// (rows пересчитывается на любое изменение edits) — а строится индекс по
+// ВСЕЙ матрице (все ~15 точек сети, тысячи ключей), хотя реально
+// используется только для точек в RESTAURANT_SCOPE. Замерено: ~25-35мс на
+// каждую правку только на это построение — и оно совпадает раз за разом,
+// пока matching (объект) не поменялся (это бывает только при смене
+// периода/тестового режима). Кэшируем по ссылке на сам объект matching —
+// он неизменяемый (bundledMatching() всегда возвращает тот же объект для
+// того же периода), так что кэш безопасен и не устаревает молча.
+const designatedIndexCache = new WeakMap<MatchingTable, DesignatedIndex>()
+const knownFlatIndexCache = new WeakMap<MatchingTable, Set<string>>()
+
 function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
+  const cached = designatedIndexCache.get(matching)
+  if (cached) return cached
   const byPack = new Map<string, Set<string>>()
   const byProduct = new Map<string, Set<string>>()
   const byProductFlatOnly = new Map<string, Set<string>>()
@@ -326,7 +340,9 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
     if (parts.length === 4) add(byPack, `${restaurant}::${product}::${pack}`, supplier)
     else add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
   }
-  return { byPack, byProduct, byProductFlatOnly, bySupplierProduct }
+  const result = { byPack, byProduct, byProductFlatOnly, bySupplierProduct }
+  designatedIndexCache.set(matching, result)
+  return result
 }
 
 /**
@@ -349,6 +365,8 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
  * лишняя строка безопаснее, чем два разных товара под одной ценой.
  */
 function buildKnownFlatIndex(matching: MatchingTable): Set<string> {
+  const cached = knownFlatIndexCache.get(matching)
+  if (cached) return cached
   const labelsByPair = new Map<string, Set<string>>()
   for (const [key, label] of Object.entries(matching.productLabels)) {
     const pairKey = key.split('::').slice(0, 3).join('::')
@@ -358,6 +376,7 @@ function buildKnownFlatIndex(matching: MatchingTable): Set<string> {
   }
   const result = new Set<string>()
   for (const [pairKey, labels] of labelsByPair) if (labels.size === 1) result.add(pairKey)
+  knownFlatIndexCache.set(matching, result)
   return result
 }
 
