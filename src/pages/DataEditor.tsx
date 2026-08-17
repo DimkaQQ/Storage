@@ -685,21 +685,28 @@ export default function DataEditor() {
                               В матрице есть у: {[...(pricedFor ?? [])].join(', ') || '—'} — но не у «{u.restaurant}».
                             </div>
                           )}
-                          {!currentLink && u.note && (
+                          {/* Длинное объяснение (candidateNote из resolveRowPlan) не влезало в
+                              узкую колонку — а когда есть чипы ниже, оно и не нужно, они говорят
+                              то же самое короче и с кнопкой. Показываем текстом только то, для чего
+                              чипов нет (комментарий из iiko, "нет плановой цены" и т.п.). */}
+                          {!currentLink && u.note && !(u.packFixKey && u.availableFasovki.length > 0) && (
                             <div className="mt-1 text-[11px] text-slate-500">{u.note}</div>
                           )}
                           {!currentLink && u.packFixKey && u.availableFasovki.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {u.availableFasovki.map((f) => (
-                                <button
-                                  key={f.pack}
-                                  onClick={() => commitPackFix(u, f)}
-                                  title={f.label ?? undefined}
-                                  className="chip border-brand-500/40 text-brand-300 hover:bg-brand-500/10"
-                                >
-                                  Это «{f.pack}»: {money(f.price)}
-                                </button>
-                              ))}
+                            <div className="mt-1">
+                              <div className="text-[11px] text-slate-500">Похоже, просто другая фасовка:</div>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {u.availableFasovki.map((f) => (
+                                  <button
+                                    key={f.pack}
+                                    onClick={() => commitPackFix(u, f)}
+                                    title={f.label ?? undefined}
+                                    className="chip border-brand-500/40 text-brand-300 hover:bg-brand-500/10"
+                                  >
+                                    «{f.pack}»: {money(f.price)}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
                           )}
                         </td>
