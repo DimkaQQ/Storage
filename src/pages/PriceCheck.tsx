@@ -138,7 +138,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             </thead>
             <tbody>
               {shown.map((r) => (
-                <tr key={r.id} className={`row-hover hover:bg-ink-800/40 ${r.labelConflict ? 'bg-warn/[0.05]' : ''}`}>
+                <tr key={r.id} className="row-hover hover:bg-ink-800/40">
                   <td className="td overflow-hidden px-2 text-slate-400"><HoverName text={r.restaurant} /></td>
                   <td className="td overflow-hidden px-2 font-medium text-slate-100">
                     <HoverName text={r.supplier} />
