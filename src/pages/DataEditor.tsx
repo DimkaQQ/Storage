@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, money, plural, normPack, bundledMatching, bundledDataset, capitalize, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption } from '../lib/data'
+import { fmt, money, plural, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -118,8 +118,13 @@ export default function DataEditor() {
     pack: string; plan: number
   }
   const matrixRows = useMemo(() => {
+    // scopedMatching — та же матрица, но обрезанная до точек в
+    // RESTAURANT_SCOPE (кэшируется по ссылке на matching, см. data.ts):
+    // без этого ниже шёл полный проход по ~4000 ключам всей сети ради
+    // ~500 реально нужных, и push() всё равно отбрасывал остальное.
+    const m = scopedMatching(matching)
     const packBrokenDownPairKeys = new Set(
-      Object.keys(matching.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
+      Object.keys(m.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
     )
     const result: MatrixRow[] = []
     const push = (key: string, restaurantNorm: string, supplierNorm: string, productSegment: string, pack: string, plan: number) => {
@@ -128,15 +133,15 @@ export default function DataEditor() {
       result.push({
         key, restaurantNorm, restaurant,
         supplierNorm, supplier: supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm,
-        productSegment, matrixLabel: matching.productLabels[key] ?? capitalize(productSegment),
+        productSegment, matrixLabel: m.productLabels[key] ?? capitalize(productSegment),
         pack, plan,
       })
     }
-    for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
+    for (const [key, plan] of Object.entries(m.planPairsByPack)) {
       const [restaurantNorm, supplierNorm, productSegment, pack] = key.split('::')
       push(key, restaurantNorm, supplierNorm, productSegment, pack, plan)
     }
-    for (const [key, plan] of Object.entries(matching.planPairs)) {
+    for (const [key, plan] of Object.entries(m.planPairs)) {
       if (packBrokenDownPairKeys.has(key)) continue
       const [restaurantNorm, supplierNorm, productSegment] = key.split('::')
       push(key, restaurantNorm, supplierNorm, productSegment, '', plan)
@@ -152,8 +157,9 @@ export default function DataEditor() {
   // автопоисков в этом файле (см. комментарий у realMatching в начале).
   const realMatrixRows = useMemo(() => {
     if (!productsVisited) return [] // нужно только для подсказок в Товарах — не считаем, пока вкладку не открыли
+    const m = scopedMatching(realMatching)
     const packBrokenDownPairKeys = new Set(
-      Object.keys(realMatching.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
+      Object.keys(m.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
     )
     const result: { restaurant: string; supplierNorm: string; supplier: string; productSegment: string; matrixLabel: string }[] = []
     const push = (key: string, restaurantNorm: string, supplierNorm: string, productSegment: string) => {
@@ -161,14 +167,14 @@ export default function DataEditor() {
       if (!restaurant) return
       result.push({
         restaurant, supplierNorm, supplier: supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm,
-        productSegment, matrixLabel: realMatching.productLabels[key] ?? capitalize(productSegment),
+        productSegment, matrixLabel: m.productLabels[key] ?? capitalize(productSegment),
       })
     }
-    for (const key of Object.keys(realMatching.planPairsByPack)) {
+    for (const key of Object.keys(m.planPairsByPack)) {
       const [restaurantNorm, supplierNorm, productSegment] = key.split('::')
       push(key, restaurantNorm, supplierNorm, productSegment)
     }
-    for (const key of Object.keys(realMatching.planPairs)) {
+    for (const key of Object.keys(m.planPairs)) {
       if (packBrokenDownPairKeys.has(key)) continue
       const [restaurantNorm, supplierNorm, productSegment] = key.split('::')
       push(key, restaurantNorm, supplierNorm, productSegment)

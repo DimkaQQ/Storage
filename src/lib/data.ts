@@ -544,8 +544,41 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
 
 export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 
+// Матрица целиком — это вся сеть (~15 точек), а RESTAURANT_SCOPE показывает
+// только часть (сейчас — одну). computeRows и Справочники (matrixRows и
+// подобное) гоняют полными проходами по Object.entries/Object.keys всей
+// матрицы, хотя дальше 9 из 10 записей всё равно отбрасываются по
+// ресторану — тысячи лишних итераций на каждый пересчёт. Обрезаем матрицу
+// до RESTAURANT_SCOPE ОДИН РАЗ (дальше — из кэша по ссылке на исходный
+// matching, он неизменяем), и везде, где идёт полный проход по ключам,
+// используем эту версию вместо исходной. supplierAlias не трогаем — он не
+// привязан к ресторану, там нечего обрезать.
+const scopedMatchingCache = new WeakMap<MatchingTable, MatchingTable>()
+export function scopedMatching(matching: MatchingTable): MatchingTable {
+  if (!RESTAURANT_SCOPE) return matching
+  const cached = scopedMatchingCache.get(matching)
+  if (cached) return cached
+  const prefixes = RESTAURANT_SCOPE.map((r) => `${norm(r)}::`)
+  const inScope = (key: string) => prefixes.some((p) => key.startsWith(p))
+  const filterKeys = <T,>(obj: Record<string, T>): Record<string, T> => {
+    const out: Record<string, T> = {}
+    for (const k in obj) if (inScope(k)) out[k] = obj[k]
+    return out
+  }
+  const result: MatchingTable = {
+    supplierAlias: matching.supplierAlias,
+    planPairs: filterKeys(matching.planPairs),
+    planPairsByPack: filterKeys(matching.planPairsByPack),
+    productLabels: filterKeys(matching.productLabels),
+    noPriceExact: filterKeys(matching.noPriceExact),
+  }
+  scopedMatchingCache.set(matching, result)
+  return result
+}
+
 /** Builds display rows by applying edits and resolving plan/status. */
-export function computeRows(base: BaseRow[], edits: Edits, matching: MatchingTable = BUNDLED_MATCHING): Row[] {
+export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING): Row[] {
+  const matching = scopedMatching(matchingIn)
   const designatedIndex = buildDesignatedIndex(matching)
   const knownFlatPairs = buildKnownFlatIndex(matching)
   const consumed = new Set<string>()
