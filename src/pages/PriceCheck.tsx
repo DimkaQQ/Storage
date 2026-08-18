@@ -144,8 +144,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 <tr key={r.id} className={`row-hover hover:bg-ink-800/40 ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''}`}>
                   <td className="td overflow-hidden px-2 text-slate-400"><HoverName text={r.restaurant} /></td>
                   <td className="td overflow-hidden px-2 font-medium text-slate-100">
-                    <HoverName text={r.supplier} />
-                    {r.supplierLabel && <HoverName text={r.supplierLabel} className="block text-[11px] font-normal text-slate-500" />}
+                    {/* Крупным — название из матрицы (если есть), мелким под ним —
+                        как называется в iiko. Тот же порядок, что и у товара ниже. */}
+                    <HoverName text={r.supplierLabel ?? r.supplier} />
+                    {r.supplierLabel && <HoverName text={r.supplier} className="block text-[11px] font-normal text-slate-500" />}
                   </td>
                   <td className="td overflow-hidden px-2 font-medium text-slate-100">
                     {r.unit == null ? (
@@ -163,13 +165,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // до этой правки тут ошибочно не показывалось вообще
                       // ничего, кроме самого переименования, без исходного
                       // iiko-имени под ним. Под названием мелким — как называется
-                      // в iiko, и через тире фасовка, но только если это
-                      // категория-ассортимент (иначе фасовка ничего не уточняет —
-                      // тот же товар, просто другой размер упаковки).
+                      // в iiko, и через тире фасовка (та же логика, что и в двух
+                      // других ветках ниже: голая единица "кг"/"шт" ничего не
+                      // уточняет, не показываем её отдельно; для ассортимента —
+                      // всегда, там сама фасовка и есть разница между товарами).
                       <>
                         <HoverName text={r.productLabel ?? r.product} />
                         <HoverName
-                          text={r.isAssortment ? `${r.productRaw} - ${r.pack}` : r.productRaw}
+                          text={(isPrecisePack(r.pack) || r.isAssortment) && r.pack ? `${r.productRaw} - ${r.pack}` : r.productRaw}
                           className="block text-[11px] font-normal text-slate-500"
                         />
                       </>
