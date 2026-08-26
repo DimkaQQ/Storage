@@ -44,6 +44,13 @@ export default function IikoSettings() {
   const test = async () => {
     if (!form) return
     setTesting(true); setTestResult(null)
+    // Сохраняем перед проверкой, а не только после — иначе легко ввести
+    // адрес/логин, нажать «Проверить», увидеть «подключение есть» и уйти
+    // со страницы, решив, что всё готово: тест ничего не сохранял, и
+    // введённое пропадало. Теперь «Проверить» = «Сохранить и проверить»,
+    // отдельно сохранять не нужно.
+    const r = await saveSettings(form)
+    if (r) { setForm(r); setSaved(true); reloadStatus() }
     setTestResult(await testConnection(form))
     setTesting(false)
   }
@@ -126,7 +133,7 @@ export default function IikoSettings() {
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button onClick={test} disabled={testing} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
-            <IPlug width={16} height={16} /> {testing ? 'Проверяю…' : 'Проверить подключение'}
+            <IPlug width={16} height={16} /> {testing ? 'Сохраняю и проверяю…' : 'Сохранить и проверить подключение'}
           </button>
           {testResult && (
             <span className={`chip ${testResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>

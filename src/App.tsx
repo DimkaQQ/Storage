@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
@@ -27,6 +27,27 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
 
 export default function App() {
   const [page, setPage] = useState<PageId>('dashboard')
+  // Страницы монтируются один раз, при первом заходе, и дальше просто
+  // скрываются/показываются (display:none), а не размонтируются — иначе
+  // переключение вкладок туда-обратно каждый раз заново гоняло все эффекты
+  // загрузки/пересчёта и сбрасывало несохранённое состояние страницы
+  // (ровно так один раз потерялась форма в «Настройки iiko» — вкладка
+  // размонтировалась, эффект перезапросил настройки с сервера, а то, что
+  // было введено, но не сохранено, пропало).
+  const [visited, setVisited] = useState<PageId[]>(['dashboard'])
+  const mainRef = useRef<HTMLElement>(null)
+  const scrollPositions = useRef<Map<PageId, number>>(new Map())
+  const goTo = (p: PageId) => {
+    if (mainRef.current) scrollPositions.current.set(page, mainRef.current.scrollTop)
+    setPage(p)
+    setVisited((v) => (v.includes(p) ? v : [...v, p]))
+  }
+  // Восстанавливаем прокрутку страницы, на которую перешли — свою для
+  // каждой вкладки, а не общую (иначе скролл с одной страницы протекал бы
+  // на другую, т.к. <main> у них один и тот же контейнер).
+  useLayoutEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = scrollPositions.current.get(page) ?? 0
+  }, [page])
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
@@ -75,7 +96,7 @@ export default function App() {
               return (
                 <button
                   key={n.id}
-                  onClick={() => setPage(n.id)}
+                  onClick={() => goTo(n.id)}
                   className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-200 ${
                     active ? 'bg-brand-500/15 text-white' : 'text-slate-400 hover:translate-x-0.5 hover:bg-ink-800/70 hover:text-slate-200'
                   }`}
@@ -156,16 +177,22 @@ export default function App() {
             </div>
           </header>
 
-          <main className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-            <Suspense fallback={<PageLoading />}>
-              <div key={page} className="animate-fade-in">
-                {page === 'dashboard' && <Dashboard rows={rows} onNav={(p) => setPage(p as PageId)} />}
-                {page === 'pricecheck' && <PriceCheck rows={rows} />}
-                {page === 'data' && <DataEditor />}
-                {page === 'iiko' && <IikoSettings />}
-                {page === 'users' && <UsersAdmin />}
+          <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+            {/* Каждая посещённая страница остаётся смонтированной — просто
+                прячется, пока открыта другая (см. комментарий у visited
+                выше). Suspense у каждой свой, чтобы загрузка чанка ЕЩЁ не
+                открытой страницы не прятала уже отрисованную текущую. */}
+            {visited.map((id) => (
+              <div key={id} style={{ display: page === id ? 'block' : 'none' }} className={page === id ? 'animate-fade-in' : undefined}>
+                <Suspense fallback={<PageLoading />}>
+                  {id === 'dashboard' && <Dashboard rows={rows} onNav={(p) => goTo(p as PageId)} />}
+                  {id === 'pricecheck' && <PriceCheck rows={rows} />}
+                  {id === 'data' && <DataEditor />}
+                  {id === 'iiko' && <IikoSettings />}
+                  {id === 'users' && <UsersAdmin />}
+                </Suspense>
               </div>
-            </Suspense>
+            ))}
 
             <footer className="px-0 pb-2 pt-6 text-center text-[11px] text-slate-600">
               Проверка закупочных цен · план (матрица) против факта (iiko) · {period}
