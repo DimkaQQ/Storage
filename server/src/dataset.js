@@ -1,0 +1,57 @@
+const MIN_TURNOVER = 0 // фильтр оборота применяется на фронте (правило ТЗ)
+
+const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+
+/**
+ * Only for the real iiko providers (mock has fixed, known periods baked into
+ * its seed files — the caller picks one of those explicitly instead). Period
+ * comes from sync settings (current/prev month), not the server's clock at
+ * запрос time — иначе "prev-month" всё равно подписывался бы текущим.
+ */
+export function resolveLivePeriod(settings) {
+  const now = new Date()
+  const base = settings.period === 'prev-month' ? new Date(now.getFullYear(), now.getMonth() - 1, 1) : now
+  return { period: base.toISOString().slice(0, 10), periodLabel: `${MONTHS[base.getMonth()]} ${base.getFullYear()}` }
+}
+
+/**
+ * Shapes raw iiko purchase facts into the dataset the frontend expects.
+ * No plan matching happens here — the client resolves plan/факт entirely
+ * itself from the bundled restaurant-scoped matrix (src/data/matching.json),
+ * so the server's only job is grouping facts by restaurant.
+ */
+export function buildDataset(facts, venues, periodMeta) {
+  const meta = new Map(venues.map((v) => [v.name, v]))
+  const byVenue = new Map()
+  for (const f of facts) {
+    if (!f.product || !(f.qty > 0)) continue
+    if (f.sum < MIN_TURNOVER) continue
+    if (!byVenue.has(f.restaurant)) byVenue.set(f.restaurant, [])
+    byVenue.get(f.restaurant).push(f)
+  }
+  const restaurants = [...byVenue.entries()].map(([name, list]) => {
+    const meta_ = meta.get(name) || {}
+    return {
+      name,
+      entity: meta_.entity || '',
+      brand: meta_.brand || name,
+      city: meta_.city || 'Алматы',
+      category: meta_.category || 'Кухня',
+      items: list.map((f) => ({
+        s: f.supplier || '',
+        p: f.product,
+        k: f.pack || '',
+        q: Math.round(f.qty * 1000) / 1000,
+        m: Math.round(f.sum * 100) / 100,
+        ...(f.comment ? { c: f.comment } : {}),
+      })),
+    }
+  })
+  return {
+    period: periodMeta.period,
+    periodLabel: periodMeta.periodLabel,
+    city: 'Алматы',
+    category: 'Кухня',
+    restaurants,
+  }
+}

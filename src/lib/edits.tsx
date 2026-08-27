@@ -1,0 +1,420 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
+import { BUNDLED, BUNDLED_PERIODS, BUNDLED_MATCHING_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
+import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus, PeriodMeta } from './api'
+
+const KEY = 'pricecheck-edits-v2'
+// Локальный флаг устройства (не серверный) — «тестовый режим без матрицы».
+// Специально не в edits/на сервере: это не правка данных, а просто способ
+// временно посмотреть на интерфейс так, будто матрицу ещё не загружали.
+const NO_MATRIX_KEY = 'pricecheck-no-matrix-test'
+
+function normalize(p: any): Edits {
+  return {
+    productRenames: p?.productRenames ?? {},
+    supplierRenames: p?.supplierRenames ?? {},
+    acknowledgedSuppliers: p?.acknowledgedSuppliers ?? {},
+    productPackOverride: p?.productPackOverride ?? {},
+    packAliases: p?.packAliases ?? {},
+    productLinks: p?.productLinks ?? {},
+    planOverrides: p?.planOverrides ?? {},
+    venueOverrides: p?.venueOverrides ?? {},
+    newVenues: p?.newVenues ?? {},
+  }
+}
+
+function load(): Edits {
+  try {
+    const raw = localStorage.getItem(KEY)
+    return raw ? normalize(JSON.parse(raw)) : EMPTY_EDITS
+  } catch {
+    return EMPTY_EDITS
+  }
+}
+
+/**
+ * Локальный кэш правок (localStorage) специально не привязан к организации —
+ * это просто offline-first слепок того, что уже подтверждено сервером,
+ * чтобы не мигать пустым экраном при перезагрузке. Но именно поэтому его
+ * обязательно чистить при выходе: EditsProvider монтируется заново при
+ * каждом входе (см. AppRoot — он живёт только пока есть user), и без этого
+ * на общем компьютере смена аккаунта на ДРУГУЮ организацию первое время (а
+ * если запрос /api/edits не пройдёт — то и постоянно) показывала бы чужие
+ * переименования/плановые цены из прошлой сессии поверх данных новой
+ * организации. Вызывается из auth.tsx при logout.
+ */
+export function clearLocalEditsCache() {
+  try { localStorage.removeItem(KEY) } catch { /* ignore */ }
+}
+
+function diffKeys<T>(current: Record<string, T>, target: Record<string, T>): string[] {
+  return [...new Set([...Object.keys(current), ...Object.keys(target)])].filter(
+    (k) => JSON.stringify(current[k]) !== JSON.stringify(target[k]),
+  )
+}
+
+/**
+ * Undo reverts local state instantly, but the server only knows individual
+ * operations (no whole-blob overwrite) — so undo has to be pushed back to
+ * the server the same way: as the specific corrective ops for whatever
+ * categories actually changed between `current` and `target`.
+ */
+function syncUndoToServer(current: Edits, target: Edits) {
+  for (const k of diffKeys(current.productRenames, target.productRenames))
+    applyEditOp('renameProduct', { original: k, name: target.productRenames[k] ?? '' })
+  for (const k of diffKeys(current.supplierRenames, target.supplierRenames))
+    applyEditOp('renameSupplier', { original: k, name: target.supplierRenames[k] ?? '' })
+  for (const k of diffKeys(current.venueOverrides, target.venueOverrides)) {
+    applyEditOp('clearVenue', { restaurant: k })
+    if (target.venueOverrides[k]) applyEditOp('setVenue', { restaurant: k, patch: target.venueOverrides[k] })
+  }
+  for (const k of diffKeys(current.newVenues, target.newVenues))
+    applyEditOp(target.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k })
+  for (const k of diffKeys(current.acknowledgedSuppliers, target.acknowledgedSuppliers))
+    applyEditOp(target.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k })
+  for (const k of diffKeys(current.productPackOverride, target.productPackOverride))
+    applyEditOp('setProductPackOverride', { product: k, value: target.productPackOverride[k] ?? null })
+  for (const k of diffKeys(current.packAliases, target.packAliases))
+    applyEditOp('setPackAlias', { key: k, value: target.packAliases[k] ?? null })
+  for (const k of diffKeys(current.productLinks, target.productLinks))
+    applyEditOp('setProductLink', { key: k, value: target.productLinks[k] ?? null })
+  for (const k of diffKeys(current.planOverrides, target.planOverrides))
+    applyEditOp('setPlanOverride', { key: k, value: target.planOverrides[k] ?? null })
+}
+
+interface Ctx {
+  edits: Edits
+  rows: Row[]
+  editCount: number
+  // dataset (bundled fallback → replaced by backend data when available)
+  period: string
+  periodKey: string
+  periods: PeriodMeta[]
+  setPeriod: (period: string) => void
+  matching: MatchingTable
+  // Матрица за просматриваемый период реально не вшита в приложение (бэкенд
+  // знает период новее последней вшитой матрицы) — то, что видно в
+  // `matching`, на самом деле план-цены за matchingPeriodLabel, не за
+  // period. См. bundledMatching() в lib/data.ts.
+  matchingIsStale: boolean
+  matchingPeriodLabel: string
+  city: string
+  category: string
+  restaurants: VenueMeta[]
+  suppliers: SupplierAgg[]
+  products: ProductAgg[]
+  // backend sync
+  backendOnline: boolean
+  status: SyncStatus | null
+  syncing: boolean
+  refresh: () => Promise<void>
+  reloadStatus: () => Promise<void>
+  // edits
+  renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
+  renameSupplier: (rawName: string, name: string) => void
+  setVenue: (restaurant: string, patch: VenuePatch) => void
+  addVenue: (name: string, patch?: VenuePatch) => void
+  removeVenue: (name: string) => void
+  acknowledgeSupplier: (rawName: string) => void
+  unacknowledgeSupplier: (rawName: string) => void
+  setProductPackOverride: (product: string, value: boolean | null) => void
+  setPackAlias: (key: string, value: PackAlias | null) => void
+  setProductLink: (key: string, value: ProductLink | null) => void
+  setPlanOverride: (key: string, value: number | null) => void
+  reset: () => void
+  replaceAll: (e: Edits) => void
+  undo: () => void
+  canUndo: boolean
+  // тестовый режим «без матрицы» — только на этом устройстве, не на сервере
+  noMatrixTest: boolean
+  setNoMatrixTest: (v: boolean) => void
+}
+
+const EditsContext = createContext<Ctx | null>(null)
+
+export function EditsProvider({ children }: { children: ReactNode }) {
+  const [edits, setEdits] = useState<Edits>(load)
+  const [parsed, setParsed] = useState<Parsed>(BUNDLED)
+  const [periodKey, setPeriodKey] = useState<string>(BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period)
+  const [periods, setPeriods] = useState<PeriodMeta[]>(BUNDLED_PERIODS)
+  const [status, setStatus] = useState<SyncStatus | null>(null)
+  const [backendOnline, setBackendOnline] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const history = useRef<Edits[]>([])
+  const [canUndo, setCanUndo] = useState(false)
+  const [noMatrixTest, setNoMatrixTestState] = useState<boolean>(() => {
+    try { return localStorage.getItem(NO_MATRIX_KEY) === '1' } catch { return false }
+  })
+  const setNoMatrixTest = useCallback((v: boolean) => {
+    setNoMatrixTestState(v)
+    try { localStorage.setItem(NO_MATRIX_KEY, v ? '1' : '0') } catch { /* ignore */ }
+  }, [])
+
+  // Every mutation goes through here instead of setEdits directly, so each
+  // committed change (not every keystroke — inputs only call onCommit on
+  // blur/Enter) pushes the prior state onto a small undo stack.
+  const updateEdits = useCallback((updater: (e: Edits) => Edits) => {
+    setEdits((e) => {
+      const next = updater(e)
+      if (JSON.stringify(next) !== JSON.stringify(e)) {
+        history.current = [...history.current.slice(-49), e]
+        setCanUndo(true)
+      }
+      return next
+    })
+  }, [])
+
+  const undo = useCallback(() => {
+    const hist = history.current
+    if (hist.length === 0) return
+    const prev = hist[hist.length - 1]
+    history.current = hist.slice(0, -1)
+    setCanUndo(history.current.length > 0)
+    setEdits((current) => { syncUndoToServer(current, prev); return prev })
+  }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
+  }, [edits])
+
+  const loadData = useCallback(async (period: string) => {
+    const data = await fetchDataset(period)
+    if (data && data.restaurants) { setParsed(parseDataset(data)); setBackendOnline(true) }
+    else setParsed(parseDataset(bundledDataset(period)))
+  }, [])
+  const loadPeriods = useCallback(async () => {
+    const list = await fetchPeriods()
+    if (list && list.length) { setPeriods(list); setBackendOnline(true) }
+    return list
+  }, [])
+  const reloadStatus = useCallback(async () => {
+    const st = await fetchStatus()
+    if (st) { setStatus(st); setBackendOnline(true) }
+  }, [])
+  const loadEdits = useCallback(async () => {
+    const data = await fetchEdits()
+    if (data) { setEdits(normalize(data)); setBackendOnline(true) }
+  }, [])
+
+  // On mount: pull the list of available periods + status + shared
+  // corrections from the backend (if present), then the latest period's
+  // data — defaults to the newest available period, same as before periods existed.
+  useEffect(() => {
+    reloadStatus()
+    loadEdits()
+    loadPeriods().then((list) => {
+      const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
+      setPeriodKey(initial)
+      loadData(initial)
+    })
+  }, [])
+
+  const setPeriod = useCallback((period: string) => {
+    setPeriodKey(period)
+    loadData(period)
+  }, [loadData])
+
+  // «Обновление» держит текущий выбранный период — просто пересобирает то,
+  // на что уже смотрит пользователь, плюс подтягивает список периодов
+  // заново (вдруг появился новый).
+  const refresh = useCallback(async () => {
+    setSyncing(true)
+    try { await triggerSync(); await loadPeriods(); await loadData(periodKey); await reloadStatus() }
+    finally { setSyncing(false) }
+  }, [loadData, loadPeriods, reloadStatus, periodKey])
+
+  // Матрица версионирована по периодам так же, как факты — цены реально
+  // отличаются месяц к месяцу, так что план всегда должен браться из
+  // матрицы ТОГО ЖЕ периода, что и просматриваемые факты. В тестовом режиме
+  // (noMatrixTest) матрицу подменяем на пустую везде, где она используется —
+  // «Проверка цен», Справочники и т.д. видят её через этот же matching.
+  const matching = useMemo(() => (noMatrixTest ? EMPTY_MATCHING : bundledMatching(periodKey)), [periodKey, noMatrixTest])
+  // Бэкенд может уже знать периоды новее последней вшитой в код матрицы
+  // (обновление из iiko идёт само, обновление матрицы — ручной шаг). Тогда
+  // bundledMatching() выше молча подставляет ближайшую прошлую матрицу —
+  // а план-цены реально отличаются месяц к месяцу. Не молчим об этом.
+  const matchingIsStale = !BUNDLED_MATCHING_PERIODS.includes(periodKey)
+  const matchingPeriodKey = matchingIsStale ? BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period : periodKey
+  const matchingPeriodLabel = periods.find((p) => p.period === matchingPeriodKey)?.periodLabel ?? matchingPeriodKey
+  const rows = useMemo(() => computeRows(parsed.base, edits, matching), [parsed, edits, matching])
+
+  // key = "товар::поставщик" (composed by the caller — DataEditor). Ставит
+  // значение или удаляет запись, если очистили поле.
+  const renameProduct = useCallback((key: string, name: string) => {
+    const v = name.trim()
+    updateEdits((e) => {
+      const next = { ...e.productRenames }
+      if (!v) delete next[key]
+      else next[key] = v
+      return { ...e, productRenames: next }
+    })
+    applyEditOp('renameProduct', { original: key, name: v })
+  }, [updateEdits])
+
+  // rawName = iiko-имя поставщика как есть. Только подпись — не влияет на
+  // само сопоставление с матрицей (см. supplierDisplay в computeRows).
+  const renameSupplier = useCallback((rawName: string, name: string) => {
+    const v = name.trim()
+    updateEdits((e) => {
+      const next = { ...e.supplierRenames }
+      if (!v) delete next[rawName]
+      else next[rawName] = v
+      return { ...e, supplierRenames: next }
+    })
+    applyEditOp('renameSupplier', { original: rawName, name: v })
+  }, [updateEdits])
+
+  const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
+    updateEdits((e) => {
+      const next = { ...e.venueOverrides }
+      const merged = { ...next[restaurant], ...patch }
+      const cleaned: VenuePatch = {}
+      if (merged.city) cleaned.city = merged.city
+      if (merged.brand) cleaned.brand = merged.brand
+      if (merged.entity) cleaned.entity = merged.entity
+      if (merged.category) cleaned.category = merged.category
+      if (Object.keys(cleaned).length === 0) delete next[restaurant]
+      else next[restaurant] = cleaned
+      return { ...e, venueOverrides: next }
+    })
+    applyEditOp('setVenue', { restaurant, patch })
+  }, [updateEdits])
+
+  // Ручное добавление точки, у которой ещё нет закупок в iiko.
+  const addVenue = useCallback((name: string, patch?: VenuePatch) => {
+    const v = name.trim()
+    if (!v) return
+    updateEdits((e) => {
+      const newVenues = e.newVenues[v] ? e.newVenues : { ...e.newVenues, [v]: true as const }
+      const venueOverrides = patch ? { ...e.venueOverrides, [v]: { ...e.venueOverrides[v], ...patch } } : e.venueOverrides
+      return { ...e, newVenues, venueOverrides }
+    })
+    applyEditOp('addVenue', { name: v, patch: patch ?? null })
+  }, [updateEdits])
+  const removeVenue = useCallback((name: string) => {
+    updateEdits((e) => {
+      const n = { ...e.newVenues }; delete n[name]
+      const vo = { ...e.venueOverrides }; delete vo[name]
+      return { ...e, newVenues: n, venueOverrides: vo }
+    })
+    applyEditOp('removeVenue', { name })
+  }, [updateEdits])
+
+  // «Добавить» — отмечаем, что это реально новый поставщик (не опечатка/дубликат).
+  const acknowledgeSupplier = useCallback((rawName: string) => {
+    updateEdits((e) => ({ ...e, acknowledgedSuppliers: { ...e.acknowledgedSuppliers, [rawName]: true } }))
+    applyEditOp('acknowledgeSupplier', { rawName })
+  }, [updateEdits])
+  const unacknowledgeSupplier = useCallback((rawName: string) => {
+    updateEdits((e) => { const n = { ...e.acknowledgedSuppliers }; delete n[rawName]; return { ...e, acknowledgedSuppliers: n } })
+    applyEditOp('unacknowledgeSupplier', { rawName })
+  }, [updateEdits])
+
+  // Ручной override того, важна ли фасовка для сопоставления этого товара —
+  // null возвращает к автоматике (см. resolveRowPlan/isPrecisePack).
+  const setProductPackOverride = useCallback((product: string, value: boolean | null) => {
+    updateEdits((e) => {
+      const next = { ...e.productPackOverride }
+      if (value === null) delete next[product]
+      else next[product] = value
+      return { ...e, productPackOverride: next }
+    })
+    applyEditOp('setProductPackOverride', { product, value })
+  }, [updateEdits])
+
+  // "Эта фасовка из iiko на самом деле вот эта из матрицы" — key приходит
+  // готовым из resolveRowPlan (Row.packFixKey) или из списка в Справочниках.
+  // null — снять правку (вернуть автоматическое сопоставление как было).
+  const setPackAlias = useCallback((key: string, value: PackAlias | null) => {
+    updateEdits((e) => {
+      const next = { ...e.packAliases }
+      if (value === null) delete next[key]
+      else next[key] = value
+      return { ...e, packAliases: next }
+    })
+    applyEditOp('setPackAlias', { key, value })
+  }, [updateEdits])
+
+  // "Это iiko-название на самом деле вот этот товар из матрицы" — key =
+  // "поставщик(канон)::iiko-название" (норм.), см. Edits.productLinks и
+  // resolveRowPlan. Назначается либо со стороны строки матрицы (колонка
+  // «Название из iiko»), либо со стороны непривязанной закупки (секция
+  // «Нет в матрице» — «это на самом деле…») — оба пути пишут в одну и ту
+  // же карту. null — снять привязку.
+  const setProductLink = useCallback((key: string, value: ProductLink | null) => {
+    updateEdits((e) => {
+      const next = { ...e.productLinks }
+      if (value === null) delete next[key]
+      else next[key] = value
+      return { ...e, productLinks: next }
+    })
+    applyEditOp('setProductLink', { key, value })
+  }, [updateEdits])
+
+  // Ручная плановая цена (Справочники → Товары → «План») — key в той же
+  // ключевой области, что и matching.planPairsByPack/planPairs (см.
+  // resolveRowPlan). null — снять правку, вернуться к цене из матрицы.
+  const setPlanOverride = useCallback((key: string, value: number | null) => {
+    updateEdits((e) => {
+      const next = { ...e.planOverrides }
+      if (value === null) delete next[key]
+      else next[key] = value
+      return { ...e, planOverrides: next }
+    })
+    applyEditOp('setPlanOverride', { key, value })
+  }, [updateEdits])
+
+  const reset = useCallback(() => {
+    updateEdits(() => EMPTY_EDITS)
+    applyEditOp('reset')
+  }, [updateEdits])
+  const replaceAll = useCallback((e: Edits) => {
+    const next: Edits = {
+      productRenames: e.productRenames ?? {},
+      supplierRenames: e.supplierRenames ?? {},
+      acknowledgedSuppliers: e.acknowledgedSuppliers ?? {},
+      productPackOverride: e.productPackOverride ?? {},
+      packAliases: e.packAliases ?? {},
+      productLinks: e.productLinks ?? {},
+      planOverrides: e.planOverrides ?? {},
+      venueOverrides: e.venueOverrides ?? {},
+      newVenues: e.newVenues ?? {},
+    }
+    updateEdits(() => next)
+    saveEdits(next) // whole-blob PUT — Импорт is an explicit, deliberate replace-everything action
+  }, [updateEdits])
+
+  const editCount =
+    Object.keys(edits.productRenames).length +
+    Object.keys(edits.supplierRenames).length +
+    Object.keys(edits.acknowledgedSuppliers).length +
+    Object.keys(edits.productPackOverride).length +
+    Object.keys(edits.packAliases).length +
+    Object.keys(edits.productLinks).length +
+    Object.keys(edits.planOverrides).length +
+    Object.keys(edits.venueOverrides).length +
+    Object.keys(edits.newVenues).length
+
+  const restaurants = useMemo(
+    () => withNewVenues(applyVenueOverrides(parsed.restaurants, edits.venueOverrides), edits),
+    [parsed.restaurants, edits],
+  )
+
+  const value: Ctx = {
+    edits, rows, editCount,
+    period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matchingPeriodLabel, city: parsed.city, category: parsed.category,
+    restaurants, suppliers: parsed.suppliers, products: parsed.products,
+    backendOnline, status, syncing, refresh, reloadStatus,
+    renameProduct, renameSupplier, setVenue,
+    addVenue, removeVenue,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride,
+    reset, replaceAll, undo, canUndo,
+    noMatrixTest, setNoMatrixTest,
+  }
+  return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
+}
+
+export function useEdits() {
+  const c = useContext(EditsContext)
+  if (!c) throw new Error('useEdits must be used within EditsProvider')
+  return c
+}

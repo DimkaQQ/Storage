@@ -1,119 +1,97 @@
-import { Package, ShoppingCart, Truck, AlertTriangle, TrendingUp } from 'lucide-react'
-import { useStore } from '../store/useStore'
+import { useMemo } from 'react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell,
+  PieChart, Pie,
+} from 'recharts'
+import { Row, summarize, byRestaurant, fmt, pct, STATUS_META, Status } from '../lib/data'
 import StatCard from '../components/StatCard'
-import LowStockAlert from '../components/LowStockAlert'
-import { Link } from 'react-router-dom'
-import Badge, { labels } from '../components/Badge'
-import type { PurchaseStatus } from '../types'
-import { formatPrice } from '../utils/format'
+import { Section } from '../components/ui'
+import { ChartTip, C, Legend } from '../components/charts'
+import { IScale, ICheck, ISpark, IStore } from '../components/icons'
 
-export default function Dashboard() {
-  const { inventory, purchases, suppliers, selectedVenueId, venues } = useStore()
+export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
+  const s = useMemo(() => summarize(rows), [rows])
 
-  const filteredInventory = selectedVenueId ? inventory.filter((i) => i.venueId === selectedVenueId) : inventory
-  const filteredPurchases = selectedVenueId ? purchases.filter((p) => p.venueId === selectedVenueId) : purchases
+  const perRest = useMemo(
+    () => byRestaurant(rows).map((r) => ({ name: r.name, issues: r.summary.wrongSupplierCount + r.summary.noMatrixCount }))
+      .sort((a, b) => b.issues - a.issues)
+      .filter((r) => r.issues > 0),
+    [rows],
+  )
 
-  const selectedVenue = venues.find((v) => v.id === selectedVenueId)
-  const lowStockCount = filteredInventory.filter((i) => i.quantity <= i.minQuantity).length
-  const totalValue = filteredInventory.reduce((sum, i) => sum + i.quantity * i.price, 0)
-  const pendingOrders = filteredPurchases.filter((p) => p.status === 'pending' || p.status === 'ordered')
-  const recentPurchases = [...filteredPurchases].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5)
+  const statusData = useMemo(() => {
+    const order: Status[] = ['ok', 'wrongSupplier', 'nomatrix']
+    const counts = new Map<Status, number>()
+    // Позиции без факта (в матрице есть, но не покупали) сюда не входят —
+    // диаграмма про то, что реально закупили, и должна совпадать с s.positions.
+    for (const r of rows) if (r.unit != null) counts.set(r.status, (counts.get(r.status) || 0) + 1)
+    const colors: Record<Status, string> = { ok: C.good, wrongSupplier: C.warn, nomatrix: C.purple }
+    return order.map((st) => ({ st, name: STATUS_META[st].label, value: counts.get(st) || 0, color: colors[st] }))
+      .filter((d) => d.value > 0)
+  }, [rows])
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>
-          {selectedVenue ? selectedVenue.name : 'Все точки продаж'}
+    <div className="space-y-6">
+      {/* orientation primer */}
+      <div className="animate-fade-up flex items-center gap-3 rounded-xl border border-ink-700/60 bg-ink-850/60 px-4 py-2.5 text-sm">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand-500/15 text-brand-300"><ISpark width={14} height={14} /></span>
+        <p className="text-slate-400">
+          Сравниваем <b className="text-slate-200">плановую цену</b> (из матрицы) с <b className="text-slate-200">фактической</b> (из iiko)
+          и проверяем, куплено ли у назначенного поставщика.
         </p>
-        <h1 className="text-3xl" style={{ color: 'var(--white)' }}>Склад Ресторана</h1>
-        <div className="flex items-center gap-2 mt-3">
-          {selectedVenue && (
-            <span className="badge badge-ordered">{selectedVenue.address}</span>
+      </div>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatCard delay={0} label="Позиций проверено" info="Все закупленные позиции за период по выбранным точкам." value={fmt(s.positions)} accent="brand" icon={<IStore width={16} height={16} />} />
+        <StatCard delay={60} label="По матрице" info="Доля позиций, для которых нашлась плановая цена у назначенного поставщика." value={pct(s.matchRate).replace('+', '')} sub={`${fmt(s.matched)} из ${fmt(s.positions)}`} accent="good" icon={<ICheck width={16} height={16} />} />
+        <StatCard delay={120} label="Заказ не по матрице" info="Товар есть в матрице для этой точки, но куплен не у назначенного поставщика." value={fmt(s.wrongSupplierCount)} accent="warn" icon={<IScale width={16} height={16} />} />
+        <StatCard delay={180} label="Нет в матрице" infoAlign="right" info="Товара нет в плановой матрице ни у одного поставщика для этой точки." value={fmt(s.noMatrixCount)} accent="warn" icon={<IScale width={16} height={16} />} />
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-3 gap-4">
+        <Section delay={240} title="Несостыковки по ресторанам" subtitle="Заказ не по матрице + нет в матрице, количество позиций" className="col-span-2">
+          {perRest.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-500">Несостыковок в выбранном срезе не найдено 🎉</div>
+          ) : (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={perRest} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                  <CartesianGrid horizontal={false} stroke={C.grid} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fill: C.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" width={150} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <Tooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} content={<ChartTip />} />
+                  <Bar dataKey="issues" name="Несостыковок" radius={[0, 4, 4, 0]} barSize={16} fill={C.warn} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
-          {lowStockCount > 0 && (
-            <span className="badge badge-low flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              {lowStockCount} позиций мало
-            </span>
-          )}
-        </div>
-      </div>
+        </Section>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard title="Позиций на складе" value={filteredInventory.length} subtitle="товаров учтено" icon={Package} />
-        <StatCard title="Стоимость склада" value={formatPrice(totalValue)} subtitle="текущий запас" icon={TrendingUp} />
-        <StatCard title="Активных заказов" value={pendingOrders.length} subtitle="в ожидании" icon={ShoppingCart} />
-        <StatCard title="Поставщиков" value={suppliers.length} subtitle="контрагентов" icon={Truck} />
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        {/* Low stock */}
-        <LowStockAlert />
-
-        {/* Recent purchases */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold" style={{ color: 'var(--white)' }}>Последние закупки</h3>
-            <Link to="/purchases" className="text-xs hover:underline" style={{ color: 'var(--gold)' }}>Все →</Link>
+        <Section delay={300} title="Структура позиций" subtitle="Статус проверки цены">
+          <div className="relative h-52">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={54} outerRadius={80} paddingAngle={2} stroke="none">
+                  {statusData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                </Pie>
+                <Tooltip content={<ChartTip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center">
+              <span className="text-2xl font-bold text-white tabnum">{fmt(s.positions)}</span>
+              <span className="text-[11px] text-slate-500">позиций</span>
+            </div>
           </div>
-          <div className="space-y-3">
-            {recentPurchases.map((p) => {
-              const supplier = suppliers.find((s) => s.id === p.supplierId)
-              const venue = venues.find((v) => v.id === p.venueId)
-              return (
-                <Link
-                  key={p.id}
-                  to={`/purchases/${p.id}`}
-                  className="flex items-center justify-between rounded-lg px-2 py-2 -mx-2 transition-colors"
-                  style={{ color: 'inherit' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <div>
-                    <p className="text-sm font-medium" style={{ color: 'var(--white)' }}>{supplier?.name}</p>
-                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
-                      {p.items.length} позиц. • {p.createdAt.slice(0, 10)}
-                      {venue && !selectedVenueId && <span> • {venue.name}</span>}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold num" style={{ color: 'var(--white)' }}>{formatPrice(p.totalAmount)}</p>
-                    <Badge variant={p.status}>{labels[p.status as PurchaseStatus] ?? p.status}</Badge>
-                  </div>
-                </Link>
-              )
-            })}
-            {recentPurchases.length === 0 && (
-              <p className="text-sm text-center py-4" style={{ color: 'var(--muted)' }}>Нет закупок</p>
-            )}
+          <div className="mt-2">
+            <Legend items={statusData.map((d) => ({ label: d.name, color: d.color, value: fmt(d.value) }))} />
           </div>
-        </div>
+        </Section>
       </div>
 
-      {/* Quick actions */}
-      <div>
-        <h3 className="text-sm font-medium mb-3 uppercase tracking-wider" style={{ color: 'var(--muted)' }}>Быстрый доступ</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            { to: '/inventory', label: 'Склад', desc: 'Управление запасами', icon: Package },
-            { to: '/purchases', label: 'Закупки', desc: 'Создать заказ', icon: ShoppingCart },
-            { to: '/suppliers', label: 'Поставщики', desc: 'Контакты', icon: Truck },
-            { to: '/analytics', label: 'Аналитика', desc: 'Графики и отчёты', icon: TrendingUp },
-          ].map(({ to, label, desc, icon: Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className="kpi-card card-lift block"
-              style={{ textDecoration: 'none' }}
-            >
-              <Icon className="w-5 h-5 mb-2" style={{ color: 'var(--gold)' }} />
-              <p className="font-semibold text-sm" style={{ color: 'var(--white)' }}>{label}</p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{desc}</p>
-            </Link>
-          ))}
-        </div>
+      <div className="text-center">
+        <button onClick={() => onNav('pricecheck')} className="btn text-brand-300 hover:text-brand-200">Все позиции →</button>
       </div>
     </div>
   )
