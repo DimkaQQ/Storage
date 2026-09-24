@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { fetchSettings, saveSettings, testConnection, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
-import { ISync, IPlug, ICheck, IClose } from '../components/icons'
+import { ISync, IPlug, ICheck, IClose, IStore, IPlus } from '../components/icons'
 
 const PROVIDERS: { id: Settings['provider']; label: string; note: string }[] = [
   { id: 'iikoserver', label: 'iikoOffice / RMS', note: 'Сервер iiko (resto API) — отсюда «Отчёт о закупках по складам»' },
@@ -26,11 +26,12 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, reloadStatus } = useEdits()
+  const { backendOnline, status, syncing, refresh, reloadStatus, venues, enableVenueByName } = useEdits()
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [addingVenue, setAddingVenue] = useState<string | null>(null)
 
   useEffect(() => { fetchSettings().then((s) => s && setForm(s)) }, [])
 
@@ -141,6 +142,32 @@ export default function IikoSettings() {
             </span>
           )}
         </div>
+      </Section>
+
+      {/* venues */}
+      <Section title="Точки сети" subtitle="Список показывается на бэкенде, не в коде — новую точку можно включить прямо тут, без правки кода и редеплоя.">
+        <div className="text-sm text-slate-400">Сейчас включено: <span className="text-slate-200">{venues.enabled.length}</span> точек</div>
+        {venues.discovered.length > 0 ? (
+          <div className="mt-3">
+            <div className="mb-2 text-xs font-medium text-slate-400">Обнаружены в закупках, но пока не показаны:</div>
+            <div className="flex flex-wrap gap-2">
+              {venues.discovered.map((name) => (
+                <button
+                  key={name}
+                  disabled={addingVenue === name}
+                  onClick={async () => { setAddingVenue(name); await enableVenueByName(name); setAddingVenue(null) }}
+                  className="chip border-brand-500/40 bg-brand-500/10 text-brand-300 hover:bg-brand-500/20 disabled:opacity-60"
+                >
+                  <IStore width={13} height={13} />{name}
+                  <IPlus width={13} height={13} />
+                  {addingVenue === name ? 'Добавляю…' : 'Добавить'}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">Новых точек, которых ещё нет в списке, не найдено.</p>
+        )}
       </Section>
 
       {/* schedule */}

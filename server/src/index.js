@@ -5,6 +5,7 @@ import {
   getDataset, saveDataset, getVenues, listDatasetPeriods, getSeedPeriods,
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
+  getEnabledRestaurants, enableRestaurant, discoverRestaurants,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection } from './iiko.js'
@@ -188,6 +189,25 @@ app.post('/api/test-connection', requireAuth, async (req, res) => {
   if (req.body?.password === '********') merged.password = s.password
   if (req.body?.apiLogin === '********') merged.apiLogin = s.apiLogin
   res.json(await testConnection(merged))
+})
+
+/**
+ * «Точки сети» (Настройки iiko): enabled — сейчас показываются в
+ * приложении; discovered — реально встречались в закупках этой
+ * организации (по сохранённым датасетам всех периодов), но пока не
+ * включены. buildDataset (dataset.js) не фильтрует факты по точкам сам —
+ * всё, что вернул iiko, уже лежит в датасете, так что "включить" здесь —
+ * это только снять фильтр на фронте, без пересинхронизации.
+ */
+app.get('/api/venues', requireAuth, (req, res) => {
+  res.json({ enabled: getEnabledRestaurants(req.auth.orgId), discovered: discoverRestaurants(req.auth.orgId) })
+})
+
+app.post('/api/venues/enable', requireAuth, (req, res) => {
+  const name = String(req.body?.name || '').trim()
+  if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
+  const enabled = enableRestaurant(req.auth.orgId, name)
+  res.json({ enabled, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
 app.get('/api/edits', requireAuth, (req, res) => res.json(editsDb.getEditsForOrg(req.auth.orgId)))

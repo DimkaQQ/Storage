@@ -79,6 +79,15 @@ export async function testConnection(s: Partial<IikoSettings>): Promise<{ ok: bo
   } catch { return { ok: false, message: 'Бэкенд недоступен' } }
 }
 
+export interface Venues { enabled: string[]; discovered: string[] }
+export const fetchVenues = () => get<Venues>('/api/venues')
+export async function enableVenue(name: string): Promise<Venues | null> {
+  try {
+    const r = await fetch('/api/venues/enable', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name }) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
+
 export async function triggerSync(): Promise<{ ok: boolean; message?: string }> {
   try {
     const r = await fetch('/api/sync', { method: 'POST', headers: authHeaders() })

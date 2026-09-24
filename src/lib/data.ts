@@ -845,7 +845,7 @@ export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 // matching, он неизменяем), и везде, где идёт полный проход по ключам,
 // используем эту версию вместо исходной. supplierAlias не трогаем — он не
 // привязан к ресторану, там нечего обрезать.
-const scopedMatchingCache = new WeakMap<MatchingTable, MatchingTable>()
+let scopedMatchingCache = new WeakMap<MatchingTable, MatchingTable>()
 export function scopedMatching(matching: MatchingTable): MatchingTable {
   if (!RESTAURANT_SCOPE) return matching
   const cached = scopedMatchingCache.get(matching)
@@ -1018,17 +1018,16 @@ export interface Parsed {
 }
 
 /**
- * Список точек, включённых в приложение. Раньше тут было ['Рене'] — только
- * одна точка, пока её отдельно перепроверяли. Теперь оплата прошла по всей
- * сети, включены все точки, ЗА ИСКЛЮЧЕНИЕМ "French bar" (бар — сознательно
- * не подключаем пока, отдельная задача на потом; у него и так 0 закупок в
- * обоих периодах, так что сейчас это ничего не меняет по данным). Список,
- * а не null — именно чтобы бар остался снаружи, а не потому что общий
- * фильтр по названию не работал бы: код сопоставления сам по себе не
- * привязан к конкретному ресторану (ключ "ресторан::поставщик::товар"
- * работает одинаково для любого) — точки просто добавляются сюда по имени.
+ * Список точек, включённых в приложение. Раньше был жёстко зашит в код
+ * (сначала ['Рене'] на время перепроверки, потом полный список вручную) —
+ * теперь это НАЧАЛЬНОЕ значение, а реальный список приходит с бэкенда (см.
+ * setRestaurantScope ниже) и настраивается по кнопке в Настройки iiko →
+ * «Точки сети», без правки кода и редеплоя. Без бэкенда (демо/офлайн) или
+ * до первой загрузки настроек используется этот список как есть — он же
+ * то, что уже проверено и включено на сегодня, минус "French bar" (бар,
+ * отдельная задача на потом).
  */
-const RESTAURANT_SCOPE: string[] | null = [
+export const DEFAULT_RESTAURANT_SCOPE: string[] = [
   'Рене',
   'Олово 1 (Сатпаева)',
   'Олово 2 (Достык)',
@@ -1044,13 +1043,30 @@ const RESTAURANT_SCOPE: string[] | null = [
   'Сирена',
   'Камчатка',
 ]
+let RESTAURANT_SCOPE: string[] | null = DEFAULT_RESTAURANT_SCOPE
+
+/**
+ * Переключает список включённых точек (после того как бэкенд ответил на
+ * /api/venues, или сразу после «Добавить» по одной новой точке). Сбрасывает
+ * scopedMatchingCache — иначе он продолжил бы отдавать обрезку по СТАРОМУ
+ * списку для того же bundled-matching объекта (кэш там по ссылке на исходную
+ * матрицу, а не по списку точек). designatedIndexCache/knownFlatIndexCache
+ * трогать не нужно — они кэшируются по ссылке на уже обрезанную матрицу,
+ * а scopedMatching при новом списке точек вернёт новый объект сама.
+ */
+export function setRestaurantScope(scope: string[] | null): void {
+  RESTAURANT_SCOPE = scope
+  scopedMatchingCache = new WeakMap()
+}
+
 
 /** Parses a raw dataset (bundled seed or fresh from the backend) into app structures. */
 export function parseDataset(data: RawDataset, matching: MatchingTable = bundledMatching(data.period)): Parsed {
   let seq = 0
   const base: BaseRow[] = []
-  const restaurantsIn = RESTAURANT_SCOPE
-    ? (data.restaurants || []).filter((r) => RESTAURANT_SCOPE.includes(r.name))
+  const scope = RESTAURANT_SCOPE
+  const restaurantsIn = scope
+    ? (data.restaurants || []).filter((r) => scope.includes(r.name))
     : (data.restaurants || [])
   for (const r of restaurantsIn) {
     for (const it of r.items || []) {

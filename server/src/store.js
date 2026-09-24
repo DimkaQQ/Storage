@@ -107,7 +107,36 @@ export const DEFAULT_SETTINGS = {
   autoEnabled: false,
   interval: 'daily',           // 'hourly' | 'daily' | 'weekly' | 'monthly'
   period: 'current-month',     // отчётный период выгрузки
+  // точки сети, включённые в приложение — null = ещё не настраивали вручную,
+  // тогда при первом обращении к /api/venues материализуется в
+  // DEFAULT_ENABLED_RESTAURANTS (см. ниже) и с этого момента сохраняется как
+  // обычное поле настроек.
+  enabledRestaurants: null,
 }
+
+/**
+ * То же самое, что раньше было зашито в коде фронтенда (RESTAURANT_SCOPE в
+ * src/lib/data.ts) — те же точки, кроме "French bar". Используется только
+ * как разовое стартовое значение при первом обращении к /api/venues для
+ * органиазции, у которой ещё нет своего сохранённого enabledRestaurants —
+ * дальше источник правды один, тут (settings.json), а не в двух местах.
+ */
+export const DEFAULT_ENABLED_RESTAURANTS = [
+  'Рене',
+  'Олово 1 (Сатпаева)',
+  'Олово 2 (Достык)',
+  'Pasta la vista (Богенбай)',
+  'Pasta la vista (Гагарина)',
+  'Pasta la vista (Толе би)',
+  'Ле Дом',
+  'Six coffee&wine 1',
+  'Six coffee&wine 2',
+  'Tangirs',
+  'Акку',
+  'ЦФК',
+  'Сирена',
+  'Камчатка',
+]
 
 /**
  * Bundled demo data ships as one file per month (server/seed/dataset-<period>.json)
@@ -172,3 +201,47 @@ export function listDatasetPeriods(orgId) {
     .map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
     .sort((a, b) => a.period.localeCompare(b.period))
 }
+
+/**
+ * Список точек, включённых в приложение для этой организации. При первом
+ * обращении (enabledRestaurants ещё null) материализует и сохраняет
+ * DEFAULT_ENABLED_RESTAURANTS — дальше это обычное сохранённое поле, не
+ * дефолт, вычисляемый каждый раз заново.
+ */
+export function getEnabledRestaurants(orgId) {
+  const settings = getSettings(orgId)
+  if (settings.enabledRestaurants != null) return settings.enabledRestaurants
+  const enabled = [...DEFAULT_ENABLED_RESTAURANTS]
+  saveSettings(orgId, { enabledRestaurants: enabled })
+  return enabled
+}
+
+/**
+ * Добавляет одну точку в список включённых (если её там ещё нет) и
+ * сохраняет. dataset.js ничего не фильтрует по точкам сам — что реально
+ * пришло из iiko (buildDataset группирует факты по Store как есть), то и
+ * лежит в файлах датасета, так что включить точку — это только снять
+ * фильтр на фронте, без пересборки/повторной синхронизации.
+ */
+export function enableRestaurant(orgId, name) {
+  const enabled = getEnabledRestaurants(orgId)
+  if (enabled.includes(name)) return enabled
+  const next = [...enabled, name]
+  saveSettings(orgId, { enabledRestaurants: next })
+  return next
+}
+
+/**
+ * Точки, которые реально встречались в закупках этой организации (по всем
+ * сохранённым периодам), но ещё не включены — кандидаты на кнопку
+ * «Добавить» в Настройки iiko → «Точки сети».
+ */
+export function discoverRestaurants(orgId) {
+  const enabled = new Set(getEnabledRestaurants(orgId))
+  const seen = new Set()
+  for (const { period } of listDatasetPeriods(orgId)) {
+    for (const r of getDataset(orgId, period).restaurants || []) seen.add(r.name)
+  }
+  return [...seen].filter((name) => !enabled.has(name))
+}
+

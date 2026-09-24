@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, BUNDLED_MATCHING_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues } from './data'
-import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, SyncStatus, PeriodMeta } from './api'
+import { BUNDLED, BUNDLED_PERIODS, BUNDLED_MATCHING_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 // Локальный флаг устройства (не серверный) — «тестовый режим без матрицы».
@@ -108,6 +108,10 @@ interface Ctx {
   syncing: boolean
   refresh: () => Promise<void>
   reloadStatus: () => Promise<void>
+  // точки сети — какие сейчас включены/показаны, и какие видны в закупках,
+  // но пока не включены (Настройки iiko → «Точки сети»)
+  venues: Venues
+  enableVenueByName: (name: string) => Promise<void>
   // edits
   renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
   renameSupplier: (rawName: string, name: string) => void
@@ -139,6 +143,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [backendOnline, setBackendOnline] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [venues, setVenuesState] = useState<Venues>({ enabled: DEFAULT_RESTAURANT_SCOPE, discovered: [] })
   const history = useRef<Edits[]>([])
   const [canUndo, setCanUndo] = useState(false)
   const [noMatrixTest, setNoMatrixTestState] = useState<boolean>(() => {
@@ -194,19 +199,43 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const data = await fetchEdits()
     if (data) { setEdits(normalize(data)); setBackendOnline(true) }
   }, [])
+  // Список включённых точек живёт на бэкенде (per-org), а не в коде — см.
+  // DEFAULT_RESTAURANT_SCOPE/setRestaurantScope в lib/data.ts. Без бэкенда
+  // (демо/офлайн) остаётся дефолтный список как есть, ничего не меняем.
+  const loadVenues = useCallback(async () => {
+    const v = await fetchVenues()
+    if (v) { setRestaurantScope(v.enabled); setVenuesState(v); setBackendOnline(true) }
+  }, [])
 
   // On mount: pull the list of available periods + status + shared
   // corrections from the backend (if present), then the latest period's
   // data — defaults to the newest available period, same as before periods existed.
+  // Точки грузим/применяем ДО периодов и данных — иначе parseDataset уже
+  // отработает по дефолтному списку точек, и придётся ждать следующего
+  // обновления, чтобы увидеть реальный (сохранённый на сервере) список.
   useEffect(() => {
     reloadStatus()
     loadEdits()
-    loadPeriods().then((list) => {
-      const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
-      setPeriodKey(initial)
-      loadData(initial)
+    loadVenues().then(() => {
+      loadPeriods().then((list) => {
+        const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
+        setPeriodKey(initial)
+        loadData(initial)
+      })
     })
   }, [])
+
+  // Кнопка «Добавить» у обнаруженной, но пока не включённой точки
+  // (Настройки iiko → «Точки сети»). Точка уже есть в данных (iiko прислал
+  // закупки под этим Store, backend ничего не фильтрует) — включить это
+  // просто снять фильтр по имени и пересчитать текущий период.
+  const enableVenueByName = useCallback(async (name: string) => {
+    const v = await enableVenue(name)
+    if (!v) return
+    setRestaurantScope(v.enabled)
+    setVenuesState(v)
+    await loadData(periodKey)
+  }, [loadData, periodKey])
 
   const setPeriod = useCallback((period: string) => {
     setPeriodKey(period)
@@ -215,12 +244,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   // «Обновление» держит текущий выбранный период — просто пересобирает то,
   // на что уже смотрит пользователь, плюс подтягивает список периодов
-  // заново (вдруг появился новый).
+  // заново (вдруг появился новый), и список точек (вдруг синк принёс
+  // закупки из точки, которой раньше не было).
   const refresh = useCallback(async () => {
     setSyncing(true)
-    try { await triggerSync(); await loadPeriods(); await loadData(periodKey); await reloadStatus() }
+    try { await triggerSync(); await loadVenues(); await loadPeriods(); await loadData(periodKey); await reloadStatus() }
     finally { setSyncing(false) }
-  }, [loadData, loadPeriods, reloadStatus, periodKey])
+  }, [loadData, loadPeriods, loadVenues, reloadStatus, periodKey])
 
   // Матрица версионирована по периодам так же, как факты — цены реально
   // отличаются месяц к месяцу, так что план всегда должен браться из
@@ -404,6 +434,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matchingPeriodLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
+    venues, enableVenueByName,
     renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride,
