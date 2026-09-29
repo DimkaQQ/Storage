@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { BUNDLED, BUNDLED_PERIODS, BUNDLED_MATCHING_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
-import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, Venues, SyncStatus, PeriodMeta } from './api'
+import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 // Локальный флаг устройства (не серверный) — «тестовый режим без матрицы».
@@ -112,6 +112,7 @@ interface Ctx {
   // но пока не включены (Настройки iiko → «Точки сети»)
   venues: Venues
   enableVenueByName: (name: string) => Promise<void>
+  refreshMatrix: () => Promise<void>
   // edits
   renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
   renameSupplier: (rawName: string, name: string) => void
@@ -144,6 +145,10 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [backendOnline, setBackendOnline] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [venues, setVenuesState] = useState<Venues>({ enabled: DEFAULT_RESTAURANT_SCOPE, discovered: [] })
+  // Матрица (план-цены) — читается из Google-таблицы через бэкенд (см.
+  // sheets.js), отдельно от закупок. null = для этого периода ещё не
+  // синхронизировали — тогда matching ниже падает на вшитую bundledMatching.
+  const [backendMatching, setBackendMatching] = useState<MatchingTable | null>(null)
   const history = useRef<Edits[]>([])
   const [canUndo, setCanUndo] = useState(false)
   const [noMatrixTest, setNoMatrixTestState] = useState<boolean>(() => {
@@ -206,6 +211,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const v = await fetchVenues()
     if (v) { setRestaurantScope(v.enabled); setVenuesState(v); setBackendOnline(true) }
   }, [])
+  // Матрица — свой источник, свой фетч, не завязан на loadData (закупки).
+  // null у fetchMatching означает "для этого периода ещё нет синка с
+  // таблицей" — это НЕ ошибка бэкенда, поэтому backendOnline не трогаем.
+  const loadMatching = useCallback(async (period: string) => {
+    const m = await fetchMatching(period)
+    setBackendMatching(m && m.planPairs ? (m as MatchingTable) : null)
+  }, [])
 
   // On mount: pull the list of available periods + status + shared
   // corrections from the backend (if present), then the latest period's
@@ -221,9 +233,15 @@ export function EditsProvider({ children }: { children: ReactNode }) {
         const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
         setPeriodKey(initial)
         loadData(initial)
+        loadMatching(initial)
       })
     })
   }, [])
+
+  // Пересинхронизировать матрицу вручную (кнопка в Настройки iiko, после
+  // «Обновить сейчас» самой Google-таблицы) — просто перечитывает уже
+  // сохранённую бэкендом матрицу текущего периода.
+  const refreshMatrix = useCallback(() => loadMatching(periodKey), [loadMatching, periodKey])
 
   // Кнопка «Добавить» у обнаруженной, но пока не включённой точки
   // (Настройки iiko → «Точки сети»). Точка уже есть в данных (iiko прислал
@@ -240,7 +258,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const setPeriod = useCallback((period: string) => {
     setPeriodKey(period)
     loadData(period)
-  }, [loadData])
+    loadMatching(period)
+  }, [loadData, loadMatching])
 
   // «Обновление» держит текущий выбранный период — просто пересобирает то,
   // на что уже смотрит пользователь, плюс подтягивает список периодов
@@ -257,12 +276,19 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // матрицы ТОГО ЖЕ периода, что и просматриваемые факты. В тестовом режиме
   // (noMatrixTest) матрицу подменяем на пустую везде, где она используется —
   // «Проверка цен», Справочники и т.д. видят её через этот же matching.
-  const matching = useMemo(() => (noMatrixTest ? EMPTY_MATCHING : bundledMatching(periodKey)), [periodKey, noMatrixTest])
+  // backendMatching (синк с Google-таблицей) побеждает вшитую bundledMatching,
+  // когда для этого периода она реально есть.
+  const matching = useMemo(
+    () => (noMatrixTest ? EMPTY_MATCHING : backendMatching ?? bundledMatching(periodKey)),
+    [periodKey, noMatrixTest, backendMatching],
+  )
   // Бэкенд может уже знать периоды новее последней вшитой в код матрицы
   // (обновление из iiko идёт само, обновление матрицы — ручной шаг). Тогда
   // bundledMatching() выше молча подставляет ближайшую прошлую матрицу —
-  // а план-цены реально отличаются месяц к месяцу. Не молчим об этом.
-  const matchingIsStale = !BUNDLED_MATCHING_PERIODS.includes(periodKey)
+  // а план-цены реально отличаются месяц к месяцу. Не молчим об этом. Если
+  // матрица за этот период реально синхронизирована с таблицей
+  // (backendMatching) — устаревшей она не считается, независимо от периода.
+  const matchingIsStale = !backendMatching && !BUNDLED_MATCHING_PERIODS.includes(periodKey)
   const matchingPeriodKey = matchingIsStale ? BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period : periodKey
   const matchingPeriodLabel = periods.find((p) => p.period === matchingPeriodKey)?.periodLabel ?? matchingPeriodKey
   const rows = useMemo(() => computeRows(parsed.base, edits, matching), [parsed, edits, matching])
@@ -434,7 +460,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matchingPeriodLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, reloadStatus,
-    venues, enableVenueByName,
+    venues, enableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride,

@@ -24,6 +24,10 @@ export interface IikoSettings {
   autoEnabled: boolean
   interval: 'hourly' | 'daily' | 'weekly' | 'monthly'
   period: 'current-month' | 'prev-month'
+  // Матрица (план-цены) — отдельный источник от iiko, Google-таблица через
+  // сервисный аккаунт (см. server/src/sheets.js)
+  googleServiceAccountKey: string
+  googleSheetId: string
 }
 
 async function get<T>(path: string): Promise<T | null> {
@@ -87,6 +91,23 @@ export async function enableVenue(name: string): Promise<Venues | null> {
     return r.ok ? await r.json() : null
   } catch { return null }
 }
+
+/** Матрица (план-цены) читается прямо из Google-таблицы, не из iiko — см. IikoSettings.googleSheetId/googleServiceAccountKey. */
+export async function testMatrixConnection(s: Partial<IikoSettings>): Promise<{ ok: boolean; message: string }> {
+  try {
+    const r = await fetch('/api/matrix/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(s) })
+    if (!r.ok) return { ok: false, message: `Ошибка сервера (HTTP ${r.status})` }
+    return await r.json()
+  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+}
+export async function syncMatrix(period?: string): Promise<{ ok: boolean; message?: string; rows?: number }> {
+  try {
+    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(period ? { period } : {}) })
+    return await r.json()
+  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+}
+/** null — для этого периода ещё не синхронизировали матрицу с Google-таблицы; фронт сам падает на вшитую. */
+export const fetchMatching = (period: string) => get<any>(`/api/matching?period=${encodeURIComponent(period)}`)
 
 export async function triggerSync(): Promise<{ ok: boolean; message?: string }> {
   try {

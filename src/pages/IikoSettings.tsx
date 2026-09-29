@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, testMatrixConnection, syncMatrix, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus } from '../components/icons'
+
+/** Принимает и полную ссылку на таблицу, и просто ID — вытаскивает ID из ссылки вида .../d/<ID>/edit. */
+function extractSheetId(input: string): string {
+  const m = input.match(/\/d\/([a-zA-Z0-9_-]+)/)
+  return m ? m[1] : input.trim()
+}
 
 const PROVIDERS: { id: Settings['provider']; label: string; note: string }[] = [
   { id: 'iikoserver', label: 'iikoOffice / RMS', note: 'Сервер iiko (resto API) — отсюда «Отчёт о закупках по складам»' },
@@ -26,12 +32,16 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, reloadStatus, venues, enableVenueByName } = useEdits()
+  const { backendOnline, status, syncing, refresh, reloadStatus, venues, enableVenueByName, refreshMatrix } = useEdits()
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [addingVenue, setAddingVenue] = useState<string | null>(null)
+  const [matrixTesting, setMatrixTesting] = useState(false)
+  const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [matrixSyncing, setMatrixSyncing] = useState(false)
+  const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
 
   useEffect(() => { fetchSettings().then((s) => s && setForm(s)) }, [])
 
@@ -54,6 +64,22 @@ export default function IikoSettings() {
     if (r) { setForm(r); setSaved(true); reloadStatus() }
     setTestResult(await testConnection(form))
     setTesting(false)
+  }
+
+  const testMatrix = async () => {
+    if (!form) return
+    setMatrixTesting(true); setMatrixTestResult(null)
+    const r = await saveSettings(form)
+    if (r) { setForm(r); setSaved(true); reloadStatus() }
+    setMatrixTestResult(await testMatrixConnection(form))
+    setMatrixTesting(false)
+  }
+  const doSyncMatrix = async () => {
+    setMatrixSyncing(true); setMatrixSyncResult(null)
+    const r = await syncMatrix()
+    setMatrixSyncResult(r)
+    if (r.ok) await refreshMatrix()
+    setMatrixSyncing(false)
   }
 
   if (!backendOnline || !form) {
@@ -168,6 +194,53 @@ export default function IikoSettings() {
         ) : (
           <p className="mt-3 text-sm text-slate-500">Новых точек, которых ещё нет в списке, не найдено.</p>
         )}
+      </Section>
+
+      {/* matrix (plan prices from Google Sheet) */}
+      <Section title="Матрица (план-цены)" subtitle="Читается прямо из Google-таблицы Сырьё Ф через сервисный аккаунт — это отдельный источник от iiko, iiko про договорные цены ничего не знает.">
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label="ID или ссылка на таблицу"
+            hint="Можно вставить прямо ссылку из адресной строки — ID вытащится сам"
+            value={form.googleSheetId}
+            onChange={(v) => set({ googleSheetId: extractSheetId(v) })}
+            placeholder="https://docs.google.com/spreadsheets/d/…/edit"
+            full
+          />
+          <div className="col-span-2">
+            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-400">
+              Ключ сервисного аккаунта (JSON)
+              <InfoTip text="Весь файл, который скачали в Google Cloud Console → Service Accounts → Keys → Add Key → JSON. Хранится только на сервере." />
+            </label>
+            <textarea
+              rows={3}
+              value={form.googleServiceAccountKey}
+              onChange={(e) => set({ googleServiceAccountKey: e.target.value })}
+              placeholder='{"type": "service_account", …} (не менять — оставьте пустым, если ключ уже сохранён)'
+              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 font-mono text-xs text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button onClick={testMatrix} disabled={matrixTesting} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+            <IPlug width={16} height={16} /> {matrixTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
+          </button>
+          <button onClick={doSyncMatrix} disabled={matrixSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Синхронизировать план сейчас'}
+          </button>
+          {matrixTestResult && (
+            <span className={`chip ${matrixTestResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {matrixTestResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{matrixTestResult.message}
+            </span>
+          )}
+          {matrixSyncResult && (
+            <span className={`chip ${matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {matrixSyncResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+              {matrixSyncResult.ok ? 'Матрица обновлена' : matrixSyncResult.message}
+            </span>
+          )}
+        </div>
       </Section>
 
       {/* schedule */}

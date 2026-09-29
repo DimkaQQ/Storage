@@ -93,6 +93,7 @@ function orgPaths(orgId) {
   }
 }
 const orgDatasetPath = (orgId, period) => join(orgDir(orgId), `dataset-${period}.json`)
+const orgMatrixPath = (orgId, period) => join(orgDir(orgId), `matrix-${period}.json`)
 
 export const DEFAULT_SETTINGS = {
   provider: 'mock',            // 'mock' | 'iikoserver' | 'iikocloud'
@@ -112,6 +113,13 @@ export const DEFAULT_SETTINGS = {
   // DEFAULT_ENABLED_RESTAURANTS (см. ниже) и с этого момента сохраняется как
   // обычное поле настроек.
   enabledRestaurants: null,
+  // Матрица (план-цены) — читается напрямую из Google-таблицы Сырьё Ф через
+  // сервисный аккаунт (Sheets API, только чтение), а не из iiko — iiko
+  // ничего не знает про договорные цены. googleServiceAccountKey хранит
+  // ВЕСЬ JSON-ключ целиком (строкой), googleSheetId — ID таблицы из её
+  // ссылки (кусок между /d/ и /edit).
+  googleServiceAccountKey: '',
+  googleSheetId: '',
 }
 
 /**
@@ -190,6 +198,14 @@ export const saveStatus = (orgId, s) => { write(orgPaths(orgId).status, s); retu
 export const getDataset = (orgId, period) => read(orgDatasetPath(orgId, period), { restaurants: [] })
 export const saveDataset = (orgId, period, d) => write(orgDatasetPath(orgId, period), d)
 export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])
+
+/** Матрица (план-цены), прочитанная из Google-таблицы — null, если для этого периода ещё не синхронизировали. */
+export const getMatrix = (orgId, period) => read(orgMatrixPath(orgId, period), null)
+export const saveMatrix = (orgId, period, m) => write(orgMatrixPath(orgId, period), m)
+export function listMatrixPeriods(orgId) {
+  const dir = orgDir(orgId)
+  return readdirSync(dir).filter((f) => /^matrix-.+\.json$/.test(f)).map((f) => f.replace(/^matrix-|\.json$/g, ''))
+}
 
 /** Available periods for this org, oldest first, read straight off the stored dataset files. */
 export function listDatasetPeriods(orgId) {

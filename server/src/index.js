@@ -6,9 +6,11 @@ import {
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   getEnabledRestaurants, enableRestaurant, discoverRestaurants,
+  getMatrix, saveMatrix,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection } from './iiko.js'
+import { testConnection as testSheetsConnection, syncMatrix } from './sheets.js'
 import { buildDataset, resolveLivePeriod } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
@@ -168,19 +170,25 @@ app.post('/api/sync', requireAuth, async (req, res) => {
   res.status(result.ok ? 200 : 502).json(result)
 })
 
+// Секретные поля настроек — не отдаём их наружу как есть, только маской, и
+// не даём случайно затереть маской при сохранении (см. mergeSecrets ниже).
+const SECRET_FIELDS = ['password', 'apiLogin', 'googleServiceAccountKey']
+const maskSecrets = (s) => {
+  const out = { ...s }
+  for (const f of SECRET_FIELDS) out[f] = s[f] ? '********' : ''
+  return out
+}
+
 app.get('/api/settings', requireAuth, (req, res) => {
-  const s = getSettings(req.auth.orgId)
-  res.json({ ...s, password: s.password ? '********' : '', apiLogin: s.apiLogin ? '********' : '' })
+  res.json(maskSecrets(getSettings(req.auth.orgId)))
 })
 
 app.put('/api/settings', requireAuth, (req, res) => {
   const incoming = { ...req.body }
-  // не затирать секреты маскированным значением
-  if (incoming.password === '********') delete incoming.password
-  if (incoming.apiLogin === '********') delete incoming.apiLogin
+  for (const f of SECRET_FIELDS) if (incoming[f] === '********') delete incoming[f]
   const next = saveSettings(req.auth.orgId, incoming)
   armSchedule(req.auth.orgId)
-  res.json({ ...next, password: next.password ? '********' : '', apiLogin: next.apiLogin ? '********' : '' })
+  res.json(maskSecrets(next))
 })
 
 app.post('/api/test-connection', requireAuth, async (req, res) => {
@@ -190,6 +198,41 @@ app.post('/api/test-connection', requireAuth, async (req, res) => {
   if (req.body?.apiLogin === '********') merged.apiLogin = s.apiLogin
   res.json(await testConnection(merged))
 })
+
+/**
+ * Матрица (план-цены) — отдельный источник от iiko, читается напрямую из
+ * Google-таблицы через сервисный аккаунт (см. sheets.js). test-connection
+ * только проверяет доступ; sync читает таблицу целиком и сохраняет как
+ * матрицу этой организации за указанный period — дальше /api/matching
+ * отдаёт её фронтенду вместо вшитой в код.
+ */
+app.post('/api/matrix/test-connection', requireAuth, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  const merged = { ...s, ...req.body }
+  if (req.body?.googleServiceAccountKey === '********') merged.googleServiceAccountKey = s.googleServiceAccountKey
+  res.json(await testSheetsConnection(merged))
+})
+
+app.post('/api/matrix/sync', requireAuth, async (req, res) => {
+  const orgId = req.auth.orgId
+  const settings = getSettings(orgId)
+  const period = String(req.body?.period || resolveLivePeriod(settings).period)
+  try {
+    const { matching, summary } = await syncMatrix(settings)
+    saveMatrix(orgId, period, matching)
+    res.json({ ok: true, period, ...summary })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+app.get('/api/matching', requireAuth, (req, res) => {
+  const period = req.query.period
+  if (!period) return res.status(400).json({ message: 'Не указан period' })
+  const m = getMatrix(req.auth.orgId, String(period))
+  res.json(m) // null, если для этого периода ещё не синхронизировали — фронт сам падает на вшитую матрицу
+})
+
 
 /**
  * «Точки сети» (Настройки iiko): enabled — сейчас показываются в
