@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Row, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
+import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
-import { ISearch, ISort, IDownload, IArrowUp, IArrowDown } from '../components/icons'
+import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct'
 
@@ -13,10 +14,15 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
+  const { setRowComment, setRowColor } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'restaurant', dir: -1 })
   const [limit, setLimit] = useState(60)
+  // Открытый попап "заметка/цвет" — по rowKey строки, не по id (id меняется
+  // между парсингами, а попап открыт как раз пока пользователь печатает).
+  const [openNoteFor, setOpenNoteFor] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -59,14 +65,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // при заходе на Проверку цен, чтобы сама страница открывалась быстро.
   const exportExcel = async () => {
     const XLSX = await import('xlsx')
-    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у']
+    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у', 'Заметка']
     const lines = filtered.map((r) => [
       r.restaurant, r.supplier, r.product, r.pack,
       r.plan ?? '', r.unit ?? '', r.plan != null && r.unit != null ? r.unit - r.plan : '',
-      STATUS_META[r.status].label, r.designatedSuppliers.join(', '),
+      STATUS_META[r.status].label, r.designatedSuppliers.join(', '), r.userComment ?? '',
     ])
     const ws = XLSX.utils.aoa_to_sheet([head, ...lines])
-    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }]
+    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
     XLSX.writeFile(wb, 'proverka-cen.xlsx')
@@ -130,18 +136,19 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           <table className="w-full max-w-[1060px] table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[12%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[18%]" tight>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[23%]" tight>Товар</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[10%]">План</Th>
-                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[14%]">Факт</Th>
-                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[11%]">Δ</Th>
-                <th className="th w-[12%]">Статус</th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[11%]" tight>Ресторан</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[16%]" tight>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[19%]" tight>Товар</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
+                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[13%]">Факт</Th>
+                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[10%]">Δ</Th>
+                <th className="th w-[11%]">Статус</th>
+                <th className="th w-[8%]">Заметка</th>
               </tr>
             </thead>
             <tbody>
               {shown.map((r) => (
-                <tr key={r.id} className={`row-hover hover:bg-ink-800/40 ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''}`}>
+                <tr key={r.id} className={`row-hover hover:bg-ink-800/40 ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''} ${r.rowColor ? ROW_COLORS.find((c) => c.id === r.rowColor)?.rowBg ?? '' : ''}`}>
                   <td className="td overflow-hidden px-2 text-slate-400"><HoverName text={r.restaurant} /></td>
                   <td className="td overflow-hidden px-2 font-medium text-slate-100">
                     {/* Крупным — название из матрицы (если есть), мелким под ним —
@@ -205,6 +212,53 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
                         <InfoTip text={r.note} align="left" />
                         <span>комментарий</span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="td relative overflow-visible px-2 text-center">
+                    <button
+                      onClick={() => { setOpenNoteFor(openNoteFor === r.rowKey ? null : r.rowKey); setDraft(r.userComment ?? '') }}
+                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-slate-500'}`}
+                      title={r.userComment ?? 'Добавить заметку'}
+                    >
+                      {r.rowColor && <span className={`h-2 w-2 rounded-full ${ROW_COLORS.find((c) => c.id === r.rowColor)?.dot}`} />}
+                      <IEdit width={13} height={13} />
+                    </button>
+                    {openNoteFor === r.rowKey && (
+                      <div className="absolute right-2 top-full z-20 mt-1 w-64 rounded-xl border border-ink-600 bg-ink-800 p-3 text-left shadow-card">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-medium text-slate-300">Заметка к строке</span>
+                          <button onClick={() => setOpenNoteFor(null)} className="text-slate-500 hover:text-slate-300"><IClose width={14} height={14} /></button>
+                        </div>
+                        <textarea
+                          autoFocus
+                          rows={3}
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          placeholder="Свой комментарий к этой закупке…"
+                          className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+                        />
+                        <div className="mt-2 flex items-center gap-1.5">
+                          {ROW_COLORS.map((c) => (
+                            <button
+                              key={c.id}
+                              onClick={() => setRowColor(r.rowKey, r.rowColor === c.id ? null : c.id)}
+                              title={c.label}
+                              className={`h-5 w-5 rounded-full ${c.dot} ${r.rowColor === c.id ? 'ring-2 ring-white/70' : 'opacity-70 hover:opacity-100'}`}
+                            />
+                          ))}
+                          {r.rowColor && (
+                            <button onClick={() => setRowColor(r.rowKey, null)} className="ml-1 text-[11px] text-slate-500 hover:text-slate-300">убрать</button>
+                          )}
+                        </div>
+                        <div className="mt-2.5 flex justify-end gap-2">
+                          <button
+                            onClick={() => { setRowComment(r.rowKey, draft); setOpenNoteFor(null) }}
+                            className="btn bg-brand-500 px-2.5 py-1 text-xs text-white hover:bg-brand-600"
+                          >
+                            Сохранить
+                          </button>
+                        </div>
                       </div>
                     )}
                   </td>

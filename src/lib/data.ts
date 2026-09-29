@@ -150,6 +150,25 @@ export interface Row {
   packFixKey: string | null  // ключ для setPackAlias — есть, только когда availableFasovki непусто
   matchedKey: string | null  // ключ matching.planPairs/planPairsByPack, который эта закупка реально притянула (status === 'ok') — нужен, чтобы показать в Справочниках, какое именно iiko-название сейчас подтягивается к строке матрицы, даже когда это чистое текстовое совпадение, без явной привязки
   isTotalRow: boolean  // похоже на строку-итог из исходного отчёта ("...всего"), а не отдельную закупку — показать приглушённо, объяснение уже в note
+  rowKey: string  // стабильный ключ этой ровно закупки (период+ресторан+поставщик+товар+фасовка+кол-во+сумма, как их прислал iiko) — для комментария/цвета строки (edits.rowComments/rowColors), НЕ то же самое что id (id — просто порядковый номер за один парсинг, от захода к заходу может быть другим)
+  userComment: string | null  // свой комментарий пользователя к этой закупке (Проверка цен) — отдельно от note/b.comment (их же комментарий из iiko)
+  rowColor: RowColor | null  // цветовая метка строки, если поставили вручную
+}
+
+/** Небольшая фиксированная палитра — проще ссылаться по имени, чем хранить произвольный hex. */
+export type RowColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple'
+export const ROW_COLORS: { id: RowColor; label: string; dot: string; rowBg: string }[] = [
+  { id: 'red', label: 'Красный', dot: 'bg-red-500', rowBg: 'bg-red-500/10' },
+  { id: 'orange', label: 'Оранжевый', dot: 'bg-orange-500', rowBg: 'bg-orange-500/10' },
+  { id: 'yellow', label: 'Жёлтый', dot: 'bg-yellow-400', rowBg: 'bg-yellow-400/10' },
+  { id: 'green', label: 'Зелёный', dot: 'bg-green-500', rowBg: 'bg-green-500/10' },
+  { id: 'blue', label: 'Синий', dot: 'bg-blue-500', rowBg: 'bg-blue-500/10' },
+  { id: 'purple', label: 'Фиолетовый', dot: 'bg-purple-500', rowBg: 'bg-purple-500/10' },
+]
+
+/** Ключ для edits.rowComments/rowColors — по содержимому исходной закупки, не по Row.id (тот меняется от парсинга к парсингу). */
+export function buildRowKey(b: Pick<BaseRow, 'period' | 'restaurant' | 'supplier0' | 'product0' | 'pack' | 'qty' | 'sum'>): string {
+  return [b.period, norm(b.restaurant), norm(b.supplier0), norm(b.product0), normPack(b.pack), b.qty, b.sum].join('::')
 }
 
 // ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
@@ -158,6 +177,7 @@ const MIN_TURNOVER = 1000
 /** Immutable base row parsed from the dataset (original names, no plan resolution yet). */
 export interface BaseRow {
   id: string
+  period: string  // нужен для rowKey (комментарий/цвет строки) — одна и та же закупка не должна путаться с такой же в другом месяце
   restaurant: string
   brand: string
   city: string
@@ -240,9 +260,12 @@ export interface Edits {
   planOverrides: Record<string, number>    // legacy — ручные план-цены больше не выставляются из приложения (цена только из матрицы), поле остаётся только чтобы не потерять то, что уже сохранено у существующих организаций
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
+  rowComments: Record<string, string>      // buildRowKey(...) -> свой комментарий пользователя к этой ровно закупке (Проверка цен)
+  rowColors: Record<string, RowColor>      // buildRowKey(...) -> цветовая метка строки, если поставили вручную
 }
 export const EMPTY_EDITS: Edits = {
   productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, productLinks: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
+  rowComments: {}, rowColors: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -949,11 +972,13 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       }
     }
     const note: string | null = parts.length ? parts.join(' ') : null
+    const rowKey = buildRowKey(b)
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers, note, availableFasovki, packFixKey, matchedKey, isTotalRow: b.isTotalRow,
+      rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null,
     }
   })
 
@@ -983,6 +1008,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       product: label ?? capitalize(product), productRaw: '', productLabel: pack || null, isAssortment,
       pack, qty: 0, unit: null, plan,
       diffPct: null, status: 'ok', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null, matchedKey: key, isTotalRow: false,
+      // Не настоящая закупка (просто "вот что прайсовано, но не купили в
+      // этом периоде") — комментарий/цвет тут не про что вешать, оставляем
+      // null. rowKey всё равно даём (по ключу матрицы) — на случай если
+      // понадобится где-то ещё, но edits.rowComments/rowColors на неё не
+      // смотрят.
+      rowKey: `np::${key}`, userComment: null, rowColor: null,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
@@ -1080,6 +1111,7 @@ export function parseDataset(data: RawDataset, matching: MatchingTable = bundled
       if (it.s.includes(':')) continue
       base.push({
         id: 'r' + seq++,
+        period: data.period,
         restaurant: r.name, brand: r.brand, city: r.city || 'Алматы', entity: r.entity, category: r.category,
         supplier0: it.s, product0: it.p, pack: it.k,
         qty: it.q, sum: it.m, unit: it.m / it.q, comment: it.c ?? null,

@@ -28,13 +28,15 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS pack_aliases     (org_id TEXT NOT NULL, key TEXT NOT NULL, target_pack TEXT NOT NULL, supplier TEXT NOT NULL, product TEXT NOT NULL, raw_pack TEXT NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS product_links    (org_id TEXT NOT NULL, key TEXT NOT NULL, target_product TEXT NOT NULL, supplier TEXT NOT NULL, raw_product TEXT NOT NULL, pack TEXT NOT NULL DEFAULT '', PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS plan_overrides    (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (org_id, key));
+  CREATE TABLE IF NOT EXISTS row_comments      (org_id TEXT NOT NULL, key TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY (org_id, key));
+  CREATE TABLE IF NOT EXISTS row_colors        (org_id TEXT NOT NULL, key TEXT NOT NULL, color TEXT NOT NULL, PRIMARY KEY (org_id, key));
 `)
 // Миграция: product_links изначально была без pack (ключ привязки стал
 // учитывать фасовку позже) — на уже существующих базах столбца может не
 // быть; ALTER падает, если он уже есть, это и есть проверка "уже сделано".
 try { db.exec("ALTER TABLE product_links ADD COLUMN pack TEXT NOT NULL DEFAULT ''") } catch { /* столбец уже есть */ }
 
-const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides']
+const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides', 'row_comments', 'row_colors']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -67,7 +69,11 @@ export function getEditsForOrg(orgId) {
       .map((r) => [r.key, { targetProduct: r.target_product, supplier: r.supplier, rawProduct: r.raw_product, pack: r.pack || '' }]))
   const planOverrides = Object.fromEntries(
     db.prepare('SELECT key, price FROM plan_overrides WHERE org_id=?').all(orgId).map((r) => [r.key, r.price]))
-  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides }
+  const rowComments = Object.fromEntries(
+    db.prepare('SELECT key, text FROM row_comments WHERE org_id=?').all(orgId).map((r) => [r.key, r.text]))
+  const rowColors = Object.fromEntries(
+    db.prepare('SELECT key, color FROM row_colors WHERE org_id=?').all(orgId).map((r) => [r.key, r.color]))
+  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides, rowComments, rowColors }
 }
 
 function hasAnyRows(orgId) {
@@ -213,6 +219,26 @@ export function resetEdits(orgId) {
   tx(() => { for (const t of TABLES) db.prepare(`DELETE FROM ${t} WHERE org_id=?`).run(orgId) })
 }
 
+/** value: свой текст пользователя к этой ровно закупке (Проверка цен); null/пусто — снять. key = buildRowKey(...) из lib/data.ts. */
+export function setRowComment(orgId, key, value) {
+  const k = str(key)
+  if (!k) return
+  const v = String(value || '').trim()
+  if (!v) db.prepare('DELETE FROM row_comments WHERE org_id=? AND key=?').run(orgId, k)
+  else db.prepare('INSERT INTO row_comments (org_id, key, text) VALUES (?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET text=excluded.text').run(orgId, k, v)
+}
+
+// Та же палитра, что ROW_COLORS в lib/data.ts — держим списком тут же,
+// чтобы не завести где-то произвольный текст цвета мимо палитры.
+const VALID_ROW_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
+/** value: одна из VALID_ROW_COLORS; null — снять цветовую метку. */
+export function setRowColor(orgId, key, value) {
+  const k = str(key)
+  if (!k) return
+  if (value === null || value === undefined || !VALID_ROW_COLORS.has(value)) { db.prepare('DELETE FROM row_colors WHERE org_id=? AND key=?').run(orgId, k); return }
+  db.prepare('INSERT INTO row_colors (org_id, key, color) VALUES (?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET color=excluded.color').run(orgId, k, value)
+}
+
 // e's fields are whatever JSON the client sent ("Импорт" uploads a file
 // verbatim) — Object.entries()/keys() on a non-object (a string, an array)
 // silently iterates its indices/characters instead of throwing, which used
@@ -271,6 +297,15 @@ export function replaceAllEdits(orgId, e) {
       const k = str(key); if (!k) continue
       const p = Number(price); if (!Number.isFinite(p)) continue
       db.prepare('INSERT INTO plan_overrides (org_id, key, price) VALUES (?,?,?)').run(orgId, k, p)
+    }
+    for (const [key, text] of Object.entries(plainObject(edits.rowComments))) {
+      const k = str(key); if (!k) continue
+      const v = String(text || '').trim(); if (!v) continue
+      db.prepare('INSERT INTO row_comments (org_id, key, text) VALUES (?,?,?)').run(orgId, k, v)
+    }
+    for (const [key, color] of Object.entries(plainObject(edits.rowColors))) {
+      const k = str(key); if (!k || !VALID_ROW_COLORS.has(color)) continue
+      db.prepare('INSERT INTO row_colors (org_id, key, color) VALUES (?,?,?)').run(orgId, k, color)
     }
   })
 }

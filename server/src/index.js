@@ -290,12 +290,18 @@ const EDIT_OPS = {
   setPackAlias: (orgId, { key, value }) => editsDb.setPackAlias(orgId, key, value),
   setProductLink: (orgId, { key, value }) => editsDb.setProductLink(orgId, key, value),
   setPlanOverride: (orgId, { key, value }) => editsDb.setPlanOverride(orgId, key, value),
+  setRowComment: (orgId, { key, value }) => editsDb.setRowComment(orgId, key, value),
+  setRowColor: (orgId, { key, value }) => editsDb.setRowColor(orgId, key, value),
   reset: (orgId) => editsDb.resetEdits(orgId),
 }
 
 app.post('/api/edits/op', requireAuth, (req, res) => {
   const { type, ...payload } = req.body || {}
-  const apply = EDIT_OPS[type]
+  // EDIT_OPS — обычный объектный литерал, поэтому 'constructor'/'toString'/
+  // 'hasOwnProperty' и т.п. без этой проверки резолвились бы в методы
+  // Object.prototype вместо undefined — apply(orgId, payload) на них сейчас
+  // безвредно (просто no-op), но это случайность, не гарантия.
+  const apply = Object.prototype.hasOwnProperty.call(EDIT_OPS, type) ? EDIT_OPS[type] : undefined
   if (!apply) return res.status(400).json({ ok: false, message: `Неизвестная операция: ${type}` })
   try {
     apply(req.auth.orgId, payload)
