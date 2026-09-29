@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix } from './sheets.js'
 import { buildDataset, resolveLivePeriod } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -197,6 +197,20 @@ app.post('/api/test-connection', requireAuth, async (req, res) => {
   if (req.body?.password === '********') merged.password = s.password
   if (req.body?.apiLogin === '********') merged.apiLogin = s.apiLogin
   res.json(await testConnection(merged))
+})
+
+/**
+ * «Показать доступные поля отчёта» в Настройках iiko — вместо того чтобы
+ * гадать по одному полю за раз через "Unknown OLAP field", сразу спрашивает
+ * у iikoServer, что у него реально есть для этого типа отчёта.
+ */
+app.get('/api/iiko/olap-columns', requireAuth, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    res.json({ ok: true, columns: await fetchOlapColumns(s, req.query.reportType || 'TRANSACTIONS') })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
 })
 
 /**

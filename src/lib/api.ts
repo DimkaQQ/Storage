@@ -83,6 +83,14 @@ export async function testConnection(s: Partial<IikoSettings>): Promise<{ ok: bo
   } catch { return { ok: false, message: 'Бэкенд недоступен' } }
 }
 
+/** «Показать доступные поля отчёта» — вместо гадания по одному полю через "Unknown OLAP field". */
+export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ ok: boolean; columns?: unknown; message?: string }> {
+  try {
+    const r = await fetch(`/api/iiko/olap-columns?reportType=${encodeURIComponent(reportType)}`, { headers: authHeaders() })
+    return await r.json()
+  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+}
+
 export interface Venues { enabled: string[]; discovered: string[] }
 export const fetchVenues = () => get<Venues>('/api/venues')
 export async function enableVenue(name: string): Promise<Venues | null> {

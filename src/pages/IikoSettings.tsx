@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, testMatrixConnection, syncMatrix, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, testMatrixConnection, syncMatrix, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
-import { ISync, IPlug, ICheck, IClose, IStore, IPlus } from '../components/icons'
+import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo } from '../components/icons'
 
 /** Принимает и полную ссылку на таблицу, и просто ID — вытаскивает ID из ссылки вида .../d/<ID>/edit. */
 function extractSheetId(input: string): string {
@@ -42,6 +42,8 @@ export default function IikoSettings() {
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
   const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  const [columnsLoading, setColumnsLoading] = useState(false)
+  const [columnsResult, setColumnsResult] = useState<{ ok: boolean; columns?: unknown; message?: string } | null>(null)
 
   useEffect(() => { fetchSettings().then((s) => s && setForm(s)) }, [])
 
@@ -64,6 +66,15 @@ export default function IikoSettings() {
     if (r) { setForm(r); setSaved(true); reloadStatus() }
     setTestResult(await testConnection(form))
     setTesting(false)
+  }
+
+  // «Показать доступные поля отчёта» — вместо того чтобы гадать по одному
+  // полю за раз через "Unknown OLAP field" в переписке, сразу спрашивает
+  // у iikoServer, что у него реально есть для отчёта о закупках.
+  const showColumns = async () => {
+    setColumnsLoading(true); setColumnsResult(null)
+    setColumnsResult(await fetchOlapColumns('TRANSACTIONS'))
+    setColumnsLoading(false)
   }
 
   const testMatrix = async () => {
@@ -162,12 +173,28 @@ export default function IikoSettings() {
           <button onClick={test} disabled={testing} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
             <IPlug width={16} height={16} /> {testing ? 'Сохраняю и проверяю…' : 'Сохранить и проверить подключение'}
           </button>
+          {form.provider === 'iikoserver' && (
+            <button onClick={showColumns} disabled={columnsLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+              <IInfo width={16} height={16} /> {columnsLoading ? 'Спрашиваю…' : 'Показать доступные поля отчёта'}
+            </button>
+          )}
           {testResult && (
             <span className={`chip ${testResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {testResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{testResult.message}
             </span>
           )}
         </div>
+        {columnsResult && (
+          <div className="mt-3">
+            {columnsResult.ok ? (
+              <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                {JSON.stringify(columnsResult.columns, null, 1)}
+              </pre>
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{columnsResult.message}</span>
+            )}
+          </div>
+        )}
       </Section>
 
       {/* venues */}

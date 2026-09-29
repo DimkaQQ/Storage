@@ -39,6 +39,24 @@ async function iikoServerLogout(base, token) {
 }
 
 /**
+ * Спрашивает у самого iikoServer, какие поля реально доступны для этого
+ * типа отчёта — вместо того чтобы гадать по одному полю за раз через
+ * "Unknown OLAP field". Дёргается и напрямую (кнопка «Показать доступные
+ * поля отчёта» в Настройках iiko), и как подсказка внутри iikoServerFacts,
+ * если запрос отчёта упал именно с этой ошибкой.
+ */
+export async function fetchOlapColumns(settings, reportType = 'TRANSACTIONS') {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const res = await withTimeout(`${base}/resto/api/v2/reports/olap/columns?key=${token}&reportType=${encodeURIComponent(reportType)}`)
+    if (!res.ok) throw new Error(`Список полей недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    return await res.json()
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
+/**
  * Pulls the supply/purchase report via the OLAP endpoint.
  * NOTE: точный набор полей отчёта уточняется на реальном сервере —
  * маппинг колонок вынесен в один блок ниже.
