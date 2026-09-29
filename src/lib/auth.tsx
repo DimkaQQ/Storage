@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react'
 import { clearLocalEditsCache } from './edits'
+import { DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 
 const TOKEN_KEY = 'pricecheck-token'
 
@@ -28,9 +29,18 @@ const AuthContext = createContext<Ctx | null>(null)
 // показывала бы чужие правки поверх данных новой организации. Чистим и при
 // явном logout(), и здесь — когда сохранённый токен оказался невалиден/
 // истёк (та же смена личности, просто без клика «Выйти»).
+//
+// RESTAURANT_SCOPE — та же ловушка, но с другой стороны: это модульная
+// переменная в lib/data.ts (не React state), выставленная предыдущим
+// loadVenues() ДО logout — сама она не сбрасывается ни при перемонтировании
+// EditsProvider, ни от очистки localStorage выше. Без сброса здесь новая
+// EditsProvider короткое время (до своего loadVenues()) считала бы список
+// точек ПРЕЖНЕЙ организации — сбрасываем на дефолт, чтобы в этот момент
+// показывался нейтральный дефолтный список, а не чужой.
 function clearLocalSession() {
   try { localStorage.removeItem(TOKEN_KEY) } catch { /* ignore */ }
   clearLocalEditsCache()
+  setRestaurantScope(DEFAULT_RESTAURANT_SCOPE)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
