@@ -141,7 +141,7 @@ async function iikoCloudToken({ apiLogin }) {
 export async function fetchFacts(settings, period) {
   switch (settings.provider) {
     case 'mock': return mockFacts(period)
-    case 'iikoserver': return iikoServerFacts(settings, settings.period)
+    case 'iikoserver': return iikoServerFacts(settings, period)
     case 'iikocloud':
       // Отчёты о закупках по складам берутся из iikoServer; iikoCloud (transport)
       // ориентирован на доставку и не отдаёт складские приходы.
@@ -169,16 +169,20 @@ export async function testConnection(settings) {
   }
 }
 
+/**
+ * period — тот же резолвленный ключ "YYYY-MM", что и everywhere else
+ * (resolveLivePeriod в dataset.js, mockFacts выше), а не сырое значение
+ * settings.period ('current-month'/'prev-month'). Раньше сюда передавали
+ * именно сырое settings.period — работало только потому, что периодов
+ * ровно два ('current-month'/иначе), и разбор совпадал по смыслу; но
+ * аргумент period, который реально приходит в fetchFacts извне (тот же
+ * резолвленный ключ, что уходит в saveDataset), при этом тихо игнорировался.
+ */
 function periodRange(period) {
-  const now = new Date()
+  const [y, m] = period.split('-').map(Number)
   const pad = (n) => String(n).padStart(2, '0')
   const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-  if (period === 'prev-month') {
-    const from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const to = new Date(now.getFullYear(), now.getMonth(), 0)
-    return { from: fmt(from), to: fmt(to) }
-  }
-  // current-month (default)
-  const from = new Date(now.getFullYear(), now.getMonth(), 1)
-  return { from: fmt(from), to: fmt(now) }
+  const from = new Date(y, m - 1, 1)
+  const to = new Date(y, m, 0) // последний день месяца
+  return { from: fmt(from), to: fmt(to) }
 }

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -9,10 +9,28 @@ const SEED_DIR = join(__dirname, '..', 'seed')
 
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
 
+// Файл существует, но не парсится — это НЕ "данных пока нет" (пустой массив/
+// объект), а испорченный файл (например, процесс упал посреди записи до
+// того, как write() стал атомарным ниже, либо диск/бэкап повредил байты).
+// Раньше catch тут просто возвращал fallback, как для отсутствующего файла —
+// то есть настройки/пользователи организации могли молча "обнулиться" без
+// единой строки в логах, объясняющей почему.
 const read = (p, fallback) => {
-  try { return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : fallback } catch { return fallback }
+  if (!existsSync(p)) return fallback
+  try { return JSON.parse(readFileSync(p, 'utf8')) } catch (e) {
+    console.error(`[store] не удалось разобрать ${p}, использую fallback:`, e.message)
+    return fallback
+  }
 }
-const write = (p, v) => writeFileSync(p, JSON.stringify(v, null, 2))
+// Пишем во временный файл и переименовываем — rename на одной ФС атомарен,
+// так что даже при падении процесса/контейнера посреди записи оригинальный
+// файл остаётся либо старым целым содержимым, либо новым целым, но никогда
+// обрезанным на середине (что раньше приводило бы к JSON.parse-ошибке выше).
+const write = (p, v) => {
+  const tmp = `${p}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify(v, null, 2))
+  renameSync(tmp, p)
+}
 
 export const norm = (s) => String(s || '').trim().toLowerCase()
 
