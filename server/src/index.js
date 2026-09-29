@@ -165,7 +165,7 @@ app.get('/api/data', requireAuth, (req, res) => {
 
 app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId) }))
 
-app.post('/api/sync', requireAuth, async (req, res) => {
+app.post('/api/sync', requireAuth, requireAdmin, async (req, res) => {
   const result = await runSync(req.auth.orgId, 'manual')
   res.status(result.ok ? 200 : 502).json(result)
 })
@@ -179,11 +179,17 @@ const maskSecrets = (s) => {
   return out
 }
 
-app.get('/api/settings', requireAuth, (req, res) => {
+// Настройки/подключения (iiko, Google-таблица) — тот же уровень
+// чувствительности, что у управления пользователями (requireAdmin), не
+// requireAuth: любой сотрудник, иначе, мог бы подставить свой сервисный
+// аккаунт/адрес сервера/пароль. Страница «Обновление» на фронте (App.tsx)
+// теперь тоже adminOnly — это не расходится с ней, а закрывает то же самое
+// с двух сторон.
+app.get('/api/settings', requireAuth, requireAdmin, (req, res) => {
   res.json(maskSecrets(getSettings(req.auth.orgId)))
 })
 
-app.put('/api/settings', requireAuth, (req, res) => {
+app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
   const incoming = { ...req.body }
   for (const f of SECRET_FIELDS) if (incoming[f] === '********') delete incoming[f]
   const next = saveSettings(req.auth.orgId, incoming)
@@ -191,7 +197,7 @@ app.put('/api/settings', requireAuth, (req, res) => {
   res.json(maskSecrets(next))
 })
 
-app.post('/api/test-connection', requireAuth, async (req, res) => {
+app.post('/api/test-connection', requireAuth, requireAdmin, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   const merged = { ...s, ...req.body }
   if (req.body?.password === '********') merged.password = s.password
@@ -204,7 +210,7 @@ app.post('/api/test-connection', requireAuth, async (req, res) => {
  * гадать по одному полю за раз через "Unknown OLAP field", сразу спрашивает
  * у iikoServer, что у него реально есть для этого типа отчёта.
  */
-app.get('/api/iiko/olap-columns', requireAuth, async (req, res) => {
+app.get('/api/iiko/olap-columns', requireAuth, requireAdmin, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     res.json({ ok: true, columns: await fetchOlapColumns(s, req.query.reportType || 'TRANSACTIONS') })
@@ -220,14 +226,14 @@ app.get('/api/iiko/olap-columns', requireAuth, async (req, res) => {
  * матрицу этой организации за указанный period — дальше /api/matching
  * отдаёт её фронтенду вместо вшитой в код.
  */
-app.post('/api/matrix/test-connection', requireAuth, async (req, res) => {
+app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   const merged = { ...s, ...req.body }
   if (req.body?.googleServiceAccountKey === '********') merged.googleServiceAccountKey = s.googleServiceAccountKey
   res.json(await testSheetsConnection(merged))
 })
 
-app.post('/api/matrix/sync', requireAuth, async (req, res) => {
+app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
   const orgId = req.auth.orgId
   const settings = getSettings(orgId)
   const period = String(req.body?.period || resolveLivePeriod(settings).period)
@@ -260,7 +266,7 @@ app.get('/api/venues', requireAuth, (req, res) => {
   res.json({ enabled: getEnabledRestaurants(req.auth.orgId), discovered: discoverRestaurants(req.auth.orgId) })
 })
 
-app.post('/api/venues/enable', requireAuth, (req, res) => {
+app.post('/api/venues/enable', requireAuth, requireAdmin, (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = enableRestaurant(req.auth.orgId, name)

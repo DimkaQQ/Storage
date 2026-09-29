@@ -21,7 +21,7 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
   { id: 'dashboard', label: 'Обзор', icon: IGauge, hint: 'Ключевые показатели' },
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
   { id: 'data', label: 'Справочники', icon: IDatabase, hint: 'Компании, товары, точки' },
-  { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko' },
+  { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko', adminOnly: true },
   { id: 'users', label: 'Команда', icon: IUser, hint: 'Пользователи вашей сети', adminOnly: true },
 ]
 

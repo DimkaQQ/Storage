@@ -11,7 +11,15 @@ const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', '�
 export function resolveLivePeriod(settings) {
   const now = new Date()
   const base = settings.period === 'prev-month' ? new Date(now.getFullYear(), now.getMonth() - 1, 1) : now
-  return { period: base.toISOString().slice(0, 10), periodLabel: `${MONTHS[base.getMonth()]} ${base.getFullYear()}` }
+  // period — ключ ФАЙЛА датасета/матрицы за этот месяц (тот же формат
+  // "YYYY-MM", что у вшитых периодов, см. BUNDLED_PERIODS в lib/data.ts).
+  // Раньше тут было .slice(0, 10) — полная дата, не месяц: каждый синк в
+  // рамках одного и того же месяца создавал НОВЫЙ файл датасета/матрицы
+  // под ключом текущего ДНЯ вместо накопления в одном месячном периоде —
+  // PeriodPicker плодил кучу дублей "Сентябрь 2026", а синхронизированная
+  // сегодня матрица не находилась бы под ключом периода, под которым её
+  // искали вчера.
+  return { period: base.toISOString().slice(0, 7), periodLabel: `${MONTHS[base.getMonth()]} ${base.getFullYear()}` }
 }
 
 /**
