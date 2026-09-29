@@ -50,7 +50,10 @@ async function iikoServerFacts(settings, period) {
     const body = {
       reportType: 'TRANSACTIONS',
       buildSummary: false,
-      groupByRowFields: ['Store', 'Product.Name', 'Supplier.Name', 'Product.MeasureUnit'],
+      // "Supplier.Name" не существует как поле OLAP (сервер прямо ответил
+      // "Unknown OLAP field 'Supplier.Name'") — контрагент по приходной
+      // накладной в iikoServer называется Counteragent, не Supplier.
+      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit'],
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
         DateTime: { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
@@ -65,8 +68,18 @@ async function iikoServerFacts(settings, period) {
       // поле в groupByRowFields/aggregateFields/filters для этой версии) —
       // раньше это отбрасывалось, оставался только код ответа, разобраться
       // было нечем.
-      const body = await res.text()
-      throw new Error(`Отчёт iikoServer недоступен (HTTP ${res.status}): ${body.slice(0, 500)}`)
+      const errBody = await res.text()
+      // Если снова "неизвестное поле" — сразу тащим у сервера реальный
+      // список полей для TRANSACTIONS, чтобы не гадать по одному полю за
+      // раз (сервер сам знает, что у него есть).
+      let columnsHint = ''
+      if (res.status === 400 && /Unknown OLAP field/i.test(errBody)) {
+        try {
+          const colsRes = await withTimeout(`${base}/resto/api/v2/reports/olap/columns?key=${token}&reportType=TRANSACTIONS`)
+          if (colsRes.ok) columnsHint = ` | доступные поля: ${(await colsRes.text()).slice(0, 1500)}`
+        } catch { /* необязательная подсказка — если сама не получится, не мешаем основной ошибке */ }
+      }
+      throw new Error(`Отчёт iikoServer недоступен (HTTP ${res.status}): ${errBody.slice(0, 500)}${columnsHint}`)
     }
     const data = await res.json()
     // --- маппинг колонок отчёта -> факты ---
@@ -77,7 +90,7 @@ async function iikoServerFacts(settings, period) {
     let lastProduct = '', lastSupplier = ''
     return (data.data || []).map((row) => {
       const product = row['Product.Name'] || lastProduct
-      const supplier = row['Supplier.Name'] || lastSupplier
+      const supplier = row['Counteragent.Name'] || lastSupplier
       lastProduct = product
       lastSupplier = supplier
       return {
