@@ -418,10 +418,22 @@ export default function DataEditor() {
   // а не реально новый) — предупреждаем, но ничего не делаем автоматически:
   // "Объединить" убрали сознательно, тут только подсказка "проверьте matrix".
   const canonicalSupplierNames = useMemo(() => [...new Set(Object.values(realMatching.supplierAlias))], [realMatching])
-  const possibleDuplicate = (name: string) => {
-    const top = rankSimilar(name, canonicalSupplierNames, (x) => x, 0.45)[0]
-    return top?.item ?? null
-  }
+  // Раньше это была обычная функция, вызываемая по два раза за строку (один
+  // раз на проверку "есть ли подсказка", второй — чтобы её напечатать) и
+  // пересчитывающая rankSimilar по всему справочнику заново при каждом
+  // рендере DataEditor — даже когда ни список поставщиков, ни справочник не
+  // менялись. Считаем один раз на видимую страницу и только для строк, где
+  // подсказка реально показывается (нет канона, поставщик не подтверждён).
+  const duplicateByName = useMemo(() => {
+    const map = new Map<string, string | null>()
+    for (const s of suppliers.slice(0, limit)) {
+      if (matching.supplierAlias[norm(s.name)]) continue
+      if (edits.acknowledgedSuppliers[s.name] === true) continue
+      const top = rankSimilar(s.name, canonicalSupplierNames, (x) => x, 0.45)[0]
+      map.set(s.name, top?.item ?? null)
+    }
+    return map
+  }, [suppliers, limit, matching, edits.acknowledgedSuppliers, canonicalSupplierNames])
   // Автопоиск при переименовании — все уже известные названия (из матрицы
   // + уже введённые вручную правки), чтобы не плодить разные написания
   // одного и того же поставщика/товара: набрали "ази" — нашли "Азик Трейд",
@@ -783,6 +795,7 @@ export default function DataEditor() {
                     const canon = matching.supplierAlias[norm(s.name)]
                     const acknowledged = edits.acknowledgedSuppliers[s.name] === true
                     const supplierRename = edits.supplierRenames[s.name]
+                    const duplicate = duplicateByName.get(s.name)
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-slate-400">
@@ -804,9 +817,9 @@ export default function DataEditor() {
                             ) : (
                               <div className="mt-1 flex min-w-0 flex-col gap-0.5">
                                 <span className="chip w-fit border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>
-                                {possibleDuplicate(s.name) && (
+                                {duplicate && (
                                   <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                                    похоже на «{possibleDuplicate(s.name)}»?
+                                    похоже на «{duplicate}»?
                                     <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Сохранить» стоит свериться с матрицей." align="left" />
                                   </span>
                                 )}

@@ -63,7 +63,7 @@ export default function UsersAdmin() {
             </div>
             <div className="min-w-[160px]">
               <label className="mb-1 block text-[11px] text-slate-500">Пароль</label>
-              <input value={password} onChange={(e) => setPassword(e.target.value)} type="text" placeholder="от 6 символов"
+              <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="от 6 символов"
                 className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
             </div>
             <div>

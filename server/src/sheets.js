@@ -138,7 +138,11 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }) {
   const sheets = titles.filter((t) => SHEET_TO_RESTAURANT[t])
   if (!sheets.length) throw new Error('Ни одна вкладка таблицы не узнана — проверьте названия вкладок (см. SHEET_TO_RESTAURANT в sheets.js)')
 
-  const ranges = sheets.flatMap((t) => [`'${t}'!C3:I5000`])
+  // Без верхней границы по строке (не C3:I5000) — Sheets API читает до
+  // конца реальных данных листа. Фиксированный потолок в 5000 строк рос бы
+  // молча: превысила бы таблица его — часть строк матрицы тихо пропала бы
+  // из синка без единой ошибки.
+  const ranges = sheets.flatMap((t) => [`'${t}'!C3:I`])
   const valueRanges = await batchGetValues(token, googleSheetId, ranges)
 
   const supplierAlias = {}

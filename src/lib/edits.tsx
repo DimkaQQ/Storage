@@ -60,31 +60,41 @@ function diffKeys<T>(current: Record<string, T>, target: Record<string, T>): str
  * the server the same way: as the specific corrective ops for whatever
  * categories actually changed between `current` and `target`.
  */
-function syncUndoToServer(current: Edits, target: Edits) {
+/**
+ * Возвращает true, только если реально ВСЕ операции подтвердились сервером —
+ * раньше результат applyEditOp тут просто не читался: если бэкенд отклонял
+ * или сеть рвалась, undo откатывал локальное состояние (и localStorage), а
+ * сервер остался бы с прежними значениями молча, без единого признака для
+ * пользователя, что "отменённое" на самом деле не отменилось на сервере.
+ */
+async function syncUndoToServer(current: Edits, target: Edits): Promise<boolean> {
+  const results: Promise<boolean>[] = []
   for (const k of diffKeys(current.productRenames, target.productRenames))
-    applyEditOp('renameProduct', { original: k, name: target.productRenames[k] ?? '' })
+    results.push(applyEditOp('renameProduct', { original: k, name: target.productRenames[k] ?? '' }))
   for (const k of diffKeys(current.supplierRenames, target.supplierRenames))
-    applyEditOp('renameSupplier', { original: k, name: target.supplierRenames[k] ?? '' })
+    results.push(applyEditOp('renameSupplier', { original: k, name: target.supplierRenames[k] ?? '' }))
   for (const k of diffKeys(current.venueOverrides, target.venueOverrides)) {
-    applyEditOp('clearVenue', { restaurant: k })
-    if (target.venueOverrides[k]) applyEditOp('setVenue', { restaurant: k, patch: target.venueOverrides[k] })
+    results.push(applyEditOp('clearVenue', { restaurant: k }))
+    if (target.venueOverrides[k]) results.push(applyEditOp('setVenue', { restaurant: k, patch: target.venueOverrides[k] }))
   }
   for (const k of diffKeys(current.newVenues, target.newVenues))
-    applyEditOp(target.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k })
+    results.push(applyEditOp(target.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k }))
   for (const k of diffKeys(current.acknowledgedSuppliers, target.acknowledgedSuppliers))
-    applyEditOp(target.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k })
+    results.push(applyEditOp(target.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k }))
   for (const k of diffKeys(current.productPackOverride, target.productPackOverride))
-    applyEditOp('setProductPackOverride', { product: k, value: target.productPackOverride[k] ?? null })
+    results.push(applyEditOp('setProductPackOverride', { product: k, value: target.productPackOverride[k] ?? null }))
   for (const k of diffKeys(current.packAliases, target.packAliases))
-    applyEditOp('setPackAlias', { key: k, value: target.packAliases[k] ?? null })
+    results.push(applyEditOp('setPackAlias', { key: k, value: target.packAliases[k] ?? null }))
   for (const k of diffKeys(current.productLinks, target.productLinks))
-    applyEditOp('setProductLink', { key: k, value: target.productLinks[k] ?? null })
+    results.push(applyEditOp('setProductLink', { key: k, value: target.productLinks[k] ?? null }))
   for (const k of diffKeys(current.planOverrides, target.planOverrides))
-    applyEditOp('setPlanOverride', { key: k, value: target.planOverrides[k] ?? null })
+    results.push(applyEditOp('setPlanOverride', { key: k, value: target.planOverrides[k] ?? null }))
   for (const k of diffKeys(current.rowComments, target.rowComments))
-    applyEditOp('setRowComment', { key: k, value: target.rowComments[k] ?? null })
+    results.push(applyEditOp('setRowComment', { key: k, value: target.rowComments[k] ?? null }))
   for (const k of diffKeys(current.rowColors, target.rowColors))
-    applyEditOp('setRowColor', { key: k, value: target.rowColors[k] ?? null })
+    results.push(applyEditOp('setRowColor', { key: k, value: target.rowColors[k] ?? null }))
+  const oks = await Promise.all(results)
+  return oks.every(Boolean)
 }
 
 interface Ctx {
@@ -140,6 +150,8 @@ interface Ctx {
   // тестовый режим «без матрицы» — только на этом устройстве, не на сервере
   noMatrixTest: boolean
   setNoMatrixTest: (v: boolean) => void
+  // не null — последняя правка не подтвердилась сервером (см. reportOpResult)
+  saveError: string | null
 }
 
 const EditsContext = createContext<Ctx | null>(null)
@@ -148,6 +160,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [edits, setEdits] = useState<Edits>(load)
   const [parsed, setParsed] = useState<Parsed>(BUNDLED)
   const [periodKey, setPeriodKey] = useState<string>(BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period)
+  // enableVenueByName ниже ждёт ответ сервера (await), и если пользователь
+  // успеет переключить период за это время, обычный захват periodKey по
+  // замыканию в useCallback перезагрузил бы данные УЖЕ СТАРОГО периода поверх
+  // только что выбранного нового — ref всегда отражает текущий period на
+  // момент, когда await действительно завершился, а не на момент клика.
+  const periodKeyRef = useRef(periodKey)
+  useEffect(() => { periodKeyRef.current = periodKey }, [periodKey])
   const [periods, setPeriods] = useState<PeriodMeta[]>(BUNDLED_PERIODS)
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [backendOnline, setBackendOnline] = useState(false)
@@ -159,6 +178,17 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [backendMatching, setBackendMatching] = useState<MatchingTable | null>(null)
   const history = useRef<Edits[]>([])
   const [canUndo, setCanUndo] = useState(false)
+  // applyEditOp() раньше вызывался fire-and-forget — если бэкенд отклонял
+  // операцию или сеть рвалась, правка оставалась только в localStorage
+  // (выглядела сохранённой на этом устройстве), а на сервере и у других
+  // пользователей/устройств её не было, без единого сигнала об этом.
+  // saveError показывает баннер (см. App.tsx), пока не пройдёт следующая
+  // операция того же рода — целиться в конкретную неудавшуюся правку не
+  // пытаемся, достаточно "что-то не сохранилось, проверьте соединение".
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const reportOpResult = useCallback((ok: boolean) => {
+    setSaveError(ok ? null : 'Не удалось сохранить изменение на сервере — проверьте соединение. Локально оно применилось, но может потеряться на другом устройстве.')
+  }, [])
   const [noMatrixTest, setNoMatrixTestState] = useState<boolean>(() => {
     try { return localStorage.getItem(NO_MATRIX_KEY) === '1' } catch { return false }
   })
@@ -187,8 +217,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const prev = hist[hist.length - 1]
     history.current = hist.slice(0, -1)
     setCanUndo(history.current.length > 0)
-    setEdits((current) => { syncUndoToServer(current, prev); return prev })
-  }, [])
+    setEdits((current) => { syncUndoToServer(current, prev).then(reportOpResult); return prev })
+  }, [reportOpResult])
 
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
@@ -260,8 +290,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     if (!v) return
     setRestaurantScope(v.enabled)
     setVenuesState(v)
-    await loadData(periodKey)
-  }, [loadData, periodKey])
+    await loadData(periodKeyRef.current)
+  }, [loadData])
 
   const setPeriod = useCallback((period: string) => {
     setPeriodKey(period)
@@ -311,8 +341,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[key] = v
       return { ...e, productRenames: next }
     })
-    applyEditOp('renameProduct', { original: key, name: v })
-  }, [updateEdits])
+    applyEditOp('renameProduct', { original: key, name: v }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   // rawName = iiko-имя поставщика как есть. Только подпись — не влияет на
   // само сопоставление с матрицей (см. supplierDisplay в computeRows).
@@ -324,8 +354,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[rawName] = v
       return { ...e, supplierRenames: next }
     })
-    applyEditOp('renameSupplier', { original: rawName, name: v })
-  }, [updateEdits])
+    applyEditOp('renameSupplier', { original: rawName, name: v }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
     updateEdits((e) => {
@@ -340,8 +370,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[restaurant] = cleaned
       return { ...e, venueOverrides: next }
     })
-    applyEditOp('setVenue', { restaurant, patch })
-  }, [updateEdits])
+    applyEditOp('setVenue', { restaurant, patch }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   // Ручное добавление точки, у которой ещё нет закупок в iiko.
   const addVenue = useCallback((name: string, patch?: VenuePatch) => {
@@ -352,26 +382,26 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       const venueOverrides = patch ? { ...e.venueOverrides, [v]: { ...e.venueOverrides[v], ...patch } } : e.venueOverrides
       return { ...e, newVenues, venueOverrides }
     })
-    applyEditOp('addVenue', { name: v, patch: patch ?? null })
-  }, [updateEdits])
+    applyEditOp('addVenue', { name: v, patch: patch ?? null }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
   const removeVenue = useCallback((name: string) => {
     updateEdits((e) => {
       const n = { ...e.newVenues }; delete n[name]
       const vo = { ...e.venueOverrides }; delete vo[name]
       return { ...e, newVenues: n, venueOverrides: vo }
     })
-    applyEditOp('removeVenue', { name })
-  }, [updateEdits])
+    applyEditOp('removeVenue', { name }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   // «Добавить» — отмечаем, что это реально новый поставщик (не опечатка/дубликат).
   const acknowledgeSupplier = useCallback((rawName: string) => {
     updateEdits((e) => ({ ...e, acknowledgedSuppliers: { ...e.acknowledgedSuppliers, [rawName]: true } }))
-    applyEditOp('acknowledgeSupplier', { rawName })
-  }, [updateEdits])
+    applyEditOp('acknowledgeSupplier', { rawName }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
   const unacknowledgeSupplier = useCallback((rawName: string) => {
     updateEdits((e) => { const n = { ...e.acknowledgedSuppliers }; delete n[rawName]; return { ...e, acknowledgedSuppliers: n } })
-    applyEditOp('unacknowledgeSupplier', { rawName })
-  }, [updateEdits])
+    applyEditOp('unacknowledgeSupplier', { rawName }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   // Ручной override того, важна ли фасовка для сопоставления этого товара —
   // null возвращает к автоматике (см. resolveRowPlan/isPrecisePack).
@@ -382,8 +412,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[product] = value
       return { ...e, productPackOverride: next }
     })
-    applyEditOp('setProductPackOverride', { product, value })
-  }, [updateEdits])
+    applyEditOp('setProductPackOverride', { product, value }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   // "Эта фасовка из iiko на самом деле вот эта из матрицы" — key приходит
   // готовым из resolveRowPlan (Row.packFixKey) или из списка в Справочниках.
@@ -395,8 +425,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[key] = value
       return { ...e, packAliases: next }
     })
-    applyEditOp('setPackAlias', { key, value })
-  }, [updateEdits])
+    applyEditOp('setPackAlias', { key, value }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   // "Это iiko-название на самом деле вот этот товар из матрицы" — key =
   // "поставщик(канон)::iiko-название" (норм.), см. Edits.productLinks и
@@ -411,8 +441,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[key] = value
       return { ...e, productLinks: next }
     })
-    applyEditOp('setProductLink', { key, value })
-  }, [updateEdits])
+    applyEditOp('setProductLink', { key, value }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   // Ручная плановая цена (Справочники → Товары → «План») — key в той же
   // ключевой области, что и matching.planPairsByPack/planPairs (см.
@@ -424,8 +454,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[key] = value
       return { ...e, planOverrides: next }
     })
-    applyEditOp('setPlanOverride', { key, value })
-  }, [updateEdits])
+    applyEditOp('setPlanOverride', { key, value }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   // Свой комментарий/цвет строки (Проверка цен) — key = buildRowKey(...) из
   // lib/data.ts, не Row.id (тот меняется от парсинга к парсингу).
@@ -436,8 +466,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[key] = value
       return { ...e, rowComments: next }
     })
-    applyEditOp('setRowComment', { key, value })
-  }, [updateEdits])
+    applyEditOp('setRowComment', { key, value }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
   const setRowColor = useCallback((key: string, value: RowColor | null) => {
     updateEdits((e) => {
       const next = { ...e.rowColors }
@@ -445,13 +475,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[key] = value
       return { ...e, rowColors: next }
     })
-    applyEditOp('setRowColor', { key, value })
-  }, [updateEdits])
+    applyEditOp('setRowColor', { key, value }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   const reset = useCallback(() => {
     updateEdits(() => EMPTY_EDITS)
-    applyEditOp('reset')
-  }, [updateEdits])
+    applyEditOp('reset').then(reportOpResult)
+  }, [updateEdits, reportOpResult])
   const replaceAll = useCallback((e: Edits) => {
     const next: Edits = {
       productRenames: e.productRenames ?? {},
@@ -467,8 +497,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       rowColors: e.rowColors ?? {},
     }
     updateEdits(() => next)
-    saveEdits(next) // whole-blob PUT — Импорт is an explicit, deliberate replace-everything action
-  }, [updateEdits])
+    saveEdits(next).then(reportOpResult) // whole-blob PUT — Импорт is an explicit, deliberate replace-everything action
+  }, [updateEdits, reportOpResult])
 
   const editCount =
     Object.keys(edits.productRenames).length +
@@ -499,6 +529,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride, setRowComment, setRowColor,
     reset, replaceAll, undo, canUndo,
     noMatrixTest, setNoMatrixTest,
+    saveError,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }
