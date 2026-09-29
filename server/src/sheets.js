@@ -60,6 +60,26 @@ export const SHEET_TO_RESTAURANT = {
   'French bar': 'French bar',
 }
 
+/**
+ * Отдельная таблица (свой googleSheetId, тот же сервисный аккаунт) для
+ * точек Астаны — новый город, открылся под теми же брендами, что в Алматы
+ * (Tangirs/Six coffee&wine/Pasta la vista), но под другими юрлицами и по
+ * другим адресам, так что это отдельные точки, не то же самое, что
+ * алматинские рестораны с этими же именами. Названия вкладок в этой
+ * таблице ("ТанжEC" и т.п.) — внутренние кодовые обозначения самой
+ * таблицы, не бренды; реальный бренд/адрес подтверждён с человеком.
+ * Когда iiko реально начнёт присылать закупки по этим точкам — название
+ * справа должно ТОЧНО совпасть с тем, что iiko называет Store (иначе
+ * сопоставление молча не сработает) — до этого момента это лучшее
+ * доступное предположение.
+ */
+export const SHEET_TO_RESTAURANT_ASTANA = {
+  'ТанжEC': 'Tangirs (Есиль, Астана)',
+  'ТанжS': 'Tangirs (Сарыарка, Астана)',
+  'Сикс': 'Six coffee&wine (Астана)',
+  'Паста': 'Pasta la vista (Астана)',
+}
+
 function parseKey(raw) {
   const key = typeof raw === 'string' ? JSON.parse(raw) : raw
   if (!key?.private_key || !key?.client_email) throw new Error('Ключ сервисного аккаунта неполный (нет private_key/client_email)')
@@ -112,13 +132,13 @@ async function batchGetValues(token, spreadsheetId, ranges) {
   return data.valueRanges || []
 }
 
-export async function testConnection({ googleSheetId, googleServiceAccountKey }) {
+export async function testConnection({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT) {
   try {
     if (!googleSheetId) return { ok: false, message: 'Не указан ID таблицы' }
     if (!googleServiceAccountKey) return { ok: false, message: 'Не указан ключ сервисного аккаунта' }
     const token = await getAccessToken(googleServiceAccountKey)
     const titles = await fetchSheetTitles(token, googleSheetId)
-    const known = titles.filter((t) => SHEET_TO_RESTAURANT[t])
+    const known = titles.filter((t) => sheetToRestaurant[t])
     return { ok: true, message: `Подключение есть. Вкладок в таблице: ${titles.length}, из них узнано точек: ${known.length}.` }
   } catch (e) {
     return { ok: false, message: String(e.message || e) }
@@ -131,11 +151,16 @@ export async function testConnection({ googleSheetId, googleServiceAccountKey })
  * момент чтения) и возвращает объект в формате MatchingTable
  * (см. src/lib/data.ts): supplierAlias/planPairs/planPairsByPack/
  * productLabels/noPriceExact.
+ *
+ * sheetToRestaurant — какую книгу читаем: по умолчанию основная (Алматы,
+ * "Сырьё Ф"), либо SHEET_TO_RESTAURANT_ASTANA для отдельной таблицы Астаны
+ * (свой googleSheetId, тот же сервисный аккаунт) — вызывающая сторона
+ * (index.js) сама решает, какой googleSheetId и какой маппинг сюда подать.
  */
-export async function syncMatrix({ googleSheetId, googleServiceAccountKey }) {
+export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT) {
   const token = await getAccessToken(googleServiceAccountKey)
   const titles = await fetchSheetTitles(token, googleSheetId)
-  const sheets = titles.filter((t) => SHEET_TO_RESTAURANT[t])
+  const sheets = titles.filter((t) => sheetToRestaurant[t])
   if (!sheets.length) throw new Error('Ни одна вкладка таблицы не узнана — проверьте названия вкладок (см. SHEET_TO_RESTAURANT в sheets.js)')
 
   // Без верхней границы по строке (не C3:I5000) — Sheets API читает до
@@ -153,7 +178,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }) {
   let rowsSeen = 0
 
   sheets.forEach((title, i) => {
-    const restaurant = norm(SHEET_TO_RESTAURANT[title])
+    const restaurant = norm(sheetToRestaurant[title])
     const rows = valueRanges[i]?.values || []
     for (const row of rows) {
       const [supplierCanonRaw, iikoCompanyRaw, iikoNameRaw, packRaw, , priceRaw, labelRaw] = row
@@ -182,5 +207,26 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }) {
   return {
     matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact },
     summary: { sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
+  }
+}
+
+/**
+ * Алматы и Астана — два отдельных googleSheetId, синкаются отдельными
+ * кнопками/запросами, но хранятся в ОДНОМ файле матрицы за period (см.
+ * getMatrix/saveMatrix в store.js) — иначе пришлось бы менять формат
+ * хранения и /api/matching. Ключи внутри каждой карты уже включают имя
+ * ресторана (restaurant::supplier::product[::pack]), а рестораны Алматы и
+ * Астаны не пересекаются по имени, так что просто объединяем карты —
+ * синк одного города не задевает уже сохранённые данные другого.
+ */
+export function mergeMatching(a, b) {
+  if (!a) return b
+  if (!b) return a
+  return {
+    supplierAlias: { ...a.supplierAlias, ...b.supplierAlias },
+    planPairs: { ...a.planPairs, ...b.planPairs },
+    planPairsByPack: { ...a.planPairsByPack, ...b.planPairsByPack },
+    productLabels: { ...a.productLabels, ...b.productLabels },
+    noPriceExact: { ...a.noPriceExact, ...b.noPriceExact },
   }
 }

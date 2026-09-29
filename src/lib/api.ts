@@ -28,6 +28,8 @@ export interface IikoSettings {
   // сервисный аккаунт (см. server/src/sheets.js)
   googleServiceAccountKey: string
   googleSheetId: string
+  // Астана — отдельная таблица (свои точки), тот же сервисный аккаунт выше.
+  astanaSheetId: string
 }
 
 async function get<T>(path: string): Promise<T | null> {
@@ -100,17 +102,22 @@ export async function enableVenue(name: string): Promise<Venues | null> {
   } catch { return null }
 }
 
-/** Матрица (план-цены) читается прямо из Google-таблицы, не из iiko — см. IikoSettings.googleSheetId/googleServiceAccountKey. */
-export async function testMatrixConnection(s: Partial<IikoSettings>): Promise<{ ok: boolean; message: string }> {
+/**
+ * Матрица (план-цены) читается прямо из Google-таблицы, не из iiko — см.
+ * IikoSettings.googleSheetId/googleServiceAccountKey. target — какую из
+ * двух таблиц ('almaty' по умолчанию, или 'astana' — своя таблица, тот же
+ * сервисный аккаунт).
+ */
+export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message: string }> {
   try {
-    const r = await fetch('/api/matrix/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(s) })
+    const r = await fetch('/api/matrix/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...s, target }) })
     if (!r.ok) return { ok: false, message: `Ошибка сервера (HTTP ${r.status})` }
     return await r.json()
   } catch { return { ok: false, message: 'Бэкенд недоступен' } }
 }
-export async function syncMatrix(period?: string): Promise<{ ok: boolean; message?: string; rows?: number }> {
+export async function syncMatrix(period?: string, target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number }> {
   try {
-    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(period ? { period } : {}) })
+    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(period ? { period } : {}), ...(target ? { target } : {}) }) })
     return await r.json()
   } catch { return { ok: false, message: 'Бэкенд недоступен' } }
 }

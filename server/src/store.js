@@ -138,6 +138,11 @@ export const DEFAULT_SETTINGS = {
   // ссылки (кусок между /d/ и /edit).
   googleServiceAccountKey: '',
   googleSheetId: '',
+  // Астана — отдельная таблица (свои точки, свои вкладки), но тот же
+  // сервисный аккаунт (googleServiceAccountKey выше) — его достаточно
+  // пригласить читателем и в эту таблицу тоже. См.
+  // SHEET_TO_RESTAURANT_ASTANA в sheets.js.
+  astanaSheetId: '',
 }
 
 /**

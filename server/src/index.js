@@ -10,7 +10,7 @@ import {
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns } from './iiko.js'
-import { testConnection as testSheetsConnection, syncMatrix } from './sheets.js'
+import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
@@ -226,21 +226,36 @@ app.get('/api/iiko/olap-columns', requireAuth, requireAdmin, async (req, res) =>
  * матрицу этой организации за указанный period — дальше /api/matching
  * отдаёт её фронтенду вместо вшитой в код.
  */
+// target: 'almaty' (по умолчанию) | 'astana' — какую из двух таблиц
+// проверяем/синкаем; у Астаны свой googleSheetId (astanaSheetId), но тот
+// же сервисный аккаунт (googleServiceAccountKey), поэтому не отдельные
+// настройки целиком, а просто другой sheetId + другой маппинг вкладок.
 app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, res) => {
   const s = getSettings(req.auth.orgId)
+  const astana = req.body?.target === 'astana'
   const merged = { ...s, ...req.body }
   if (req.body?.googleServiceAccountKey === '********') merged.googleServiceAccountKey = s.googleServiceAccountKey
-  res.json(await testSheetsConnection(merged))
+  const googleSheetId = astana ? (req.body?.astanaSheetId ?? s.astanaSheetId) : merged.googleSheetId
+  res.json(await testSheetsConnection({ googleSheetId, googleServiceAccountKey: merged.googleServiceAccountKey }, astana ? SHEET_TO_RESTAURANT_ASTANA : undefined))
 })
 
 app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
   const orgId = req.auth.orgId
   const settings = getSettings(orgId)
+  const astana = req.body?.target === 'astana'
   const period = String(req.body?.period || resolveLivePeriod(settings).period)
+  const googleSheetId = astana ? settings.astanaSheetId : settings.googleSheetId
+  if (!googleSheetId) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
   try {
-    const { matching, summary } = await syncMatrix(settings)
-    saveMatrix(orgId, period, matching)
-    res.json({ ok: true, period, ...summary })
+    const { matching, summary } = await syncMatrix(
+      { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
+      astana ? SHEET_TO_RESTAURANT_ASTANA : undefined,
+    )
+    // Мёрджим с уже сохранённой матрицей этого периода, а не перезаписываем —
+    // иначе синк Астаны стирал бы уже синканную Алматы этого периода (и
+    // наоборот), т.к. обе живут в одном файле matrix-<period>.json.
+    saveMatrix(orgId, period, mergeMatching(getMatrix(orgId, period), matching))
+    res.json({ ok: true, period, target: astana ? 'astana' : 'almaty', ...summary })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }

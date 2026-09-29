@@ -42,6 +42,11 @@ export default function IikoSettings() {
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
   const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  // Астана — отдельная таблица, свои test/sync, тот же сервисный аккаунт выше.
+  const [astanaTesting, setAstanaTesting] = useState(false)
+  const [astanaTestResult, setAstanaTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [astanaSyncing, setAstanaSyncing] = useState(false)
+  const [astanaSyncResult, setAstanaSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [columnsLoading, setColumnsLoading] = useState(false)
   const [columnsResult, setColumnsResult] = useState<{ ok: boolean; columns?: unknown; message?: string } | null>(null)
 
@@ -91,6 +96,22 @@ export default function IikoSettings() {
     setMatrixSyncResult(r)
     if (r.ok) await refreshMatrix()
     setMatrixSyncing(false)
+  }
+
+  const testAstana = async () => {
+    if (!form) return
+    setAstanaTesting(true); setAstanaTestResult(null)
+    const r = await saveSettings(form)
+    if (r) { setForm(r); setSaved(true); reloadStatus() }
+    setAstanaTestResult(await testMatrixConnection(form, 'astana'))
+    setAstanaTesting(false)
+  }
+  const doSyncAstana = async () => {
+    setAstanaSyncing(true); setAstanaSyncResult(null)
+    const r = await syncMatrix(undefined, 'astana')
+    setAstanaSyncResult(r)
+    if (r.ok) await refreshMatrix()
+    setAstanaSyncing(false)
   }
 
   if (!backendOnline || !form) {
@@ -265,6 +286,37 @@ export default function IikoSettings() {
             <span className={`chip ${matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {matrixSyncResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
               {matrixSyncResult.ok ? 'Матрица обновлена' : matrixSyncResult.message}
+            </span>
+          )}
+        </div>
+      </Section>
+
+      {/* matrix — Астана (отдельная таблица, тот же сервисный аккаунт) */}
+      <Section title="Матрица — Астана" subtitle="Отдельная таблица для точек Астаны (свои вкладки). Ключ сервисного аккаунта — тот же, что выше; его нужно пригласить читателем и в эту таблицу.">
+        <Field
+          label="ID или ссылка на таблицу Астаны"
+          hint="Можно вставить прямо ссылку из адресной строки — ID вытащится сам"
+          value={form.astanaSheetId}
+          onChange={(v) => set({ astanaSheetId: extractSheetId(v) })}
+          placeholder="https://docs.google.com/spreadsheets/d/…/edit"
+          full
+        />
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button onClick={testAstana} disabled={astanaTesting} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+            <IPlug width={16} height={16} /> {astanaTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
+          </button>
+          <button onClick={doSyncAstana} disabled={astanaSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Синхронизировать план сейчас'}
+          </button>
+          {astanaTestResult && (
+            <span className={`chip ${astanaTestResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {astanaTestResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{astanaTestResult.message}
+            </span>
+          )}
+          {astanaSyncResult && (
+            <span className={`chip ${astanaSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {astanaSyncResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+              {astanaSyncResult.ok ? 'Матрица обновлена' : astanaSyncResult.message}
             </span>
           )}
         </div>
