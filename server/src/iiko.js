@@ -60,7 +60,14 @@ async function iikoServerFacts(settings, period) {
     const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     })
-    if (!res.ok) throw new Error(`Отчёт iikoServer недоступен (HTTP ${res.status})`)
+    if (!res.ok) {
+      // iikoServer обычно объясняет ПОЧЕМУ отклонил тело запроса (неверное
+      // поле в groupByRowFields/aggregateFields/filters для этой версии) —
+      // раньше это отбрасывалось, оставался только код ответа, разобраться
+      // было нечем.
+      const body = await res.text()
+      throw new Error(`Отчёт iikoServer недоступен (HTTP ${res.status}): ${body.slice(0, 500)}`)
+    }
     const data = await res.json()
     // --- маппинг колонок отчёта -> факты ---
     // Forward-fill защищает от пустых Товар/Поставщик в сгруппированных
