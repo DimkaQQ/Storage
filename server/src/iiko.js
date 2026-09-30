@@ -74,7 +74,13 @@ async function iikoServerFacts(settings, period) {
       groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit'],
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
-        DateTime: { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
+        // Голый "DateTime" сервер отклоняет (HTTP 409): "не найден ни один
+        // из необходимых фильтров: Учетный день (DateTime.DateTyped), Дата
+        // и время (DateTime.Typed)" — та же история, что раньше была с
+        // Supplier.Name/Counteragent.Name, только теперь про фильтр, не
+        // группировку. DateTyped — фильтр по дню (без времени), что и
+        // нужно для месячного диапазона from/to.
+        'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
         TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] },
       },
     }
