@@ -124,9 +124,10 @@ export async function syncMatrix(period?: string, target?: 'almaty' | 'astana'):
 /** null — для этого периода ещё не синхронизировали матрицу с Google-таблицы; фронт сам падает на вшитую. */
 export const fetchMatching = (period: string) => get<any>(`/api/matching?period=${encodeURIComponent(period)}`)
 
-export async function triggerSync(): Promise<{ ok: boolean; message?: string }> {
+/** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */
+export async function triggerSync(period?: string): Promise<{ ok: boolean; message?: string }> {
   try {
-    const r = await fetch('/api/sync', { method: 'POST', headers: authHeaders() })
+    const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(period ? { period } : {}) })
     return await r.json()
   } catch { return { ok: false, message: 'Бэкенд недоступен' } }
 }

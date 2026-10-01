@@ -123,6 +123,7 @@ interface Ctx {
   status: SyncStatus | null
   syncing: boolean
   refresh: () => Promise<void>
+  syncHistoricalPeriod: (period: string) => Promise<{ ok: boolean; message?: string }>
   reloadStatus: () => Promise<void>
   // точки сети — какие сейчас включены/показаны, и какие видны в закупках,
   // но пока не включены (Настройки iiko → «Точки сети»)
@@ -308,6 +309,19 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     try { await triggerSync(); await loadVenues(); await loadPeriods(); await loadData(periodKey); await reloadStatus() }
     finally { setSyncing(false) }
   }, [loadData, loadPeriods, loadVenues, reloadStatus, periodKey])
+
+  // Догрузить конкретный прошлый месяц ("YYYY-MM"), а не current/prev-month
+  // из настроек — Настройки iiko → «Загрузить другой период». Сразу
+  // переключаемся на него, иначе непонятно, что синк вообще что-то принёс.
+  const syncHistoricalPeriod = useCallback(async (period: string): Promise<{ ok: boolean; message?: string }> => {
+    setSyncing(true)
+    try {
+      const r = await triggerSync(period)
+      await loadVenues(); await loadPeriods(); await reloadStatus()
+      if (r.ok) setPeriod(period)
+      return r
+    } finally { setSyncing(false) }
+  }, [loadPeriods, loadVenues, reloadStatus, setPeriod])
 
   // Матрица версионирована по периодам так же, как факты — цены реально
   // отличаются месяц к месяцу, так что план всегда должен браться из
@@ -522,7 +536,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     edits, rows, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matchingPeriodLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
-    backendOnline, status, syncing, refresh, reloadStatus,
+    backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus,
     venues, enableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,

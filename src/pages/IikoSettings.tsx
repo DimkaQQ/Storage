@@ -32,12 +32,14 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, reloadStatus, venues, enableVenueByName, refreshMatrix } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, refreshMatrix } = useEdits()
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [addingVenue, setAddingVenue] = useState<string | null>(null)
+  const [historicalMonth, setHistoricalMonth] = useState('')
+  const [historicalResult, setHistoricalResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
@@ -157,6 +159,36 @@ export default function IikoSettings() {
           {syncing ? 'Обновляю…' : 'Обновить сейчас'}
         </button>
       </div>
+
+      {/* historical backfill — просто факт закупок за прошлый месяц, без привязки к плану/матрице этого периода */}
+      {form?.provider !== 'mock' && (
+        <div className="card flex flex-wrap items-center gap-3 p-5">
+          <div>
+            <div className="text-sm font-semibold text-white">Загрузить другой период</div>
+            <div className="text-xs text-slate-500">«Обновить сейчас» всегда берёт текущий/предыдущий месяц из настроек — здесь можно разово подтянуть любой прошлый месяц: сами закупки (сумма/кол-во), даже если план-цены за него ещё не синканы.</div>
+          </div>
+          <input
+            type="month"
+            value={historicalMonth}
+            onChange={(e) => { setHistoricalMonth(e.target.value); setHistoricalResult(null) }}
+            max={new Date().toISOString().slice(0, 7)}
+            className="rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+          />
+          <button
+            onClick={async () => { if (!historicalMonth) return; setHistoricalResult(null); setHistoricalResult(await syncHistoricalPeriod(historicalMonth)) }}
+            disabled={syncing || !historicalMonth}
+            className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60"
+          >
+            <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Загружаю…' : 'Загрузить этот период'}
+          </button>
+          {historicalResult && (
+            <span className={`chip ${historicalResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {historicalResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+              {historicalResult.ok ? 'Загружено — переключил на этот период' : historicalResult.message}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* connection */}
       <Section title="Подключение к iiko" subtitle="Выберите источник и введите доступ. Пароль/ключ хранятся только на сервере.">

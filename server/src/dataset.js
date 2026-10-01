@@ -2,6 +2,12 @@ const MIN_TURNOVER = 0 // фильтр оборота применяется н�
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
+/** period — "YYYY-MM". Для явно указанного прошлого периода (см. /api/sync с period в теле), не только current/prev-month. */
+export function periodLabelFor(period) {
+  const [y, m] = period.split('-').map(Number)
+  return `${MONTHS[m - 1]} ${y}`
+}
+
 /**
  * Only for the real iiko providers (mock has fixed, known periods baked into
  * its seed files — the caller picks one of those explicitly instead). Period

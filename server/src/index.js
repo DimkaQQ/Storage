@@ -11,7 +11,7 @@ import {
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
-import { buildDataset, resolveLivePeriod } from './dataset.js'
+import { buildDataset, resolveLivePeriod, periodLabelFor } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
 const app = express()
@@ -57,10 +57,11 @@ let syncing = {}
  * org. 'mock' has no live "current period" of its own — it's a set of fixed
  * monthly snapshots baked into the seed files — so a sync re-fetches ALL of
  * them, one dataset per period. Real providers only ever fetch the single
- * period their settings point at (current/prev month), leaving whatever
- * other periods are already stored untouched.
+ * period their settings point at (current/prev month) — unless explicitPeriod
+ * ("YYYY-MM") is given, letting an admin backfill an older month on demand —
+ * leaving whatever other periods are already stored untouched either way.
  */
-async function runSync(orgId, trigger) {
+async function runSync(orgId, trigger, explicitPeriod) {
   if (syncing[orgId]) return { ok: false, message: 'Обновление уже выполняется' }
   syncing[orgId] = true
   const settings = getSettings(orgId)
@@ -68,7 +69,7 @@ async function runSync(orgId, trigger) {
     const venues = getVenues(orgId)
     const targets = settings.provider === 'mock'
       ? getSeedPeriods().map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
-      : [resolveLivePeriod(settings)]
+      : [explicitPeriod ? { period: explicitPeriod, periodLabel: periodLabelFor(explicitPeriod) } : resolveLivePeriod(settings)]
     if (!targets.length) throw new Error('Нет ни одного периода для загрузки')
     let positions = 0
     for (const periodMeta of targets) {
@@ -166,7 +167,11 @@ app.get('/api/data', requireAuth, (req, res) => {
 app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId) }))
 
 app.post('/api/sync', requireAuth, requireAdmin, async (req, res) => {
-  const result = await runSync(req.auth.orgId, 'manual')
+  const period = req.body?.period
+  if (period !== undefined && !/^\d{4}-\d{2}$/.test(String(period))) {
+    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
+  }
+  const result = await runSync(req.auth.orgId, 'manual', period || undefined)
   res.status(result.ok ? 200 : 502).json(result)
 })
 
