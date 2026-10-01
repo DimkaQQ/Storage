@@ -5,9 +5,22 @@ const sha1 = (s) => createHash('sha1').update(s).digest('hex')
 
 const withTimeout = async (url, opts = {}, ms = 20000) => {
   const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), ms)
-  try { return await fetch(url, { ...opts, signal: ctrl.signal }) }
-  finally { clearTimeout(t) }
+  let timedOut = false
+  const t = setTimeout(() => { timedOut = true; ctrl.abort() }, ms)
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal })
+  } catch (e) {
+    // Голый "fetch failed"/AbortError ничего не говорит о причине — сервер
+    // недоступен, DNS не резолвится, таймаут истёк, или реально порвалось
+    // соединение. e.cause (undici) обычно несёт настоящую причину
+    // (ECONNREFUSED/ENOTFOUND/UND_ERR_CONNECT_TIMEOUT и т.п.), но раньше это
+    // просто отбрасывалось в catch (e) выше по стеку.
+    if (timedOut) throw new Error(`Истёк тайм-аут запроса (${ms / 1000} сек) — iikoServer не ответил вовремя`)
+    const cause = e?.cause?.message || e?.cause?.code
+    throw new Error(cause ? `${e.message}: ${cause}` : String(e.message || e))
+  } finally {
+    clearTimeout(t)
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -84,9 +97,12 @@ async function iikoServerFacts(settings, period) {
         TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] },
       },
     }
+    // Таймаут больше дефолтного — за целый прошлый месяц (а не текущий,
+    // который на момент синка обычно наполовину пустой) iikoServer агрегирует
+    // заметно больше строк и может отвечать на OLAP-отчёт дольше 20 секунд.
     const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    })
+    }, 60000)
     if (!res.ok) {
       // iikoServer обычно объясняет ПОЧЕМУ отклонил тело запроса (неверное
       // поле в groupByRowFields/aggregateFields/filters для этой версии) —

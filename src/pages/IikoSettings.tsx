@@ -21,6 +21,11 @@ const INTERVALS: { id: Settings['interval']; label: string }[] = [
   { id: 'weekly', label: 'Раз в неделю' },
   { id: 'monthly', label: 'Раз в месяц' },
 ]
+// Свои select'ы вместо <input type="month"> — у него нативный календарь
+// всегда на языке браузера/ОС (не странице), игнорирует lang на инпуте, и
+// на тёмном фоне иконка календаря практически не видна — проще и надёжнее
+// не зависеть от нативного виджета совсем.
+const RU_MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
 function ago(iso: string | null): string {
   if (!iso) return 'ещё не обновлялось'
@@ -38,8 +43,12 @@ export default function IikoSettings() {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [addingVenue, setAddingVenue] = useState<string | null>(null)
-  const [historicalMonth, setHistoricalMonth] = useState('')
+  const nowDate = new Date()
+  const [historicalYear, setHistoricalYear] = useState(nowDate.getFullYear())
+  const [historicalMonthNum, setHistoricalMonthNum] = useState<number | null>(null) // 1-12
   const [historicalResult, setHistoricalResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  const historicalMonth = historicalMonthNum ? `${historicalYear}-${String(historicalMonthNum).padStart(2, '0')}` : ''
+  const maxHistoricalMonth = historicalYear === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
@@ -167,13 +176,31 @@ export default function IikoSettings() {
             <div className="text-sm font-semibold text-white">Загрузить другой период</div>
             <div className="text-xs text-slate-500">«Обновить сейчас» всегда берёт текущий/предыдущий месяц из настроек — здесь можно разово подтянуть любой прошлый месяц: сами закупки (сумма/кол-во), даже если план-цены за него ещё не синканы.</div>
           </div>
-          <input
-            type="month"
-            value={historicalMonth}
-            onChange={(e) => { setHistoricalMonth(e.target.value); setHistoricalResult(null) }}
-            max={new Date().toISOString().slice(0, 7)}
+          <select
+            value={historicalMonthNum ?? ''}
+            onChange={(e) => { setHistoricalMonthNum(e.target.value ? Number(e.target.value) : null); setHistoricalResult(null) }}
             className="rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
-          />
+          >
+            <option value="">Месяц…</option>
+            {RU_MONTHS.map((label, i) => (
+              <option key={label} value={i + 1} disabled={i + 1 > maxHistoricalMonth}>{label}</option>
+            ))}
+          </select>
+          <select
+            value={historicalYear}
+            onChange={(e) => {
+              const y = Number(e.target.value)
+              setHistoricalYear(y)
+              const max = y === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
+              if (historicalMonthNum && historicalMonthNum > max) setHistoricalMonthNum(null)
+              setHistoricalResult(null)
+            }}
+            className="rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+          >
+            {[nowDate.getFullYear(), nowDate.getFullYear() - 1, nowDate.getFullYear() - 2].map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
           <button
             onClick={async () => { if (!historicalMonth) return; setHistoricalResult(null); setHistoricalResult(await syncHistoricalPeriod(historicalMonth)) }}
             disabled={syncing || !historicalMonth}
