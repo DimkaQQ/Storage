@@ -33,26 +33,39 @@ const normStoreKey = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerC
  * "Хоз. товары"/"Хоз.товары"/"Хоз тов" — то же самое). Без склейки
  * buildDataset считал бы каждый склад отдельной "точкой" — одна Олово 2
  * превратилась бы в несколько фантомных точек вместо одной реальной со
- * всеми закупками вместе.
+ * всеми закупками вместе. При этом приложение считает только еду/продукты
+ * (подтверждено человеком) — закупки из НЕ кухонных складов (бар, кальян,
+ * инвентарь, посуда, хозтовары, упаковка, витрина) не просто откладываются
+ * в сторону, а полностью исключаются из фактов (см. resolveStoreRestaurant
+ * ниже и фильтр в конце iikoServerFacts).
  *
  * Перечислять каждую комбинацию "отдел + бренд" отдельной строкой не
  * тянется — отделов и вариантов написания слишком много, и они
  * продолжают всплывать. Вместо этого отрезаем с начала и с конца строки
- * распознанные слова-отделы (DEPT_WORDS — руками сверенный список, не
- * угадывается) и ищем middle-остаток ТОЧНЫМ совпадением в
+ * распознанные слова-отделы (руками сверенные списки ниже, не
+ * угадываются) и ищем middle-остаток ТОЧНЫМ совпадением в
  * BRAND_CODE_TO_RESTAURANT — тот же принцип точного сопоставления, что у
  * SHEET_TO_RESTAURANT в sheets.js, просто написание отдела вокруг кода
  * бренда не обязано совпадать по буквам. Код бренда, которого нет в
  * таблице, НЕ возвращается наугад — функция отдаёт исходную строку как
  * есть, склад просто остаётся "обнаруженным, но не показанным" в
  * Настройках iiko (туда не нажимать "Добавить" — это склад, не точка,
- * сперва узнать, какому ресторану принадлежит, и дописать сюда).
+ * сперва узнать, какому ресторану принадлежит и кухонный ли он, и
+ * дописать сюда).
  */
-const DEPT_WORDS = new Set([
-  'кухня', 'бар', 'инвентарь', 'кальян', 'витрина', 'посуда', 'склад',
+// "Кухня" — единственный отдел, который реально считается едой/продуктами
+// (подтверждено человеком). Остальные — не про еду вообще (бар/напитки,
+// кальян, инвентарь/оборудование, посуда, хозтовары, упаковка) — их
+// закупки нужно полностью исключать, а не просто откладывать в сторону.
+// "склад" сам по себе нейтрален (встречается и в "Кухня склад", и в "Бар
+// склад") — отдел определяется ДРУГИМ словом рядом с ним, не им самим.
+const KITCHEN_WORDS = new Set(['кухня'])
+const NON_KITCHEN_WORDS = new Set([
+  'бар', 'инвентарь', 'кальян', 'витрина', 'посуда',
   'хоз', 'товары', 'тов', 'товар', 'упаковка', 'общая', 'одноразовая',
   'зал', 'заготовочный',
 ])
+const NEUTRAL_WORDS = new Set(['склад'])
 
 const BRAND_CODE_TO_RESTAURANT = {
   'рене': 'Рене',
@@ -73,13 +86,26 @@ const BRAND_CODE_TO_RESTAURANT = {
   'tng правый': 'Tangirs (Сарыарка, Астана)',
 }
 
-function mapStoreToRestaurant(storeRaw) {
+/**
+ * Возвращает название ресторана, или null — закупка известного бренда, но
+ * с точно НЕ кухонного склада (бар/кальян/инвентарь/посуда/хозтовары/
+ * упаковка/витрина) — такую факт-строку нужно отбросить целиком, она не
+ * про еду. Неизвестный бренд (ещё не в BRAND_CODE_TO_RESTAURANT) проходит
+ * как сырое имя склада — решать, кухня это или нет, пока нечем, пусть
+ * будет видно в "обнаружено, но не показано", а не тихо потеряется.
+ */
+function resolveStoreRestaurant(storeRaw) {
   const key = normStoreKey(storeRaw)
-  if (BRAND_CODE_TO_RESTAURANT[key]) return BRAND_CODE_TO_RESTAURANT[key]
+  const isDept = (t) => KITCHEN_WORDS.has(t) || NON_KITCHEN_WORDS.has(t) || NEUTRAL_WORDS.has(t)
   let tokens = key.split(/[\s/.()]+/).filter(Boolean)
-  while (tokens.length > 1 && DEPT_WORDS.has(tokens[0])) tokens = tokens.slice(1)
-  while (tokens.length > 1 && DEPT_WORDS.has(tokens[tokens.length - 1])) tokens = tokens.slice(0, -1)
-  return BRAND_CODE_TO_RESTAURANT[tokens.join(' ')] ?? storeRaw
+  const deptTokens = []
+  while (tokens.length > 1 && isDept(tokens[0])) { deptTokens.push(tokens[0]); tokens = tokens.slice(1) }
+  while (tokens.length > 1 && isDept(tokens[tokens.length - 1])) { deptTokens.push(tokens.pop()) }
+  const code = tokens.join(' ')
+  const restaurant = BRAND_CODE_TO_RESTAURANT[code] ?? BRAND_CODE_TO_RESTAURANT[key]
+  if (!restaurant) return storeRaw // неизвестный бренд — сырое имя как раньше
+  if (deptTokens.some((t) => NON_KITCHEN_WORDS.has(t))) return null // точно не кухня — исключить
+  return restaurant // кухня, явно не указан отдел, или только нейтральное "склад" — включаем
 }
 
 /* ------------------------------------------------------------------ *
@@ -193,14 +219,17 @@ async function iikoServerFacts(settings, period) {
       lastProduct = product
       lastSupplier = supplier
       return {
-        restaurant: mapStoreToRestaurant(row['Store']),
+        restaurant: resolveStoreRestaurant(row['Store']),
         supplier,
         product,
         pack: row['Product.MeasureUnit'] || '',
         qty: Number(row['Amount']) || 0,
         sum: Number(row['Sum.Incoming']) || 0,
       }
-    }).filter((f) => f.product && f.qty > 0)
+      // restaurant === null — известный бренд, но точно не кухонный склад
+      // (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина) — такую
+      // закупку отбрасываем целиком, в приложении считаем только еду.
+    }).filter((f) => f.product && f.qty > 0 && f.restaurant !== null)
   } finally {
     await iikoServerLogout(base, token)
   }
