@@ -123,7 +123,7 @@ interface RawDataset {
   restaurants: RawRestaurant[]
 }
 
-export type Status = 'ok' | 'wrongSupplier' | 'nomatrix'
+export type Status = 'ok' | 'wrongSupplier' | 'nomatrix' | 'notPurchased'
 
 export interface Row {
   id: string
@@ -1007,7 +1007,13 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       supplier: supplierDisplay, supplierLabel: null,
       product: label ?? capitalize(product), productRaw: '', productLabel: pack || null, isAssortment,
       pack, qty: 0, unit: null, plan,
-      diffPct: null, status: 'ok', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null, matchedKey: key, isTotalRow: false,
+      // Раньше тут был status: 'ok' — та же метка "По матрице", что у
+      // реально купленной и совпавшей позиции. При фильтре "По матрице" эти
+      // строки (ничего не покупали, просто план есть) неотличимо мешались с
+      // настоящими совпадениями — "Позиций в срезе"/"100%" считали и то, и
+      // то вместе. notPurchased — отдельный статус специально для этого,
+      // summarize() их и так не учитывает (там отдельная отсечка по unit).
+      diffPct: null, status: 'notPurchased', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null, matchedKey: key, isTotalRow: false,
       // Не настоящая закупка (просто "вот что прайсовано, но не купили в
       // этом периоде") — комментарий/цвет тут не про что вешать, оставляем
       // null. rowKey всё равно даём (по ключу матрицы) — на случай если
@@ -1169,6 +1175,7 @@ export const STATUS_META: Record<Status, { label: string; color: string; dot: st
   ok: { label: 'По матрице', color: 'text-good', dot: 'bg-good' },
   wrongSupplier: { label: 'Заказ не по матрице', color: 'text-warn', dot: 'bg-warn' },
   nomatrix: { label: 'Нет в матрице', color: 'text-purple-300', dot: 'bg-purple-400' },
+  notPurchased: { label: 'Не закупали', color: 'text-slate-400', dot: 'bg-slate-500' },
 }
 
 /* ---------- aggregation helpers ---------- */

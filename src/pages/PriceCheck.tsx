@@ -11,6 +11,7 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'ok', label: 'По матрице' },
   { id: 'wrongSupplier', label: 'Заказ не по матрице' },
   { id: 'nomatrix', label: 'Нет в матрице' },
+  { id: 'notPurchased', label: 'Не закупали' },
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {

@@ -25,7 +25,10 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
     // Позиции без факта (в матрице есть, но не покупали) сюда не входят —
     // диаграмма про то, что реально закупили, и должна совпадать с s.positions.
     for (const r of rows) if (r.unit != null) counts.set(r.status, (counts.get(r.status) || 0) + 1)
-    const colors: Record<Status, string> = { ok: C.good, wrongSupplier: C.warn, nomatrix: C.purple }
+    // notPurchased никогда реально не попадёт в counts (r.unit != null выше
+    // это гарантирует) — запись здесь только чтобы Record<Status, string>
+    // был полным для тайпчекера, order ниже её не использует.
+    const colors: Record<Status, string> = { ok: C.good, wrongSupplier: C.warn, nomatrix: C.purple, notPurchased: C.good }
     return order.map((st) => ({ st, name: STATUS_META[st].label, value: counts.get(st) || 0, color: colors[st] }))
       .filter((d) => d.value > 0)
   }, [rows])
