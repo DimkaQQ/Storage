@@ -75,7 +75,22 @@ async function runSync(orgId, trigger, explicitPeriod) {
     for (const periodMeta of targets) {
       const facts = await fetchFacts(settings, periodMeta.period)
       if (!facts.length) continue
-      saveDataset(orgId, periodMeta.period, buildDataset(facts, venues, periodMeta))
+      const built = buildDataset(facts, venues, periodMeta)
+      // buildDataset группирует только по фактам — точка без ни одной
+      // закупки за этот период (есть план-цены, но просто ничего не
+      // купили) в built.restaurants не попадёт вообще, не как "0 закупок",
+      // а целиком: ни в выборе точек, ни строкой "не закупали" в "Проверка
+      // цен" (computeRows строит её meta из base, а base для такой точки
+      // пустой). Добираем явно включённые точки, которых нет среди фактов,
+      // с пустым items — дальше фронт сам решит, показывать ли что-то по
+      // ним (addPlanOnlyRow из матрицы), опираясь на их meta.
+      const present = new Set(built.restaurants.map((r) => r.name))
+      for (const name of getEnabledRestaurants(orgId)) {
+        if (present.has(name)) continue
+        const meta = venues.find((v) => v.name === name) || {}
+        built.restaurants.push({ name, entity: meta.entity || '', brand: meta.brand || name, city: meta.city || 'Алматы', category: meta.category || 'Кухня', items: [] })
+      }
+      saveDataset(orgId, periodMeta.period, built)
       positions += facts.length
     }
     if (!positions) throw new Error('Провайдер вернул пустой список закупок')

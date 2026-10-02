@@ -892,7 +892,7 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
 }
 
 /** Builds display rows by applying edits and resolving plan/status. */
-export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING): Row[] {
+export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = []): Row[] {
   const matching = scopedMatching(matchingIn)
   const designatedIndex = buildDesignatedIndex(matching)
   const knownFlatPairs = buildKnownFlatIndex(matching)
@@ -901,10 +901,19 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   // matrix entries for restaurants we don't even show don't spawn rows here.
   // First occurrence per restaurant carries the venue meta (brand/city/...)
   // to reuse for its "not purchased yet" rows below.
-  const venueByRestaurant = new Map<string, BaseRow>()
+  const venueByRestaurant = new Map<string, Pick<BaseRow, 'restaurant' | 'brand' | 'city' | 'entity' | 'category'>>()
   for (const b of base) {
     const key = norm(b.restaurant)
     if (!venueByRestaurant.has(key)) venueByRestaurant.set(key, b)
+  }
+  // Точки без единой реальной закупки за период (есть план-цены, но
+  // ничего не купили) не оставляют следа в base вообще — без этого их
+  // "не закупали"-строки ниже тоже молча пропадали бы, хотя сама точка
+  // уже включена и видна в выборе точек (см. buildDataset/runSync на
+  // сервере — туда её добавляют явно, с пустыми items).
+  for (const v of venues) {
+    const key = norm(v.name)
+    if (!venueByRestaurant.has(key)) venueByRestaurant.set(key, { restaurant: v.name, brand: v.brand, city: v.city, entity: v.entity, category: v.category })
   }
   const supplierDisplayByNorm = new Map<string, string>()
   for (const canon of Object.values(matching.supplierAlias)) supplierDisplayByNorm.set(norm(canon), canon)

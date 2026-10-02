@@ -343,7 +343,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const matchingIsStale = !backendMatching && !BUNDLED_MATCHING_PERIODS.includes(periodKey)
   const matchingPeriodKey = matchingIsStale ? BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period : periodKey
   const matchingPeriodLabel = periods.find((p) => p.period === matchingPeriodKey)?.periodLabel ?? matchingPeriodKey
-  const rows = useMemo(() => computeRows(parsed.base, edits, matching), [parsed, edits, matching])
+  const rows = useMemo(() => computeRows(parsed.base, edits, matching, parsed.restaurants), [parsed, edits, matching])
 
   // key = "товар::поставщик" (composed by the caller — DataEditor). Ставит
   // значение или удаляет запись, если очистили поле.
