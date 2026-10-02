@@ -72,8 +72,10 @@ async function runSync(orgId, trigger, explicitPeriod) {
       : [explicitPeriod ? { period: explicitPeriod, periodLabel: periodLabelFor(explicitPeriod) } : resolveLivePeriod(settings)]
     if (!targets.length) throw new Error('Нет ни одного периода для загрузки')
     let positions = 0
+    const fetchStatsByPeriod = []
     for (const periodMeta of targets) {
       const facts = await fetchFacts(settings, periodMeta.period)
+      if (facts.fetchStats) fetchStatsByPeriod.push({ period: periodMeta.period, ...facts.fetchStats })
       if (!facts.length) continue
       const built = buildDataset(facts, venues, periodMeta)
       // buildDataset группирует только по фактам — точка без ни одной
@@ -94,13 +96,22 @@ async function runSync(orgId, trigger, explicitPeriod) {
       positions += facts.length
     }
     if (!positions) throw new Error('Провайдер вернул пустой список закупок')
+    // Диагностика по сырому ответу iikoServer прямо в сообщении статуса —
+    // rawCount намного меньше, чем видно глазами в самом iiko за тот же
+    // период, значит теряем уже на самом OLAP-запросе (не та дата/фильтр
+    // типа документа/лимит ответа), а не в нашей фильтрации по отделу.
+    const statsNote = fetchStatsByPeriod.length
+      ? ' — ' + fetchStatsByPeriod.map((s) =>
+          `${s.period}: iikoServer вернул ${s.rawCount} строк, отсеяно без товара/кол-ва ${s.droppedNoData}, по отделу/бренду ${s.droppedDept}, осталось ${s.kept}`,
+        ).join('; ')
+      : ''
     const status = {
       lastSync: new Date().toISOString(),
       lastResult: 'ok',
       source: settings.provider,
       trigger,
       positions,
-      message: `Загружено ${positions} позиций`,
+      message: `Загружено ${positions} позиций${statsNote}`,
     }
     saveStatus(orgId, status)
     return { ok: true, ...status }

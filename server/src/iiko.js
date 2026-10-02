@@ -303,7 +303,8 @@ async function iikoServerFacts(settings, period) {
     // через IF(R="",Y_prev,R). OLAP обычно отдаёт заполненные строки, но
     // это дёшево и не помешает на реальных выгрузках.
     let lastProduct = '', lastSupplier = ''
-    return (data.data || []).map((row) => {
+    const rawRows = data.data || []
+    const mapped = rawRows.map((row) => {
       const product = row['Product.Name'] || lastProduct
       const supplier = row['Counteragent.Name'] || lastSupplier
       lastProduct = product
@@ -319,7 +320,19 @@ async function iikoServerFacts(settings, period) {
       // restaurant === null — известный бренд, но точно не кухонный склад
       // (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина) — такую
       // закупку отбрасываем целиком, в приложении считаем только еду.
-    }).filter((f) => f.product && f.qty > 0 && f.restaurant !== null)
+    })
+    // Диагностика прямо в статусе синка — без нужды гадать или дёргать
+    // отдельную кнопку: сколько строк реально вернул iikoServer на этот
+    // запрос (до любой нашей фильтрации), и сколько отсеялось и почему. Если
+    // rawCount сам по себе маленький (намного меньше, чем видно глазами в
+    // реальном отчёте iiko за тот же период) — значит, теряем уже на самом
+    // OLAP-запросе (не тот TransactionType/дата/лимит ответа), а не в нашей
+    // логике ниже.
+    const droppedNoData = mapped.filter((f) => !(f.product && f.qty > 0)).length
+    const droppedDept = mapped.filter((f) => f.product && f.qty > 0 && f.restaurant === null).length
+    const facts = mapped.filter((f) => f.product && f.qty > 0 && f.restaurant !== null)
+    facts.fetchStats = { rawCount: rawRows.length, droppedNoData, droppedDept, kept: facts.length }
+    return facts
   } finally {
     await iikoServerLogout(base, token)
   }

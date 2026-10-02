@@ -157,6 +157,12 @@ export default function IikoSettings() {
               {status?.positions ? <> · {status.positions} позиций</> : null}
               {status?.lastResult === 'error' && <span className="text-bad"> · ошибка: {status.message}</span>}
             </div>
+            {/* Диагностика синка iikoServer (сколько строк реально вернул
+                отчёт и сколько отсеялось и почему) — видна и на успехе, не
+                только на ошибке, чтобы не гадать, где теряются данные. */}
+            {status?.lastResult === 'ok' && status.message && status.message.includes('iikoServer вернул') && (
+              <div className="mt-1 text-[11px] text-slate-600">{status.message}</div>
+            )}
           </div>
         </div>
         <button
