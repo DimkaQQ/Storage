@@ -59,13 +59,17 @@ const normStoreKey = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerC
 // закупки нужно полностью исключать, а не просто откладывать в сторону.
 // "склад" сам по себе нейтрален (встречается и в "Кухня склад", и в "Бар
 // склад") — отдел определяется ДРУГИМ словом рядом с ним, не им самим.
-const KITCHEN_WORDS = new Set(['кухня'])
-const NON_KITCHEN_WORDS = new Set([
-  'бар', 'инвентарь', 'кальян', 'витрина', 'посуда',
-  'хоз', 'товары', 'тов', 'товар', 'упаковка', 'общая', 'одноразовая',
-  'зал', 'заготовочный',
-])
-const NEUTRAL_WORDS = new Set(['склад'])
+// Длиннее — вперёд: иначе "посуда" срежется раньше "одноразовая посуда" и
+// от неё останется бессмысленный хвост "одноразовая".
+const KITCHEN_WORDS = ['кухня', 'цех']
+const NON_KITCHEN_WORDS = [
+  'одноразовая посуда', 'заготовочный', 'инвентарь', 'упаковка',
+  'кальян', 'витрина', 'посуда', 'товары', 'товар', 'тов', 'общая', 'зал', 'хоз', 'бар',
+]
+const NEUTRAL_WORDS = ['склад']
+const DEPT_WORDS = [...KITCHEN_WORDS, ...NON_KITCHEN_WORDS, ...NEUTRAL_WORDS].sort((a, b) => b.length - a.length)
+
+const squash = (s) => s.replace(/[\s/.()]+/g, '')
 
 const BRAND_CODE_TO_RESTAURANT = {
   'рене': 'Рене',
@@ -79,32 +83,75 @@ const BRAND_CODE_TO_RESTAURANT = {
   'french 42': 'French bar',
   'french bar': 'French bar',
   // Астана — TNG Левый/Правый подтверждены человеком: Левый = Есиль
-  // (ТанжEC в Google-таблице матрицы), Правый = Сарыарка (ТанжS).
+  // (Танж1 в Google-таблице матрицы), Правый = Сарыарка (Танж2) — и
+  // подтверждено ещё раз кодами в реальных названиях складов из отчёта
+  // iiko (TNGEC2-Astana = Есиль/Левый, TNGAT3-Astana = Сарыарка/Правый).
   'plv астана': 'Pasta la vista (Астана)',
   'six астана': 'Six coffee&wine (Астана)',
   'tng левый': 'Tangirs (Есиль, Астана)',
   'tng правый': 'Tangirs (Сарыарка, Астана)',
 }
+// Ключи без пробелов/разделителей — реальные Store из iiko бывают слитными
+// без пробела между отделом и кодом бренда ("Кухнясклад/TNGЛевый", без
+// пробела ни после "Кухня", ни внутри "TNGЛевый") — один и тот же код
+// бренда должен находиться и в раздельном, и в слитном написании.
+const BRAND_CODE_SQUASHED = Object.fromEntries(
+  Object.entries(BRAND_CODE_TO_RESTAURANT).map(([k, v]) => [squash(k), v]),
+)
+
+// Склады известных брендов, которые сами пока не нужны приложению —
+// подтверждено человеком явно (не "неизвестно", а "не нужно вообще").
+// Молча исключаются, как и некухонные отделы — не просто откладываются в
+// список "обнаружено, но не показано".
+const IGNORED_BRAND_CODES = new Set(['g63', 'пекатория', 'променад'])
+
+/** Снимает С ОБЕИХ концов строки распознанные слова-отделы, по одному, пока снимается — работает и когда отдел слит с кодом бренда без пробела, и когда через пробел/слэш/точку/скобки. */
+function peelDeptWords(s) {
+  const found = []
+  let changed = true
+  while (changed && s.length > 0) {
+    changed = false
+    for (const w of DEPT_WORDS) {
+      if (s.startsWith(w)) {
+        const rest = s.slice(w.length).replace(/^[\s/.()]+/, '')
+        if (rest !== s) { found.push(w); s = rest; changed = true; break }
+      }
+    }
+  }
+  changed = true
+  while (changed && s.length > 0) {
+    changed = false
+    for (const w of DEPT_WORDS) {
+      if (s.endsWith(w)) {
+        const rest = s.slice(0, s.length - w.length).replace(/[\s/.()]+$/, '')
+        if (rest !== s) { found.push(w); s = rest; changed = true; break }
+      }
+    }
+  }
+  return { rest: s, deptWords: found }
+}
 
 /**
- * Возвращает название ресторана, или null — закупка известного бренда, но
- * с точно НЕ кухонного склада (бар/кальян/инвентарь/посуда/хозтовары/
- * упаковка/витрина) — такую факт-строку нужно отбросить целиком, она не
- * про еду. Неизвестный бренд (ещё не в BRAND_CODE_TO_RESTAURANT) проходит
- * как сырое имя склада — решать, кухня это или нет, пока нечем, пусть
- * будет видно в "обнаружено, но не показано", а не тихо потеряется.
+ * Возвращает название ресторана, или null — закупка, которую решили
+ * полностью исключить: либо известный бренд с точно НЕ кухонного склада
+ * (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина), либо склад
+ * известного-но-ненужного бренда (IGNORED_BRAND_CODES). Неизвестный бренд
+ * (ещё не в BRAND_CODE_TO_RESTAURANT и не в IGNORED_BRAND_CODES) проходит
+ * как сырое имя склада — решать, кухня это или нет и чей это ресторан,
+ * пока нечем, пусть будет видно в "обнаружено, но не показано", а не
+ * тихо потеряется.
  */
 function resolveStoreRestaurant(storeRaw) {
-  const key = normStoreKey(storeRaw)
-  const isDept = (t) => KITCHEN_WORDS.has(t) || NON_KITCHEN_WORDS.has(t) || NEUTRAL_WORDS.has(t)
-  let tokens = key.split(/[\s/.()]+/).filter(Boolean)
-  const deptTokens = []
-  while (tokens.length > 1 && isDept(tokens[0])) { deptTokens.push(tokens[0]); tokens = tokens.slice(1) }
-  while (tokens.length > 1 && isDept(tokens[tokens.length - 1])) { deptTokens.push(tokens.pop()) }
-  const code = tokens.join(' ')
-  const restaurant = BRAND_CODE_TO_RESTAURANT[code] ?? BRAND_CODE_TO_RESTAURANT[key]
+  // Хвостовую скобку с внутренним кодом склада отбрасываем сразу — встречается
+  // в реальных Store вида "Кухнясклад/TNGЛевый(TNGEC2-Astana)", код внутри
+  // ничего не говорит ни про бренд, ни про отдел, только путает squash().
+  const key = normStoreKey(storeRaw).replace(/\([^)]*\)\s*$/, '').trim()
+  const { rest, deptWords } = peelDeptWords(key)
+  const code = squash(rest)
+  if (IGNORED_BRAND_CODES.has(code)) return null
+  const restaurant = BRAND_CODE_SQUASHED[code]
   if (!restaurant) return storeRaw // неизвестный бренд — сырое имя как раньше
-  if (deptTokens.some((t) => NON_KITCHEN_WORDS.has(t))) return null // точно не кухня — исключить
+  if (deptWords.some((w) => NON_KITCHEN_WORDS.includes(w))) return null // точно не кухня — исключить
   return restaurant // кухня, явно не указан отдел, или только нейтральное "склад" — включаем
 }
 
