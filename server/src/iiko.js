@@ -138,27 +138,43 @@ function peelDeptWords(s) {
 
 /**
  * Возвращает название ресторана, или null — закупка, которую решили
- * полностью исключить: либо известный бренд с точно НЕ кухонного склада
- * (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина), либо склад
- * известного-но-ненужного бренда (IGNORED_BRAND_CODES). Неизвестный бренд
- * (ещё не в BRAND_CODE_TO_RESTAURANT и не в IGNORED_BRAND_CODES) проходит
- * как сырое имя склада — решать, кухня это или нет и чей это ресторан,
- * пока нечем, пусть будет видно в "обнаружено, но не показано", а не
- * тихо потеряется.
+ * полностью исключить: либо точно НЕ кухонный склад (бар/кальян/инвентарь/
+ * посуда/хозтовары/упаковка/витрина/склад) — ЭТО проверяется ДО попытки
+ * опознать бренд, поэтому действует и для ещё неопознанных/неоднозначных
+ * названий (бренд неизвестен, но отдел уже прямо написан — "Бар Сикс",
+ * "Посуда/Six-3" — не кухня, можно исключать сразу, не дожидаясь, пока
+ * человек опознает, какой именно это Сикс); либо склад известного-но-
+ * ненужного бренда (IGNORED_BRAND_CODES). Неизвестный бренд, если отдел
+ * кухонный или вообще не указан (ещё не в BRAND_CODE_TO_RESTAURANT и не в
+ * IGNORED_BRAND_CODES), проходит как сырое имя склада — решать, чей это
+ * ресторан, пока нечем, пусть будет видно в "обнаружено, но не показано",
+ * а не тихо потеряется.
  */
 function resolveStoreRestaurant(storeRaw) {
-  // Хвостовую скобку с внутренним кодом склада отбрасываем сразу — встречается
-  // в реальных Store вида "Кухнясклад/TNGЛевый(TNGEC2-Astana)", код внутри
-  // ничего не говорит ни про бренд, ни про отдел, только путает squash().
-  const key = normStoreKey(storeRaw).replace(/\([^)]*\)\s*$/, '').trim()
-  const { rest, deptWords } = peelDeptWords(key)
+  const normalized = normStoreKey(storeRaw)
+  // Хвостовую скобку отбрасываем из основной строки перед разбором —
+  // встречается два вида содержимого: либо код склада ("Кухнясклад/
+  // TNGЛевый(TNGEC2-Astana)" — код ничего не говорит ни про бренд, ни про
+  // отдел, только путает squash()), либо слова-отделы ("Танжирс (Склад
+  // Кальян)"). Отличаем так: если содержимое скобки само целиком
+  // раскладывается на слова-отделы — это второй случай, учитываем их;
+  // иначе это код, просто отбрасываем как раньше.
+  const parenMatch = normalized.match(/\(([^)]*)\)\s*$/)
+  const key = normalized.replace(/\([^)]*\)\s*$/, '').trim()
+  let parenDeptWords = []
+  if (parenMatch) {
+    const { rest: parenRest, deptWords: innerWords } = peelDeptWords(parenMatch[1].trim())
+    if (parenRest === '') parenDeptWords = innerWords
+  }
+  const { rest, deptWords: keyDeptWords } = peelDeptWords(key)
+  const deptWords = [...keyDeptWords, ...parenDeptWords]
+  const hasKitchen = deptWords.some((w) => KITCHEN_WORDS.includes(w))
+  if (deptWords.length > 0 && !hasKitchen) return null // указан какой-то отдел (бар/склад/хозтовары/посуда/...) без кухни — исключить, бренд не важен
   const code = squash(rest)
   if (IGNORED_BRAND_CODES.has(code)) return null
   const restaurant = BRAND_CODE_SQUASHED[code]
-  if (!restaurant) return storeRaw // неизвестный бренд — сырое имя как раньше
-  if (deptWords.some((w) => KITCHEN_WORDS.includes(w))) return restaurant // явно кухня — включаем
-  if (deptWords.length > 0) return null // указан какой-то другой отдел (бар/склад/хозтовары/посуда/...) без кухни — исключить
-  return restaurant // отдел вообще не указан — не на чем основывать исключение, оставляем как раньше
+  if (!restaurant) return storeRaw // неизвестный бренд, но отдел кухонный или не указан — сырое имя как раньше, для ручного опознания
+  return restaurant
 }
 
 /* ------------------------------------------------------------------ *

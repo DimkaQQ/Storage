@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, testMatrixConnection, syncMatrix, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
-import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo } from '../components/icons'
+import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron } from '../components/icons'
 
 /** Принимает и полную ссылку на таблицу, и просто ID — вытаскивает ID из ссылки вида .../d/<ID>/edit. */
 function extractSheetId(input: string): string {
@@ -176,31 +176,37 @@ export default function IikoSettings() {
             <div className="text-sm font-semibold text-white">Загрузить другой период</div>
             <div className="text-xs text-slate-500">«Обновить сейчас» всегда берёт текущий/предыдущий месяц из настроек — здесь можно разово подтянуть любой прошлый месяц: сами закупки (сумма/кол-во), даже если план-цены за него ещё не синканы.</div>
           </div>
-          <select
-            value={historicalMonthNum ?? ''}
-            onChange={(e) => { setHistoricalMonthNum(e.target.value ? Number(e.target.value) : null); setHistoricalResult(null) }}
-            className="rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
-          >
-            <option value="">Месяц…</option>
-            {RU_MONTHS.map((label, i) => (
-              <option key={label} value={i + 1} disabled={i + 1 > maxHistoricalMonth}>{label}</option>
-            ))}
-          </select>
-          <select
-            value={historicalYear}
-            onChange={(e) => {
-              const y = Number(e.target.value)
-              setHistoricalYear(y)
-              const max = y === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
-              if (historicalMonthNum && historicalMonthNum > max) setHistoricalMonthNum(null)
-              setHistoricalResult(null)
-            }}
-            className="rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
-          >
-            {[nowDate.getFullYear(), nowDate.getFullYear() - 1, nowDate.getFullYear() - 2].map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              value={historicalMonthNum ?? ''}
+              onChange={(e) => { setHistoricalMonthNum(e.target.value ? Number(e.target.value) : null); setHistoricalResult(null) }}
+              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 pr-8 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+            >
+              <option value="">Месяц…</option>
+              {RU_MONTHS.map((label, i) => (
+                <option key={label} value={i + 1} disabled={i + 1 > maxHistoricalMonth}>{label}</option>
+              ))}
+            </select>
+            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-slate-500" />
+          </div>
+          <div className="relative">
+            <select
+              value={historicalYear}
+              onChange={(e) => {
+                const y = Number(e.target.value)
+                setHistoricalYear(y)
+                const max = y === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
+                if (historicalMonthNum && historicalMonthNum > max) setHistoricalMonthNum(null)
+                setHistoricalResult(null)
+              }}
+              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 pr-8 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+            >
+              {[nowDate.getFullYear(), nowDate.getFullYear() - 1, nowDate.getFullYear() - 2].map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-slate-500" />
+          </div>
           <button
             onClick={async () => { if (!historicalMonth) return; setHistoricalResult(null); setHistoricalResult(await syncHistoricalPeriod(historicalMonth)) }}
             disabled={syncing || !historicalMonth}
