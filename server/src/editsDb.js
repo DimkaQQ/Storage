@@ -18,6 +18,22 @@ function tx(fn) {
   catch (err) { db.exec('ROLLBACK'); throw err }
 }
 
+// Миграция: plan_overrides раньше была (org_id, product, plan) — ключ по
+// одному названию товара, без ресторана/поставщика/фасовки (см. git-историю
+// commit 00dac7c). Переехала на (org_id, key, price), где key — составной
+// "ресторан::поставщик::товар[::фасовка]", как и везде в матрице. На базах,
+// где таблица создалась ДО этого переезда, CREATE TABLE IF NOT EXISTS ниже
+// её не трогает — столбца "key" там просто нет, и любой SELECT/INSERT с ним
+// падает с "no such column: key" (ровно так и падал экспорт/сброс на проде).
+// Старые строки (bare product-ключ) несовместимы с новым форматом по смыслу,
+// переносить их некуда — пересоздаём таблицу пустой.
+{
+  const cols = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='plan_overrides'").get()
+    ? db.prepare('PRAGMA table_info(plan_overrides)').all().map((c) => c.name)
+    : null
+  if (cols && !cols.includes('key')) db.exec('DROP TABLE plan_overrides')
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS product_renames  (org_id TEXT NOT NULL, original TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, original));
   CREATE TABLE IF NOT EXISTS supplier_renames (org_id TEXT NOT NULL, original TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (org_id, original));
