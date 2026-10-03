@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, BUNDLED_MATCHING_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, RowColor, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, RowColor, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -107,12 +107,10 @@ interface Ctx {
   periods: PeriodMeta[]
   setPeriod: (period: string) => void
   matching: MatchingTable
-  // Матрица за просматриваемый период реально не вшита в приложение (бэкенд
-  // знает период новее последней вшитой матрицы) — то, что видно в
-  // `matching`, на самом деле план-цены за matchingPeriodLabel, не за
-  // period. См. bundledMatching() в lib/data.ts.
+  // Матрица не привязана к периоду (план-цены сами по себе не "за такой-то
+  // месяц", таблица живая) — true, только если с Google-таблицы вообще
+  // ничего ни разу не синкали, и приложение показывает вшитую демо-матрицу.
   matchingIsStale: boolean
-  matchingPeriodLabel: string
   city: string
   category: string
   restaurants: VenueMeta[]
@@ -251,11 +249,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const v = await fetchVenues()
     if (v) { setRestaurantScope(v.enabled); setVenuesState(v); setBackendOnline(true) }
   }, [])
-  // Матрица — свой источник, свой фетч, не завязан на loadData (закупки).
-  // null у fetchMatching означает "для этого периода ещё нет синка с
-  // таблицей" — это НЕ ошибка бэкенда, поэтому backendOnline не трогаем.
-  const loadMatching = useCallback(async (period: string) => {
-    const m = await fetchMatching(period)
+  // Матрица — свой источник, свой фетч, не завязан на loadData (закупки) и
+  // не привязан к периоду (план-цены сами по себе не "за такой-то месяц").
+  // null у fetchMatching означает "ещё нет синка с таблицей вообще" — это
+  // НЕ ошибка бэкенда, поэтому backendOnline не трогаем.
+  const loadMatching = useCallback(async () => {
+    const m = await fetchMatching()
     setBackendMatching(m && m.planPairs ? (m as MatchingTable) : null)
   }, [])
 
@@ -273,15 +272,15 @@ export function EditsProvider({ children }: { children: ReactNode }) {
         const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
         setPeriodKey(initial)
         loadData(initial)
-        loadMatching(initial)
       })
     })
+    loadMatching()
   }, [])
 
   // Пересинхронизировать матрицу вручную (кнопка в Настройки iiko, после
   // «Обновить сейчас» самой Google-таблицы) — просто перечитывает уже
-  // сохранённую бэкендом матрицу текущего периода.
-  const refreshMatrix = useCallback(() => loadMatching(periodKey), [loadMatching, periodKey])
+  // сохранённую бэкендом (единую, без периода) матрицу.
+  const refreshMatrix = useCallback(() => loadMatching(), [loadMatching])
 
   // Кнопка «Добавить» у обнаруженной, но пока не включённой точки
   // (Настройки iiko → «Точки сети»). Точка уже есть в данных (iiko прислал
@@ -309,8 +308,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const setPeriod = useCallback((period: string) => {
     setPeriodKey(period)
     loadData(period)
-    loadMatching(period)
-  }, [loadData, loadMatching])
+  }, [loadData])
 
   // «Обновление» держит текущий выбранный период — просто пересобирает то,
   // на что уже смотрит пользователь, плюс подтягивает список периодов
@@ -346,15 +344,11 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     () => (noMatrixTest ? EMPTY_MATCHING : backendMatching ?? bundledMatching(periodKey)),
     [periodKey, noMatrixTest, backendMatching],
   )
-  // Бэкенд может уже знать периоды новее последней вшитой в код матрицы
-  // (обновление из iiko идёт само, обновление матрицы — ручной шаг). Тогда
-  // bundledMatching() выше молча подставляет ближайшую прошлую матрицу —
-  // а план-цены реально отличаются месяц к месяцу. Не молчим об этом. Если
-  // матрица за этот период реально синхронизирована с таблицей
-  // (backendMatching) — устаревшей она не считается, независимо от периода.
-  const matchingIsStale = !backendMatching && !BUNDLED_MATCHING_PERIODS.includes(periodKey)
-  const matchingPeriodKey = matchingIsStale ? BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period : periodKey
-  const matchingPeriodLabel = periods.find((p) => p.period === matchingPeriodKey)?.periodLabel ?? matchingPeriodKey
+  // Матрица не привязана к периоду — реально синканная (backendMatching)
+  // всегда в ходу, какой бы период ни смотрели. "Устарела" только в одном
+  // смысле: с Google-таблицей вообще ещё ни разу не синкались, и показана
+  // вшитая демо-матрица вместо реальной.
+  const matchingIsStale = !backendMatching
   const rows = useMemo(() => computeRows(parsed.base, edits, matching, parsed.restaurants), [parsed, edits, matching])
 
   // key = "товар::поставщик" (composed by the caller — DataEditor). Ставит
@@ -546,7 +540,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     edits, rows, editCount,
-    period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matchingPeriodLabel, city: parsed.city, category: parsed.category,
+    period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,

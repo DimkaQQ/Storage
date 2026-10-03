@@ -145,14 +145,14 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
     return await r.json()
   } catch { return { ok: false, message: 'Бэкенд недоступен' } }
 }
-export async function syncMatrix(period?: string, target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number }> {
+export async function syncMatrix(target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number }> {
   try {
-    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(period ? { period } : {}), ...(target ? { target } : {}) }) })
+    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}) }) })
     return await r.json()
   } catch { return { ok: false, message: 'Бэкенд недоступен' } }
 }
-/** null — для этого периода ещё не синхронизировали матрицу с Google-таблицы; фронт сам падает на вшитую. */
-export const fetchMatching = (period: string) => get<any>(`/api/matching?period=${encodeURIComponent(period)}`)
+/** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. Без периода — план-цены не привязаны к месяцу. */
+export const fetchMatching = () => get<any>('/api/matching')
 
 /** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */
 export async function triggerSync(period?: string): Promise<{ ok: boolean; message?: string }> {

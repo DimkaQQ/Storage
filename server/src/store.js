@@ -108,10 +108,19 @@ function orgPaths(orgId) {
     settings: join(dir, 'settings.json'),
     status: join(dir, 'status.json'),
     venues: join(dir, 'venues.json'),
+    matrix: join(dir, 'matrix.json'),
   }
 }
 const orgDatasetPath = (orgId, period) => join(orgDir(orgId), `dataset-${period}.json`)
-const orgMatrixPath = (orgId, period) => join(orgDir(orgId), `matrix-${period}.json`)
+// Старые per-period файлы (matrix-<period>.json) — матрица раньше привязывалась
+// к месяцу, как и факты из iiko. Больше не создаются (см. getMatrix/saveMatrix
+// ниже), но функция остаётся для одноразовой миграции уже накопленных файлов
+// на дисках организаций, которые успели посинкать матрицу до перехода.
+const orgLegacyMatrixPath = (orgId, period) => join(orgDir(orgId), `matrix-${period}.json`)
+function legacyMatrixPeriods(orgId) {
+  const dir = orgDir(orgId)
+  return readdirSync(dir).filter((f) => /^matrix-.+\.json$/.test(f)).map((f) => f.replace(/^matrix-|\.json$/g, ''))
+}
 
 export const DEFAULT_SETTINGS = {
   provider: 'mock',            // 'mock' | 'iikoserver' | 'iikocloud'
@@ -221,13 +230,41 @@ export const getDataset = (orgId, period) => read(orgDatasetPath(orgId, period),
 export const saveDataset = (orgId, period, d) => write(orgDatasetPath(orgId, period), d)
 export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])
 
-/** Матрица (план-цены), прочитанная из Google-таблицы — null, если для этого периода ещё не синхронизировали. */
-export const getMatrix = (orgId, period) => read(orgMatrixPath(orgId, period), null)
-export const saveMatrix = (orgId, period, m) => write(orgMatrixPath(orgId, period), m)
-export function listMatrixPeriods(orgId) {
-  const dir = orgDir(orgId)
-  return readdirSync(dir).filter((f) => /^matrix-.+\.json$/.test(f)).map((f) => f.replace(/^matrix-|\.json$/g, ''))
+// Матрица (план-цены) из Google-таблицы — раньше одна на каждый период
+// (как факты из iiko), но план-цены сами по себе не привязаны к месяцу:
+// таблица живая, отражает текущие договорные цены на момент синка, а не
+// "цены за такой-то месяц". Привязка к периоду только создавала путаницу
+// (сравнение факта за один месяц против плана, засинканного для другого) и
+// требовала гонять один и тот же синк по каждому месяцу отдельно. Теперь
+// матрица — один актуальный файл на организацию, без периода вообще.
+function migrateLegacyMatrixIfNeeded(orgId) {
+  const path = orgPaths(orgId).matrix
+  if (existsSync(path)) return
+  const periods = legacyMatrixPeriods(orgId).sort()
+  if (!periods.length) return
+  // Мёрджим все найденные периоды по порядку (старые -> новые), так что при
+  // совпадении ключа побеждает более свежий период — ближе к духу "актуальная
+  // цена", чем просто взять последний файл и выбросить остальные.
+  let merged = null
+  for (const period of periods) {
+    const m = read(orgLegacyMatrixPath(orgId, period), null)
+    if (!m) continue
+    merged = merged ? {
+      supplierAlias: { ...merged.supplierAlias, ...m.supplierAlias },
+      planPairs: { ...merged.planPairs, ...m.planPairs },
+      planPairsByPack: { ...merged.planPairsByPack, ...m.planPairsByPack },
+      productLabels: { ...merged.productLabels, ...m.productLabels },
+      noPriceExact: { ...merged.noPriceExact, ...m.noPriceExact },
+    } : m
+  }
+  if (merged) write(path, merged)
 }
+/** Матрица (план-цены), прочитанная из Google-таблицы — null, если ещё не синхронизировали вообще. */
+export function getMatrix(orgId) {
+  migrateLegacyMatrixIfNeeded(orgId)
+  return read(orgPaths(orgId).matrix, null)
+}
+export const saveMatrix = (orgId, m) => write(orgPaths(orgId).matrix, m)
 
 /** Available periods for this org, oldest first, read straight off the stored dataset files. */
 export function listDatasetPeriods(orgId) {
@@ -310,15 +347,13 @@ export function discoverRestaurants(orgId) {
 export function exportOrgData(orgId) {
   const datasets = {}
   for (const { period } of listDatasetPeriods(orgId)) datasets[period] = getDataset(orgId, period)
-  const matrices = {}
-  for (const period of listMatrixPeriods(orgId)) matrices[period] = getMatrix(orgId, period)
   return {
     exportedAt: new Date().toISOString(),
     enabledRestaurants: getEnabledRestaurants(orgId),
     venues: getVenues(orgId),
     status: getStatus(orgId),
     datasets,
-    matrices,
+    matrix: getMatrix(orgId),
   }
 }
 
@@ -334,9 +369,10 @@ export function exportOrgData(orgId) {
  * вместе под одной кнопкой «Сбросить всё».
  */
 export function resetOrgData(orgId) {
-  const dir = orgDir(orgId)
   for (const { period } of listDatasetPeriods(orgId)) unlinkSync(orgDatasetPath(orgId, period))
-  for (const period of listMatrixPeriods(orgId)) unlinkSync(orgMatrixPath(orgId, period))
+  const matrixPath = orgPaths(orgId).matrix
+  if (existsSync(matrixPath)) unlinkSync(matrixPath)
+  for (const period of legacyMatrixPeriods(orgId)) unlinkSync(orgLegacyMatrixPath(orgId, period))
   write(orgPaths(orgId).venues, [])
   saveSettings(orgId, { enabledRestaurants: null })
   saveStatus(orgId, { lastSync: null, lastResult: null, source: null, message: 'Данные сброшены — настройте синк заново' })

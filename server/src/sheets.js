@@ -149,9 +149,9 @@ export async function testConnection({ googleSheetId, googleServiceAccountKey },
 }
 
 /**
- * Читает всю матрицу за один period (по факту период здесь не привязан к
- * конкретной колонке — таблица клиента живая, отражает текущие цены на
- * момент чтения) и возвращает объект в формате MatchingTable
+ * Читает всю матрицу целиком (без привязки к периоду — таблица клиента
+ * живая, отражает текущие договорные цены на момент чтения, а не цены "за
+ * такой-то месяц") и возвращает объект в формате MatchingTable
  * (см. src/lib/data.ts): supplierAlias/planPairs/planPairsByPack/
  * productLabels/noPriceExact.
  *
@@ -215,7 +215,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
 
 /**
  * Алматы и Астана — два отдельных googleSheetId, синкаются отдельными
- * кнопками/запросами, но хранятся в ОДНОМ файле матрицы за period (см.
+ * кнопками/запросами, но хранятся в ОДНОМ файле единой матрицы (см.
  * getMatrix/saveMatrix в store.js) — иначе пришлось бы менять формат
  * хранения и /api/matching. Ключи внутри каждой карты уже включают имя
  * ресторана (restaurant::supplier::product[::pack]), а рестораны Алматы и

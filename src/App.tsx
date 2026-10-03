@@ -51,7 +51,7 @@ export default function App() {
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
-  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, noMatrixTest, matchingIsStale, matchingPeriodLabel, saveError } = useEdits()
+  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, noMatrixTest, matchingIsStale, saveError } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
@@ -146,7 +146,7 @@ export default function App() {
             )}
             {!noMatrixTest && matchingIsStale && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
-                План-цены за «{period}» ещё не загружены — везде показана матрица за «{matchingPeriodLabel}». Цены реально отличаются месяц к месяцу, сверяйте с осторожностью.
+                Матрица план-цен ещё не синхронизирована с Google-таблицей — показан встроенный демо-набор. Синхронизируйте в Настройки iiko → Матрица.
               </div>
             )}
             {saveError && (

@@ -254,8 +254,9 @@ app.get('/api/iiko/olap-columns', requireAuth, requireAdmin, async (req, res) =>
  * Матрица (план-цены) — отдельный источник от iiko, читается напрямую из
  * Google-таблицы через сервисный аккаунт (см. sheets.js). test-connection
  * только проверяет доступ; sync читает таблицу целиком и сохраняет как
- * матрицу этой организации за указанный period — дальше /api/matching
- * отдаёт её фронтенду вместо вшитой в код.
+ * ЕДИНУЮ актуальную матрицу этой организации (без привязки к месяцу — план-
+ * цены сами по себе не "за такой-то период", таблица живая) — дальше
+ * /api/matching отдаёт её фронтенду вместо вшитой в код.
  */
 // target: 'almaty' (по умолчанию) | 'astana' — какую из двух таблиц
 // проверяем/синкаем; у Астаны свой googleSheetId (astanaSheetId), но тот
@@ -274,7 +275,6 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
   const orgId = req.auth.orgId
   const settings = getSettings(orgId)
   const astana = req.body?.target === 'astana'
-  const period = String(req.body?.period || resolveLivePeriod(settings).period)
   const googleSheetId = astana ? settings.astanaSheetId : settings.googleSheetId
   if (!googleSheetId) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
   try {
@@ -282,21 +282,18 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       astana ? SHEET_TO_RESTAURANT_ASTANA : undefined,
     )
-    // Мёрджим с уже сохранённой матрицей этого периода, а не перезаписываем —
-    // иначе синк Астаны стирал бы уже синканную Алматы этого периода (и
-    // наоборот), т.к. обе живут в одном файле matrix-<period>.json.
-    saveMatrix(orgId, period, mergeMatching(getMatrix(orgId, period), matching))
-    res.json({ ok: true, period, target: astana ? 'astana' : 'almaty', ...summary })
+    // Мёрджим с уже сохранённой матрицей, а не перезаписываем — иначе синк
+    // Астаны стирал бы уже синканную Алматы (и наоборот), т.к. обе живут в
+    // одном файле matrix.json.
+    saveMatrix(orgId, mergeMatching(getMatrix(orgId), matching))
+    res.json({ ok: true, target: astana ? 'astana' : 'almaty', ...summary })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
 })
 
 app.get('/api/matching', requireAuth, (req, res) => {
-  const period = req.query.period
-  if (!period) return res.status(400).json({ message: 'Не указан period' })
-  const m = getMatrix(req.auth.orgId, String(period))
-  res.json(m) // null, если для этого периода ещё не синхронизировали — фронт сам падает на вшитую матрицу
+  res.json(getMatrix(req.auth.orgId)) // null, если ещё не синхронизировали вообще — фронт сам падает на вшитую матрицу
 })
 
 
