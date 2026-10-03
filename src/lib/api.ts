@@ -1,0 +1,185 @@
+// Talks to the backend (same origin; nginx proxies /api → api service).
+// Every call fails soft: if the backend is absent, the app keeps working on
+// the bundled snapshot.
+
+import { authHeaders } from './auth'
+
+export interface SyncStatus {
+  lastSync: string | null
+  lastResult: string | null
+  source: string | null
+  message?: string
+  positions?: number
+  syncing?: boolean
+  schedule?: { autoEnabled: boolean; interval: string }
+}
+
+export interface IikoSettings {
+  provider: 'mock' | 'iikoserver' | 'iikocloud'
+  serverUrl: string
+  login: string
+  password: string
+  apiLogin: string
+  organizationId: string
+  autoEnabled: boolean
+  interval: 'hourly' | 'daily' | 'weekly' | 'monthly'
+  period: 'current-month' | 'prev-month'
+  // Матрица (план-цены) — отдельный источник от iiko, Google-таблица через
+  // сервисный аккаунт (см. server/src/sheets.js)
+  googleServiceAccountKey: string
+  googleSheetId: string
+  // Астана — отдельная таблица (свои точки), тот же сервисный аккаунт выше.
+  astanaSheetId: string
+}
+
+async function get<T>(path: string): Promise<T | null> {
+  try {
+    const r = await fetch(path, { headers: authHeaders() })
+    if (!r.ok) return null
+    return (await r.json()) as T
+  } catch {
+    return null
+  }
+}
+
+export interface PeriodMeta { period: string; periodLabel: string }
+
+export const fetchDataset = (period?: string) => get<any>(period ? `/api/data?period=${encodeURIComponent(period)}` : '/api/data')
+export const fetchPeriods = () => get<PeriodMeta[]>('/api/periods')
+export const fetchStatus = () => get<SyncStatus>('/api/status')
+export const fetchSettings = () => get<IikoSettings>('/api/settings')
+export const fetchEdits = () => get<any>('/api/edits')
+
+export async function saveSettings(s: Partial<IikoSettings>): Promise<IikoSettings | null> {
+  try {
+    const r = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(s) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
+
+/** Full-blob restore — only for "Импорт" (explicit, deliberate replace-everything action). */
+export async function saveEdits(e: unknown): Promise<boolean> {
+  try {
+    const r = await fetch('/api/edits', { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(e) })
+    return r.ok
+  } catch { return false }
+}
+
+/**
+ * Applies ONE targeted правка to the server's copy (e.g. "set this product's
+ * plan price") instead of overwriting the whole справочник — so two people
+ * editing different things at the same time never clobber each other.
+ */
+export async function applyEditOp(type: string, payload: Record<string, unknown> = {}): Promise<boolean> {
+  try {
+    const r = await fetch('/api/edits/op', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ type, ...payload }) })
+    return r.ok
+  } catch { return false }
+}
+
+export async function testConnection(s: Partial<IikoSettings>): Promise<{ ok: boolean; message: string }> {
+  try {
+    const r = await fetch('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(s) })
+    if (!r.ok) return { ok: false, message: `Ошибка сервера (HTTP ${r.status})` }
+    return await r.json()
+  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+}
+
+/** «Показать доступные поля отчёта» — вместо гадания по одному полю через "Unknown OLAP field". */
+export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ ok: boolean; columns?: unknown; message?: string }> {
+  try {
+    const r = await fetch(`/api/iiko/olap-columns?reportType=${encodeURIComponent(reportType)}`, { headers: authHeaders() })
+    return await r.json()
+  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+}
+
+export interface Venues { enabled: string[]; discovered: string[] }
+export const fetchVenues = () => get<Venues>('/api/venues')
+export async function enableVenue(name: string): Promise<Venues | null> {
+  try {
+    const r = await fetch('/api/venues/enable', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name }) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
+export async function disableVenue(name: string): Promise<Venues | null> {
+  try {
+    const r = await fetch('/api/venues/disable', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name }) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
+
+/** Если тело ответа — JSON с message, возвращает его; иначе общий код HTTP. */
+async function errorMessage(r: Response): Promise<string> {
+  try {
+    const body = await r.json()
+    if (body?.message) return String(body.message)
+  } catch { /* тело не JSON — просто код ниже */ }
+  return `HTTP ${r.status}${r.status === 401 || r.status === 403 ? ' — нет доступа, нужны права админа' : ''}`
+}
+/** Бэкап всех данных организации (кроме настроек подключения) — скачивается как файл, см. IikoSettings.tsx. */
+export async function fetchOrgDataExport(): Promise<{ ok: true; data: unknown } | { ok: false; message: string }> {
+  try {
+    const r = await fetch('/api/org-data/export', { headers: authHeaders() })
+    if (!r.ok) return { ok: false, message: await errorMessage(r) }
+    return { ok: true, data: await r.json() }
+  } catch (e) { return { ok: false, message: String((e as Error)?.message || e) } }
+}
+/** Безвозвратный сброс всех данных организации (факты/матрицы/правки/включённые точки) — настройки подключения не трогает. */
+export async function resetOrgData(): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const r = await fetch('/api/org-data/reset', { method: 'POST', headers: authHeaders() })
+    return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
+  } catch (e) { return { ok: false, message: String((e as Error)?.message || e) } }
+}
+
+/**
+ * Матрица (план-цены) читается прямо из Google-таблицы, не из iiko — см.
+ * IikoSettings.googleSheetId/googleServiceAccountKey. target — какую из
+ * двух таблиц ('almaty' по умолчанию, или 'astana' — своя таблица, тот же
+ * сервисный аккаунт).
+ */
+export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message: string }> {
+  try {
+    const r = await fetch('/api/matrix/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...s, target }) })
+    if (!r.ok) return { ok: false, message: `Ошибка сервера (HTTP ${r.status})` }
+    return await r.json()
+  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+}
+export async function syncMatrix(period?: string, target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number }> {
+  try {
+    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(period ? { period } : {}), ...(target ? { target } : {}) }) })
+    return await r.json()
+  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+}
+/** null — для этого периода ещё не синхронизировали матрицу с Google-таблицы; фронт сам падает на вшитую. */
+export const fetchMatching = (period: string) => get<any>(`/api/matching?period=${encodeURIComponent(period)}`)
+
+/** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */
+export async function triggerSync(period?: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(period ? { period } : {}) })
+    return await r.json()
+  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+}
+
+export interface TeamUser { id: string; email: string; role: 'admin' | 'employee'; createdAt: string }
+
+export async function fetchUsers(): Promise<TeamUser[] | null> {
+  return get<TeamUser[]>('/api/auth/users')
+}
+
+export async function addUser(email: string, password: string, role: 'admin' | 'employee'): Promise<{ ok: boolean; message?: string; user?: TeamUser }> {
+  try {
+    const r = await fetch('/api/auth/users', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ email, password, role }) })
+    const data = await r.json()
+    return r.ok ? { ok: true, user: data } : { ok: false, message: data.message }
+  } catch { return { ok: false, message: 'Сервер недоступен' } }
+}
+
+export async function removeUser(id: string): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/auth/users/${id}`, { method: 'DELETE', headers: authHeaders() })
+    const data = await r.json()
+    return r.ok && data.ok
+  } catch { return false }
+}
