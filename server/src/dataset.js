@@ -1,5 +1,23 @@
 const MIN_TURNOVER = 0 // фильтр оборота применяется на фронте (правило ТЗ)
 
+// Единственные 4 реальные точки Астаны (см. BRAND_CODE_TO_RESTAURANT в
+// iiko.js) — всё остальное гарантированно Алматы. Город здесь решаем по
+// самому имени ресторана, а не по meta.city из venues.json: venues.json у
+// организации материализуется ОДИН РАЗ при самом первом обращении (см.
+// bootstrapOrgData в store.js), из демо/сид-данных — у части точек там
+// изначально были свои (демонстрационные) значения city, и если с тех пор
+// их никто не правил руками, meta.city может быть банально неактуальным
+// (так Сирена/ЦФК/Tangirs/Six 2 внезапно показывались точками Астаны,
+// хотя это всё Алматы). Имя ресторана — то, что мы сами присваиваем в
+// resolveStoreRestaurant, ему можно доверять напрямую.
+export const ASTANA_RESTAURANTS = new Set([
+  'Pasta la vista (Астана)',
+  'Six coffee&wine (Астана)',
+  'Tangirs (Есиль, Астана)',
+  'Tangirs (Сарыарка, Астана)',
+])
+export const cityForRestaurant = (name) => (ASTANA_RESTAURANTS.has(name) ? 'Астана' : 'Алматы')
+
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
 /** period — "YYYY-MM". Для явно указанного прошлого периода (см. /api/sync с period в теле), не только current/prev-month. */
@@ -49,7 +67,7 @@ export function buildDataset(facts, venues, periodMeta) {
       name,
       entity: meta_.entity || '',
       brand: meta_.brand || name,
-      city: meta_.city || 'Алматы',
+      city: cityForRestaurant(name),
       category: meta_.category || 'Кухня',
       items: list.map((f) => ({
         s: f.supplier || '',

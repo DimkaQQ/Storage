@@ -11,7 +11,7 @@ import {
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
-import { buildDataset, resolveLivePeriod, periodLabelFor } from './dataset.js'
+import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
 const app = express()
@@ -90,7 +90,7 @@ async function runSync(orgId, trigger, explicitPeriod) {
       for (const name of getEnabledRestaurants(orgId)) {
         if (present.has(name)) continue
         const meta = venues.find((v) => v.name === name) || {}
-        built.restaurants.push({ name, entity: meta.entity || '', brand: meta.brand || name, city: meta.city || 'Алматы', category: meta.category || 'Кухня', items: [] })
+        built.restaurants.push({ name, entity: meta.entity || '', brand: meta.brand || name, city: cityForRestaurant(name), category: meta.category || 'Кухня', items: [] })
       }
       saveDataset(orgId, periodMeta.period, built)
       positions += facts.length
