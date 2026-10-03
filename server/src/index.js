@@ -5,7 +5,7 @@ import {
   getDataset, saveDataset, getVenues, listDatasetPeriods, getSeedPeriods,
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
-  getEnabledRestaurants, enableRestaurant, discoverRestaurants,
+  getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
   getMatrix, saveMatrix,
 } from './store.js'
 import * as editsDb from './editsDb.js'
@@ -316,6 +316,13 @@ app.post('/api/venues/enable', requireAuth, requireAdmin, (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = enableRestaurant(req.auth.orgId, name)
+  res.json({ enabled, discovered: discoverRestaurants(req.auth.orgId) })
+})
+
+app.post('/api/venues/disable', requireAuth, requireAdmin, (req, res) => {
+  const name = String(req.body?.name || '').trim()
+  if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
+  const enabled = disableRestaurant(req.auth.orgId, name)
   res.json({ enabled, discovered: discoverRestaurants(req.auth.orgId) })
 })
 

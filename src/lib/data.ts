@@ -1087,7 +1087,6 @@ export const DEFAULT_RESTAURANT_SCOPE: string[] = [
   'Акку',
   'ЦФК',
   'Сирена',
-  'Камчатка',
 ]
 let RESTAURANT_SCOPE: string[] | null = DEFAULT_RESTAURANT_SCOPE
 

@@ -101,6 +101,12 @@ export async function enableVenue(name: string): Promise<Venues | null> {
     return r.ok ? await r.json() : null
   } catch { return null }
 }
+export async function disableVenue(name: string): Promise<Venues | null> {
+  try {
+    const r = await fetch('/api/venues/disable', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name }) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
 
 /**
  * Матрица (план-цены) читается прямо из Google-таблицы, не из iiko — см.

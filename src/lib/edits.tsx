@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { BUNDLED, BUNDLED_PERIODS, BUNDLED_MATCHING_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, RowColor, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
-import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
+import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 // Локальный флаг устройства (не серверный) — «тестовый режим без матрицы».
@@ -129,6 +129,7 @@ interface Ctx {
   // но пока не включены (Настройки iiko → «Точки сети»)
   venues: Venues
   enableVenueByName: (name: string) => Promise<void>
+  disableVenueByName: (name: string) => Promise<void>
   refreshMatrix: () => Promise<void>
   // edits
   renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
@@ -288,6 +289,17 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // просто снять фильтр по имени и пересчитать текущий период.
   const enableVenueByName = useCallback(async (name: string) => {
     const v = await enableVenue(name)
+    if (!v) return
+    setRestaurantScope(v.enabled)
+    setVenuesState(v)
+    await loadData(periodKeyRef.current)
+  }, [loadData])
+
+  // Обратное к enableVenueByName — для точек, которые когда-то включили
+  // (обычно самим стартовым DEFAULT_ENABLED_RESTAURANTS), а потом оказалось,
+  // что они закрыты/не нужны вообще (как French bar/Камчатка).
+  const disableVenueByName = useCallback(async (name: string) => {
+    const v = await disableVenue(name)
     if (!v) return
     setRestaurantScope(v.enabled)
     setVenuesState(v)
@@ -537,7 +549,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matchingPeriodLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus,
-    venues, enableVenueByName, refreshMatrix,
+    venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride, setRowComment, setRowColor,

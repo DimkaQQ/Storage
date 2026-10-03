@@ -56,8 +56,10 @@ export const SHEET_TO_RESTAURANT = {
   'Six 2': 'Six coffee&wine 2',
   'Tangirs': 'Tangirs',
   'ЦФК': 'ЦФК',
-  'Камчатка': 'Камчатка',
-  'French bar': 'French bar',
+  // Камчатка и French bar — закрыты/не нужны вообще (подтверждено
+  // человеком), сюда их вкладки больше не читаем: их план-цены просто не
+  // нужны, раз сами точки никогда не попадут в датасет (см.
+  // IGNORED_BRAND_CODES в iiko.js).
 }
 
 /**

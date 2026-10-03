@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, testMatrixConnection, syncMatrix, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
-import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron } from '../components/icons'
+import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
 /** Принимает и полную ссылку на таблицу, и просто ID — вытаскивает ID из ссылки вида .../d/<ID>/edit. */
 function extractSheetId(input: string): string {
@@ -37,12 +37,13 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, refreshMatrix } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix } = useEdits()
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [addingVenue, setAddingVenue] = useState<string | null>(null)
+  const [removingVenue, setRemovingVenue] = useState<string | null>(null)
   const nowDate = new Date()
   const [historicalYear, setHistoricalYear] = useState(nowDate.getFullYear())
   const [historicalMonthNum, setHistoricalMonthNum] = useState<number | null>(null) // 1-12
@@ -292,6 +293,21 @@ export default function IikoSettings() {
       {/* venues */}
       <Section title="Точки сети" subtitle="Список показывается на бэкенде, не в коде — новую точку можно включить прямо тут, без правки кода и редеплоя.">
         <div className="text-sm text-slate-400">Сейчас включено: <span className="text-slate-200">{venues.enabled.length}</span> точек</div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {venues.enabled.map((name) => (
+            <span key={name} className="chip border-ink-600 bg-ink-800/60 text-slate-300">
+              <IStore width={13} height={13} />{name}
+              <button
+                disabled={removingVenue === name}
+                onClick={async () => { setRemovingVenue(name); await disableVenueByName(name); setRemovingVenue(null) }}
+                title="Убрать точку (закрыта/не нужна вообще)"
+                className="ml-1 text-slate-500 hover:text-bad disabled:opacity-60"
+              >
+                <ITrash width={12} height={12} />
+              </button>
+            </span>
+          ))}
+        </div>
         {venues.discovered.length > 0 ? (
           <div className="mt-3">
             <div className="mb-2 text-xs font-medium text-slate-400">Обнаружены в закупках, но пока не показаны:</div>

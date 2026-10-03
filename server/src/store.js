@@ -166,7 +166,6 @@ export const DEFAULT_ENABLED_RESTAURANTS = [
   'Акку',
   'ЦФК',
   'Сирена',
-  'Камчатка',
 ]
 
 /**
@@ -266,6 +265,22 @@ export function enableRestaurant(orgId, name) {
   const enabled = getEnabledRestaurants(orgId)
   if (enabled.includes(name)) return enabled
   const next = [...enabled, name]
+  saveSettings(orgId, { enabledRestaurants: next })
+  return next
+}
+
+/**
+ * Снимает точку со включённых — обратное к enableRestaurant. Нужно для
+ * точек, которые когда-то попали в enabledRestaurants (обычно при самом
+ * первом обращении к /api/venues — см. getEnabledRestaurants), но
+ * оказались закрытыми/не нужны вообще (как French bar/Камчатка) — без
+ * этого они продолжали бы висеть пустыми "0 закупок" точками, потому что
+ * DEFAULT_ENABLED_RESTAURANTS — это разовое стартовое значение, а не
+ * источник правды на каждый запрос.
+ */
+export function disableRestaurant(orgId, name) {
+  const enabled = getEnabledRestaurants(orgId)
+  const next = enabled.filter((n) => n !== name)
   saveSettings(orgId, { enabledRestaurants: next })
   return next
 }

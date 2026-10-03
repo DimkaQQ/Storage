@@ -128,16 +128,19 @@ const BRAND_CODE_SQUASHED = Object.fromEntries(
 // список "обнаружено, но не показано". French bar — тоже явно "не нужно
 // вообще", а не просто "за пределами RESTAURANT_SCOPE" на фронте: раньше
 // его закупки всё равно долетали бы до датасета (под именем 'French bar'),
-// просто не показывались — теперь не долетают вовсе.
-const IGNORED_BRAND_CODES = new Set(['g63', 'пекатория', 'променад', squash('french 42'), squash('french bar')])
+// просто не показывались — теперь не долетают вовсе. Камчатка — закрыта
+// (подтверждено человеком): её вкладка в таблице матрицы скрыта, как и у
+// French bar, и без живого отчёта iiko внутри, в отличие от всех активных
+// точек — то же самое "не нужно вообще", не просто неопознанный бренд.
+const IGNORED_BRAND_CODES = new Set(['g63', 'пекатория', 'променад', squash('french 42'), squash('french bar'), 'камчатка'])
 
-/** Снимает С ОБЕИХ концов строки распознанные слова-отделы, по одному, пока снимается — работает и когда отдел слит с кодом бренда без пробела, и когда через пробел/слэш/точку/скобки. */
-function peelDeptWords(s) {
+/** Снимает С ОБЕИХ концов строки распознанные слова-отделы, по одному, пока снимается — работает и когда отдел слит с кодом бренда без пробела, и когда через пробел/слэш/точку/скобки. words — какой список слов-отделов снимать (по умолчанию все, DEPT_WORDS). */
+function peelDeptWords(s, words = DEPT_WORDS) {
   const found = []
   let changed = true
   while (changed && s.length > 0) {
     changed = false
-    for (const w of DEPT_WORDS) {
+    for (const w of words) {
       if (s.startsWith(w)) {
         const rest = s.slice(w.length).replace(/^[\s/.()]+/, '')
         if (rest !== s) { found.push(w); s = rest; changed = true; break }
@@ -147,7 +150,7 @@ function peelDeptWords(s) {
   changed = true
   while (changed && s.length > 0) {
     changed = false
-    for (const w of DEPT_WORDS) {
+    for (const w of words) {
       if (s.endsWith(w)) {
         const rest = s.slice(0, s.length - w.length).replace(/[\s/.()]+$/, '')
         if (rest !== s) { found.push(w); s = rest; changed = true; break }
@@ -156,6 +159,19 @@ function peelDeptWords(s) {
   }
   return { rest: s, deptWords: found }
 }
+
+// ЦФК — частный случай: её реальный Store содержит "ЦехПроменад" слитно
+// (без разделителя между "Цех" и "Променад"). При обычном снятии слов-
+// отделов "Цех" (кухонное слово) снимается точно так же, как "Кухня", и
+// результат неотличим от голого "Променад" — кода склада, который решили
+// не включать вовсе (IGNORED_BRAND_CODES). Это РАЗНЫЕ рестораны: ЦФК —
+// действующая, ценник ведётся (видно по отдельной активной вкладке в
+// таблице матрицы), просто располагается по адресу/в здании "Променад".
+// Проверяем этот слитный код явно, сняв только родовые слова-обёртки
+// ("Кухня"/"Склад"), но НЕ "Цех" — если получили именно "ЦехПроменад", это
+// точно ЦФК, а не исключённый бренд.
+const WRAPPER_WORDS_ONLY = ['кухня', 'склад']
+const TSFK_CODE = squash('цехпроменад')
 
 /**
  * Возвращает название ресторана, или null — закупка, которую решили
@@ -182,6 +198,10 @@ function resolveStoreRestaurant(storeRaw) {
   // иначе это код, просто отбрасываем как раньше.
   const parenMatch = normalized.match(/\(([^)]*)\)\s*$/)
   const key = normalized.replace(/\([^)]*\)\s*$/, '').trim()
+  // Проверка на ЦФК — раньше обычного снятия слов-отделов, иначе "Цех"
+  // снимется как кухонное слово и останется голый "Променад" (см. комментарий
+  // у TSFK_CODE выше).
+  if (squash(peelDeptWords(key, WRAPPER_WORDS_ONLY).rest) === TSFK_CODE) return 'ЦФК'
   let parenDeptWords = []
   if (parenMatch) {
     const { rest: parenRest, deptWords: innerWords } = peelDeptWords(parenMatch[1].trim())
