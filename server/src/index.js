@@ -333,7 +333,11 @@ app.post('/api/venues/disable', requireAuth, requireAdmin, (req, res) => {
  * входят (их не трогаем ни при экспорте, ни при сбросе — см. store.js).
  */
 app.get('/api/org-data/export', requireAuth, requireAdmin, (req, res) => {
-  res.json({ ...exportOrgData(req.auth.orgId), edits: editsDb.getEditsForOrg(req.auth.orgId) })
+  try {
+    res.json({ ...exportOrgData(req.auth.orgId), edits: editsDb.getEditsForOrg(req.auth.orgId) })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: String(e?.stack || e?.message || e) })
+  }
 })
 
 /**
@@ -343,9 +347,13 @@ app.get('/api/org-data/export', requireAuth, requireAdmin, (req, res) => {
  * должна явно предупредить и посоветовать сначала скачать бэкап выше.
  */
 app.post('/api/org-data/reset', requireAuth, requireAdmin, (req, res) => {
-  resetOrgData(req.auth.orgId)
-  editsDb.resetEdits(req.auth.orgId)
-  res.json({ ok: true })
+  try {
+    resetOrgData(req.auth.orgId)
+    editsDb.resetEdits(req.auth.orgId)
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: String(e?.stack || e?.message || e) })
+  }
 })
 
 app.get('/api/edits', requireAuth, (req, res) => res.json(editsDb.getEditsForOrg(req.auth.orgId)))

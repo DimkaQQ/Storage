@@ -108,11 +108,19 @@ export async function disableVenue(name: string): Promise<Venues | null> {
   } catch { return null }
 }
 
+/** Если тело ответа — JSON с message, возвращает его; иначе общий код HTTP. */
+async function errorMessage(r: Response): Promise<string> {
+  try {
+    const body = await r.json()
+    if (body?.message) return String(body.message)
+  } catch { /* тело не JSON — просто код ниже */ }
+  return `HTTP ${r.status}${r.status === 401 || r.status === 403 ? ' — нет доступа, нужны права админа' : ''}`
+}
 /** Бэкап всех данных организации (кроме настроек подключения) — скачивается как файл, см. IikoSettings.tsx. */
 export async function fetchOrgDataExport(): Promise<{ ok: true; data: unknown } | { ok: false; message: string }> {
   try {
     const r = await fetch('/api/org-data/export', { headers: authHeaders() })
-    if (!r.ok) return { ok: false, message: `HTTP ${r.status}${r.status === 401 || r.status === 403 ? ' — нет доступа, нужны права админа' : ''}` }
+    if (!r.ok) return { ok: false, message: await errorMessage(r) }
     return { ok: true, data: await r.json() }
   } catch (e) { return { ok: false, message: String((e as Error)?.message || e) } }
 }
@@ -120,7 +128,7 @@ export async function fetchOrgDataExport(): Promise<{ ok: true; data: unknown } 
 export async function resetOrgData(): Promise<{ ok: boolean; message?: string }> {
   try {
     const r = await fetch('/api/org-data/reset', { method: 'POST', headers: authHeaders() })
-    return r.ok ? await r.json() : { ok: false, message: `HTTP ${r.status}` }
+    return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
   } catch (e) { return { ok: false, message: String((e as Error)?.message || e) } }
 }
 
