@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, testMatrixConnection, syncMatrix, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -54,6 +54,10 @@ export default function IikoSettings() {
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
   const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [resetArmed, setResetArmed] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [resetResult, setResetResult] = useState<{ ok: boolean; message?: string } | null>(null)
   // Астана — отдельная таблица, свои test/sync, тот же сервисный аккаунт выше.
   const [astanaTesting, setAstanaTesting] = useState(false)
   const [astanaTestResult, setAstanaTestResult] = useState<{ ok: boolean; message: string } | null>(null)
@@ -124,6 +128,37 @@ export default function IikoSettings() {
     setAstanaSyncResult(r)
     if (r.ok) await refreshMatrix()
     setAstanaSyncing(false)
+  }
+
+  // Бэкап/сброс — скачивание как файл, без серверного хранения: обычный
+  // Blob + временная <a download> ссылка, тот же приём, что у любого
+  // "экспортировать как файл" в браузере.
+  const downloadBackup = async () => {
+    setExporting(true)
+    const data = await fetchOrgDataExport()
+    setExporting(false)
+    if (!data) return
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `proverka-tsen-backup-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+  const doReset = async () => {
+    if (!resetArmed) { setResetArmed(true); return }
+    setResetting(true); setResetResult(null)
+    const r = await resetOrgData()
+    setResetResult(r)
+    setResetting(false)
+    setResetArmed(false)
+    // Проще и надёжнее перезагрузить страницу целиком, чем вручную
+    // дёргать все независимые источники состояния (датасет/матрица/
+    // периоды/точки/правки) — сброс затрагивает буквально всё сразу.
+    if (r.ok) setTimeout(() => window.location.reload(), 600)
   }
 
   if (!backendOnline || !form) {
@@ -430,6 +465,32 @@ export default function IikoSettings() {
         <button onClick={save} className="btn bg-brand-500 text-white hover:bg-brand-600">Сохранить настройки</button>
         {saved && <span className="chip border-good/30 bg-good/10 text-good"><ICheck width={13} height={13} /> Сохранено</span>}
       </div>
+
+      {/* danger zone — бэкап/полный сброс данных (не настроек подключения) */}
+      <Section title="Опасная зона" subtitle="Факты закупок, матрицы план-цен и все ручные правки — настройки подключения к iiko/Google не трогаются.">
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={downloadBackup} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+            <ISync width={16} height={16} className={exporting ? 'animate-spin' : ''} /> {exporting ? 'Готовлю файл…' : 'Скачать бэкап'}
+          </button>
+          <button
+            onClick={doReset}
+            disabled={resetting}
+            className={`btn disabled:opacity-60 ${resetArmed ? 'bg-bad text-white hover:bg-bad/80' : 'border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20'}`}
+          >
+            <IClose width={16} height={16} /> {resetting ? 'Сбрасываю…' : resetArmed ? 'Точно сбросить всё? Нажмите ещё раз' : 'Сбросить все данные'}
+          </button>
+          {resetArmed && !resetting && (
+            <button onClick={() => setResetArmed(false)} className="text-xs text-slate-500 hover:text-slate-300">отмена</button>
+          )}
+          {resetResult && (
+            <span className={`chip ${resetResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {resetResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+              {resetResult.ok ? 'Сброшено — перезагружаю страницу' : resetResult.message}
+            </span>
+          )}
+        </div>
+        <p className="mt-3 text-xs text-slate-500">Сначала скачайте бэкап — сброс необратим. После сброса список включённых точек вернётся к стартовому, периоды и матрицу нужно будет синкать заново.</p>
+      </Section>
     </div>
   )
 }

@@ -6,7 +6,7 @@ import {
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
-  getMatrix, saveMatrix,
+  getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns } from './iiko.js'
@@ -324,6 +324,28 @@ app.post('/api/venues/disable', requireAuth, requireAdmin, (req, res) => {
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = disableRestaurant(req.auth.orgId, name)
   res.json({ enabled, discovered: discoverRestaurants(req.auth.orgId) })
+})
+
+/**
+ * Полный бэкап данных организации (датасеты+матрицы за все периоды,
+ * venues.json, включённые точки, статус, правки) — ДО «Сбросить всё»,
+ * чтобы было куда вернуться. Настройки подключения к iiko/Google сюда не
+ * входят (их не трогаем ни при экспорте, ни при сбросе — см. store.js).
+ */
+app.get('/api/org-data/export', requireAuth, requireAdmin, (req, res) => {
+  res.json({ ...exportOrgData(req.auth.orgId), edits: editsDb.getEditsForOrg(req.auth.orgId) })
+})
+
+/**
+ * Полный сброс данных организации — факты закупок и матрицы за все
+ * периоды, список включённых точек, все ручные правки. Настройки
+ * подключения не трогаем. Безвозвратно — кнопка на фронте перед вызовом
+ * должна явно предупредить и посоветовать сначала скачать бэкап выше.
+ */
+app.post('/api/org-data/reset', requireAuth, requireAdmin, (req, res) => {
+  resetOrgData(req.auth.orgId)
+  editsDb.resetEdits(req.auth.orgId)
+  res.json({ ok: true })
 })
 
 app.get('/api/edits', requireAuth, (req, res) => res.json(editsDb.getEditsForOrg(req.auth.orgId)))

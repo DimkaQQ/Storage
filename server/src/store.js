@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -297,5 +297,48 @@ export function discoverRestaurants(orgId) {
     for (const r of getDataset(orgId, period).restaurants || []) seen.add(r.name)
   }
   return [...seen].filter((name) => !enabled.has(name))
+}
+
+/**
+ * Полный снимок данных организации — для «скачать бэкап» перед сбросом.
+ * Намеренно НЕ включает настройки подключения (serverUrl/login/password/
+ * googleServiceAccountKey/sheetId и т.п.) — это конфигурация, не данные,
+ * её сброс/бэкап не просили и трогать её тут не нужно. Датасеты и матрицы
+ * отдаются целиком как есть (не пересобираются), чтобы восстановление было
+ * точной копией, а не пересчётом.
+ */
+export function exportOrgData(orgId) {
+  const datasets = {}
+  for (const { period } of listDatasetPeriods(orgId)) datasets[period] = getDataset(orgId, period)
+  const matrices = {}
+  for (const period of listMatrixPeriods(orgId)) matrices[period] = getMatrix(orgId, period)
+  return {
+    exportedAt: new Date().toISOString(),
+    enabledRestaurants: getEnabledRestaurants(orgId),
+    venues: getVenues(orgId),
+    status: getStatus(orgId),
+    datasets,
+    matrices,
+  }
+}
+
+/**
+ * Полностью чистит данные организации (факты закупок за все периоды,
+ * матрицы план-цен за все периоды, venues.json, список включённых точек,
+ * статус синка) — НЕ трогая настройки подключения (см. exportOrgData).
+ * enabledRestaurants сбрасывается в null, а не в пустой массив — на
+ * следующее обращение к /api/venues он сам материализуется заново из
+ * DEFAULT_ENABLED_RESTAURANTS (та же логика первого запуска организации).
+ * Правки (editsDb) сюда не входят — сбрасываются отдельным вызовом
+ * editsDb.resetEdits, вызывающая сторона (index.js) делает оба вызова
+ * вместе под одной кнопкой «Сбросить всё».
+ */
+export function resetOrgData(orgId) {
+  const dir = orgDir(orgId)
+  for (const { period } of listDatasetPeriods(orgId)) unlinkSync(orgDatasetPath(orgId, period))
+  for (const period of listMatrixPeriods(orgId)) unlinkSync(orgMatrixPath(orgId, period))
+  write(orgPaths(orgId).venues, [])
+  saveSettings(orgId, { enabledRestaurants: null })
+  saveStatus(orgId, { lastSync: null, lastResult: null, source: null, message: 'Данные сброшены — настройте синк заново' })
 }
 
