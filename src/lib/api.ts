@@ -109,11 +109,12 @@ export async function disableVenue(name: string): Promise<Venues | null> {
 }
 
 /** Бэкап всех данных организации (кроме настроек подключения) — скачивается как файл, см. IikoSettings.tsx. */
-export async function fetchOrgDataExport(): Promise<unknown | null> {
+export async function fetchOrgDataExport(): Promise<{ ok: true; data: unknown } | { ok: false; message: string }> {
   try {
     const r = await fetch('/api/org-data/export', { headers: authHeaders() })
-    return r.ok ? await r.json() : null
-  } catch { return null }
+    if (!r.ok) return { ok: false, message: `HTTP ${r.status}${r.status === 401 || r.status === 403 ? ' — нет доступа, нужны права админа' : ''}` }
+    return { ok: true, data: await r.json() }
+  } catch (e) { return { ok: false, message: String((e as Error)?.message || e) } }
 }
 /** Безвозвратный сброс всех данных организации (факты/матрицы/правки/включённые точки) — настройки подключения не трогает. */
 export async function resetOrgData(): Promise<{ ok: boolean; message?: string }> {

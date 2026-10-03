@@ -55,6 +55,7 @@ export default function IikoSettings() {
   const [matrixSyncing, setMatrixSyncing] = useState(false)
   const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [exportResult, setExportResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [resetArmed, setResetArmed] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{ ok: boolean; message?: string } | null>(null)
@@ -134,11 +135,11 @@ export default function IikoSettings() {
   // Blob + временная <a download> ссылка, тот же приём, что у любого
   // "экспортировать как файл" в браузере.
   const downloadBackup = async () => {
-    setExporting(true)
-    const data = await fetchOrgDataExport()
+    setExporting(true); setExportResult(null)
+    const r = await fetchOrgDataExport()
     setExporting(false)
-    if (!data) return
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    if (!r.ok) { setExportResult(r); return }
+    const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -147,6 +148,7 @@ export default function IikoSettings() {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
+    setExportResult({ ok: true })
   }
   const doReset = async () => {
     if (!resetArmed) { setResetArmed(true); return }
@@ -472,6 +474,12 @@ export default function IikoSettings() {
           <button onClick={downloadBackup} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
             <ISync width={16} height={16} className={exporting ? 'animate-spin' : ''} /> {exporting ? 'Готовлю файл…' : 'Скачать бэкап'}
           </button>
+          {exportResult && (
+            <span className={`chip ${exportResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {exportResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+              {exportResult.ok ? 'Скачано' : exportResult.message}
+            </span>
+          )}
           <button
             onClick={doReset}
             disabled={resetting}
