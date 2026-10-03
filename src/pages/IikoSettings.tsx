@@ -37,7 +37,8 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, periods } = useEdits()
+  const periodLabel = periods.find((p) => p.period === periodKey)?.periodLabel ?? periodKey
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -109,7 +110,12 @@ export default function IikoSettings() {
   }
   const doSyncMatrix = async () => {
     setMatrixSyncing(true); setMatrixSyncResult(null)
-    const r = await syncMatrix()
+    // Явно текущий просматриваемый период (periodKey), а не "текущий/
+    // предыдущий месяц" из настроек расписания — иначе кнопка молча
+    // синкала бы план-цены за совсем другой месяц (реальный текущий
+    // календарный, не тот, что открыт в "Проверке цен"), и синк выглядел
+    // бы успешным, просто не туда.
+    const r = await syncMatrix(periodKey)
     setMatrixSyncResult(r)
     if (r.ok) await refreshMatrix()
     setMatrixSyncing(false)
@@ -125,7 +131,7 @@ export default function IikoSettings() {
   }
   const doSyncAstana = async () => {
     setAstanaSyncing(true); setAstanaSyncResult(null)
-    const r = await syncMatrix(undefined, 'astana')
+    const r = await syncMatrix(periodKey, 'astana')
     setAstanaSyncResult(r)
     if (r.ok) await refreshMatrix()
     setAstanaSyncing(false)
@@ -369,7 +375,7 @@ export default function IikoSettings() {
       </Section>
 
       {/* matrix (plan prices from Google Sheet) */}
-      <Section title="Матрица (план-цены)" subtitle="Читается прямо из Google-таблицы Сырьё Ф через сервисный аккаунт — это отдельный источник от iiko, iiko про договорные цены ничего не знает.">
+      <Section title="Матрица (план-цены)" subtitle={`Читается прямо из Google-таблицы Сырьё Ф через сервисный аккаунт — это отдельный источник от iiko, iiko про договорные цены ничего не знает. Синк ниже сохранит план-цены за период «${periodLabel}» — тот, что сейчас открыт в "Проверке цен" (переключается в шапке приложения).`}>
         <div className="grid grid-cols-2 gap-3">
           <Field
             label="ID или ссылка на таблицу"
@@ -399,7 +405,7 @@ export default function IikoSettings() {
             <IPlug width={16} height={16} /> {matrixTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
           </button>
           <button onClick={doSyncMatrix} disabled={matrixSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Синхронизировать план сейчас'}
+            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : `Синхронизировать план за «${periodLabel}»`}
           </button>
           {matrixTestResult && (
             <span className={`chip ${matrixTestResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
@@ -409,14 +415,14 @@ export default function IikoSettings() {
           {matrixSyncResult && (
             <span className={`chip ${matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {matrixSyncResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-              {matrixSyncResult.ok ? 'Матрица обновлена' : matrixSyncResult.message}
+              {matrixSyncResult.ok ? `Матрица за «${periodLabel}» обновлена` : matrixSyncResult.message}
             </span>
           )}
         </div>
       </Section>
 
       {/* matrix — Астана (отдельная таблица, тот же сервисный аккаунт) */}
-      <Section title="Матрица — Астана" subtitle="Отдельная таблица для точек Астаны (свои вкладки). Ключ сервисного аккаунта — тот же, что выше; его нужно пригласить читателем и в эту таблицу.">
+      <Section title="Матрица — Астана" subtitle={`Отдельная таблица для точек Астаны (свои вкладки). Ключ сервисного аккаунта — тот же, что выше; его нужно пригласить читателем и в эту таблицу. Синк сохранит план-цены за период «${periodLabel}».`}>
         <Field
           label="ID или ссылка на таблицу Астаны"
           hint="Можно вставить прямо ссылку из адресной строки — ID вытащится сам"
@@ -430,7 +436,7 @@ export default function IikoSettings() {
             <IPlug width={16} height={16} /> {astanaTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
           </button>
           <button onClick={doSyncAstana} disabled={astanaSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Синхронизировать план сейчас'}
+            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : `Синхронизировать план за «${periodLabel}»`}
           </button>
           {astanaTestResult && (
             <span className={`chip ${astanaTestResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
@@ -440,7 +446,7 @@ export default function IikoSettings() {
           {astanaSyncResult && (
             <span className={`chip ${astanaSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {astanaSyncResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-              {astanaSyncResult.ok ? 'Матрица обновлена' : astanaSyncResult.message}
+              {astanaSyncResult.ok ? `Матрица за «${periodLabel}» обновлена` : astanaSyncResult.message}
             </span>
           )}
         </div>
