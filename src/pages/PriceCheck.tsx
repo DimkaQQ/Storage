@@ -1,11 +1,54 @@
 import { useMemo, useState } from 'react'
-import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack, norm } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
 import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct' | 'sum'
+
+/**
+ * По умолчанию строки идут "как iiko загрузил" — по накладной (см.
+ * groupByRowFields в server/src/iiko.js, Document) — один товар+поставщик
+ * у одного ресторана может быть несколькими строками, если за период было
+ * несколько накладных. Эта функция — ручной переключатель "Группировка":
+ * схлопывает такие строки в одну (сумма/кол-во складываются), план и статус
+ * у них и так совпадают (сопоставление теперь не зависит от фасовки, см.
+ * resolveRowPlan), поэтому берём их у первой строки группы. Строки "не
+ * закупали" (unit === null, это не реальная покупка, а позиция из матрицы)
+ * в сложение не участвуют и остаются отдельно как есть.
+ */
+function groupByProduct(rows: Row[]): Row[] {
+  const groups = new Map<string, Row[]>()
+  for (const r of rows) {
+    const key = `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.product)}`
+    const arr = groups.get(key)
+    if (arr) arr.push(r)
+    else groups.set(key, [r])
+  }
+  const out: Row[] = []
+  for (const group of groups.values()) {
+    const purchased = group.filter((g) => g.unit != null)
+    const notPurchased = group.filter((g) => g.unit == null)
+    if (purchased.length <= 1) { out.push(...group); continue }
+    const qty = purchased.reduce((s, g) => s + g.qty, 0)
+    const sum = purchased.reduce((s, g) => s + g.qty * (g.unit as number), 0)
+    const unit = qty > 0 ? sum / qty : null
+    const first = purchased[0]
+    const packs = new Set(purchased.map((g) => g.pack).filter(Boolean))
+    out.push({
+      ...first,
+      id: `grp-${first.id}`,
+      rowKey: `grp::${norm(first.restaurant)}::${norm(first.supplier)}::${norm(first.product)}`,
+      qty, unit,
+      pack: packs.size === 1 ? first.pack : packs.size > 1 ? `${packs.size} фасовки` : '',
+      diffPct: first.plan != null && unit != null ? (unit - first.plan) / first.plan : null,
+      userComment: null, rowColor: null,
+    })
+    out.push(...notPurchased)
+  }
+  return out
+}
 
 const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'ok', label: 'По матрице' },
@@ -22,6 +65,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // о закупках по складам" из iiko (крупнейшие позиции сверху), а не
   // алфавит по ресторану/товару.
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'sum', dir: -1 })
+  // По умолчанию выключено — строки идут раздельно, по одной на каждую
+  // накладную, как iiko их прислал (подтверждено человеком явно). Включение
+  // складывает повторы одного товара+поставщика в одну строку (см.
+  // groupByProduct выше).
+  const [grouped, setGrouped] = useState(false)
   const [limit, setLimit] = useState(60)
   // Открытый попап "заметка/цвет" — по rowKey строки, не по id (id меняется
   // между парсингами, а попап открыт как раз пока пользователь печатает).
@@ -41,6 +89,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
         (x.productLabel ?? '').toLowerCase().includes(needle) || (x.supplierLabel ?? '').toLowerCase().includes(needle),
       )
     }
+    if (grouped) r = groupByProduct(r)
     const dir = sort.dir
     const key = sort.key
     // "Сумма" — не поле Row (там только цена за единицу, qty отдельно), как
@@ -54,7 +103,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       if (typeof av === 'string') return av.localeCompare(bv) * dir
       return (av - bv) * dir
     })
-  }, [rows, q, active, sort])
+  }, [rows, q, active, sort, grouped])
 
   const s = useMemo(() => summarize(filtered), [filtered])
   const shown = filtered.slice(0, limit)
@@ -109,6 +158,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
+          <button
+            onClick={() => { setGrouped((g) => !g); setLimit(60) }}
+            title="Складывать несколько накладных одного товара и поставщика в одну строку"
+            className={`btn border transition-colors ${grouped ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${grouped ? 'bg-brand-400' : 'bg-slate-600'}`} />
+            Группировка
+          </button>
           <button onClick={exportExcel} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750">
             <IDownload width={16} height={16} /> Excel
           </button>
