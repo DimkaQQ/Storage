@@ -909,6 +909,21 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = []): Row[] {
   const matching = scopedMatching(matchingIn)
+  // Поставщики свежих овощей/фруктов (логистика "привезти то, что созрело
+  // сегодня") — подтверждено человеком явно: такие закупки фиксируют, но
+  // по матрице никогда не сверяют, и попросили убрать их из "Проверки
+  // цен" ЦЕЛИКОМ (не просто статусом "Нет в матрице") — иначе они
+  // захламляют сортировку по сумме и счётчик "нет в матрице" позициями,
+  // которые и не должны были туда попадать. Список — только вручную
+  // проверенные названия (как и IGNORED_BRAND_CODES в server/src/iiko.js),
+  // не угадывается по слову в названии товара.
+  const EXCLUDED_PRODUCE_SUPPLIERS = new Set(
+    ['ип асип назир фрукты овощи', 'ип "асип"', 'ип "фруктовый рай"', 'ип "фруктовый рай" / зеленый мир'].map(norm),
+  )
+  base = base.filter((b) => {
+    const canon = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
+    return !EXCLUDED_PRODUCE_SUPPLIERS.has(norm(b.supplier0)) && !EXCLUDED_PRODUCE_SUPPLIERS.has(canon)
+  })
   const designatedIndex = buildDesignatedIndex(matching)
   const knownFlatPairs = buildKnownFlatIndex(matching)
   const consumed = new Set<string>()
