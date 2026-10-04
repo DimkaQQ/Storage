@@ -279,15 +279,17 @@ async function iikoServerFacts(settings, period) {
       // "Supplier.Name" не существует как поле OLAP (сервер прямо ответил
       // "Unknown OLAP field 'Supplier.Name'") — контрагент по приходной
       // накладной в iikoServer называется Counteragent, не Supplier.
-      // TransactionSide/Document — временно, для диагностики: сырых строк
-      // в answer заметно больше (~×2.2), чем реальных позиций закупок за
-      // месяц, и у части товаров (напр. "Анчоусы") сумма завышена в
-      // несколько раз, хотя у других (Авокадо) всё верно. Подозрение —
-      // одна и та же накладная считается и по дебету, и по кредиту
-      // (TransactionSide), причём не всегда с нулевой суммой на второй
-      // стороне. Значения попадают в comment каждого факта — видно в
-      // "Заметке" в Проверке цен. Убрать после того, как разберёмся.
-      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'TransactionSide', 'Document'],
+      //
+      // Диагностика TransactionSide/Document (временно добавлялись сюда)
+      // показала: TransactionSide у закупок всегда CREDIT без исключений —
+      // не дебет/кредит дублирование. Document просто размножил строки там,
+      // где реально много отдельных накладных за месяц (Авокадо/Ананас) —
+      // это не баг, так и должно быть. "Анчоусы" НЕ размножились (ровно по
+      // одному документу на поставщика) — их завышенная сумма не объясняется
+      // задвоением, природа расхождения ещё не найдена. Убрано обратно,
+      // чтобы не плодить лишние строки для товаров с настоящей историей
+      // покупок.
+      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit'],
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
         // Голый "DateTime" сервер отклоняет (HTTP 409): "не найден ни один
@@ -351,8 +353,6 @@ async function iikoServerFacts(settings, period) {
         pack: row['Product.MeasureUnit'] || '',
         qty: Number(row['Amount']) || 0,
         sum: Number(row['Sum.Incoming']) || 0,
-        // Временно — см. комментарий у groupByRowFields выше.
-        comment: `[диагностика] ${row['TransactionSide']} · документ ${row['Document']}`,
       }
       // restaurant === null — известный бренд, но точно не кухонный склад
       // (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина) — такую
