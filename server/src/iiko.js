@@ -279,14 +279,7 @@ async function iikoServerFacts(settings, period) {
       // "Supplier.Name" не существует как поле OLAP (сервер прямо ответил
       // "Unknown OLAP field 'Supplier.Name'") — контрагент по приходной
       // накладной в iikoServer называется Counteragent, не Supplier.
-      // TransactionType добавлен временно, для диагностики — почему в
-      // отчёте появляются позиции (и неверные суммы по существующим), которых
-      // нет в ручном "Отчёте о закупках по складам" самого iiko, хотя фильтр
-      // TransactionType=IncludeValues(['INVOICE']) ниже как будто должен
-      // пускать только приходные накладные. Значение попадает в comment
-      // каждого факта (см. ниже) — видно прямо в "Заметке" в Проверке цен,
-      // без отдельного похода в JSON. Убрать после того, как разберёмся.
-      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'TransactionType'],
+      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit'],
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
         // Голый "DateTime" сервер отклоняет (HTTP 409): "не найден ни один
@@ -327,11 +320,16 @@ async function iikoServerFacts(settings, period) {
     // --- маппинг колонок отчёта -> факты ---
     // Forward-fill защищает от пустых Товар/Поставщик в сгруппированных
     // строках отчёта — та же проблема, что клиент решает в своих формулах
-    // через IF(R="",Y_prev,R). OLAP обычно отдаёт заполненные строки, но
-    // это дёшево и не помешает на реальных выгрузках.
-    let lastProduct = '', lastSupplier = ''
+    // через IF(R="",Y_prev,R). НО: один ответ содержит строки ВСЕХ складов
+    // вперемешку (не только текущего ресторана) — без сброса на смене
+    // склада пустая строка на границе между двумя точками "наследовала" бы
+    // товар/поставщика от ПРЕДЫДУЩЕГО, совсем другого ресторана. Именно
+    // так появлялся фантомный "Ананас" и перепутанная сумма "Анчоусов" у
+    // Сирены — settled last product/supplier от чужого склада перед ней.
+    let lastStore = null, lastProduct = '', lastSupplier = ''
     const rawRows = data.data || []
     const mapped = rawRows.map((row) => {
+      if (row['Store'] !== lastStore) { lastStore = row['Store']; lastProduct = ''; lastSupplier = '' }
       const product = row['Product.Name'] || lastProduct
       const supplier = row['Counteragent.Name'] || lastSupplier
       lastProduct = product
@@ -343,8 +341,6 @@ async function iikoServerFacts(settings, period) {
         pack: row['Product.MeasureUnit'] || '',
         qty: Number(row['Amount']) || 0,
         sum: Number(row['Sum.Incoming']) || 0,
-        // Временно — см. комментарий у groupByRowFields выше.
-        comment: `[диагностика] TransactionType: ${row['TransactionType']}`,
       }
       // restaurant === null — известный бренд, но точно не кухонный склад
       // (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина) — такую
