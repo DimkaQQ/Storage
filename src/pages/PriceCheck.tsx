@@ -73,14 +73,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // при заходе на Проверку цен, чтобы сама страница открывалась быстро.
   const exportExcel = async () => {
     const XLSX = await import('xlsx')
-    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у', 'Заметка']
+    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Количество', 'Сумма', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у', 'Заметка']
     const lines = filtered.map((r) => [
       r.restaurant, r.supplier, r.product, r.pack,
+      r.qty, r.qty * (r.unit ?? 0),
       r.plan ?? '', r.unit ?? '', r.plan != null && r.unit != null ? r.unit - r.plan : '',
       STATUS_META[r.status].label, r.designatedSuppliers.join(', '), r.userComment ?? '',
     ])
     const ws = XLSX.utils.aoa_to_sheet([head, ...lines])
-    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
+    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
     XLSX.writeFile(wb, 'proverka-cen.xlsx')
