@@ -5,7 +5,7 @@ import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
 import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '../components/icons'
 
-type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct'
+type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct' | 'sum'
 
 const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'ok', label: 'По матрице' },
@@ -18,7 +18,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const { setRowComment, setRowColor } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'restaurant', dir: -1 })
+  // По умолчанию — сумма закупки по убыванию, как в их собственном "Отчёте
+  // о закупках по складам" из iiko (крупнейшие позиции сверху), а не
+  // алфавит по ресторану/товару.
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'sum', dir: -1 })
   const [limit, setLimit] = useState(60)
   // Открытый попап "заметка/цвет" — по rowKey строки, не по id (id меняется
   // между парсингами, а попап открыт как раз пока пользователь печатает).
@@ -40,7 +43,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     }
     const dir = sort.dir
     const key = sort.key
+    // "Сумма" — не поле Row (там только цена за единицу, qty отдельно), как
+    // в их отчёте считаем на лету: qty * факт.
+    const sumOf = (x: Row) => x.qty * (x.unit ?? 0)
     return [...r].sort((a, b) => {
+      if (key === 'sum') return (sumOf(a) - sumOf(b)) * dir
       let av: any = a[key], bv: any = b[key]
       if (av == null) av = key === 'plan' || key === 'diffPct' || key === 'unit' ? -Infinity : ''
       if (bv == null) bv = key === 'plan' || key === 'diffPct' || key === 'unit' ? -Infinity : ''
