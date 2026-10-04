@@ -238,6 +238,20 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const st = await fetchStatus()
     if (st) { setStatus(st); setBackendOnline(true) }
   }, [])
+  // /api/sync теперь отвечает сразу, не дожидаясь реального синка (см.
+  // комментарий у маршрута в index.js) — реальный ход/результат добираем
+  // отсюда опросом /api/status, пока backend-флаг syncing не сбросится.
+  // 2с * 90 — около 3 минут, этого достаточно даже полному месяцу у живого
+  // iikoServer (внутренний таймаут там 60с на сам отчёт плюс авторизация).
+  const pollUntilSyncDone = useCallback(async (): Promise<SyncStatus | null> => {
+    for (let i = 0; i < 90; i++) {
+      const st = await fetchStatus()
+      if (st) { setStatus(st); setBackendOnline(true) }
+      if (!st || !st.syncing) return st
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    return await fetchStatus()
+  }, [])
   const loadEdits = useCallback(async () => {
     const data = await fetchEdits()
     if (data) { setEdits(normalize(data)); setBackendOnline(true) }
@@ -316,9 +330,18 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // закупки из точки, которой раньше не было).
   const refresh = useCallback(async () => {
     setSyncing(true)
-    try { await triggerSync(); await loadVenues(); await loadPeriods(); await loadData(periodKey); await reloadStatus() }
-    finally { setSyncing(false) }
-  }, [loadData, loadPeriods, loadVenues, reloadStatus, periodKey])
+    try {
+      const started = await triggerSync()
+      // started.ok === false здесь значит запрос даже не принят (не тот
+      // формат периода, или синк уже идёт) — реального синка не было, ждать
+      // нечего. started.ok === true — сервер только ПРИНЯЛ запуск (см.
+      // комментарий у /api/sync в index.js), реальный результат добираем
+      // опросом статуса.
+      if (started.ok) await pollUntilSyncDone()
+      else await reloadStatus()
+      await loadVenues(); await loadPeriods(); await loadData(periodKey)
+    } finally { setSyncing(false) }
+  }, [loadData, loadPeriods, loadVenues, pollUntilSyncDone, reloadStatus, periodKey])
 
   // Догрузить конкретный прошлый месяц ("YYYY-MM"), а не current/prev-month
   // из настроек — Настройки iiko → «Загрузить другой период». Сразу
@@ -326,12 +349,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const syncHistoricalPeriod = useCallback(async (period: string): Promise<{ ok: boolean; message?: string }> => {
     setSyncing(true)
     try {
-      const r = await triggerSync(period)
-      await loadVenues(); await loadPeriods(); await reloadStatus()
-      if (r.ok) setPeriod(period)
-      return r
+      const started = await triggerSync(period)
+      if (!started.ok) { await reloadStatus(); return started }
+      const final = await pollUntilSyncDone()
+      await loadVenues(); await loadPeriods()
+      if (final?.lastResult === 'ok') { setPeriod(period); return { ok: true, message: final.message } }
+      return { ok: false, message: final?.message ?? 'Не удалось загрузить период' }
     } finally { setSyncing(false) }
-  }, [loadPeriods, loadVenues, reloadStatus, setPeriod])
+  }, [loadPeriods, loadVenues, pollUntilSyncDone, reloadStatus, setPeriod])
 
   // Матрица версионирована по периодам так же, как факты — цены реально
   // отличаются месяц к месяцу, так что план всегда должен браться из

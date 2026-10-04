@@ -82,7 +82,7 @@ export async function testConnection(s: Partial<IikoSettings>): Promise<{ ok: bo
     const r = await fetch('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(s) })
     if (!r.ok) return { ok: false, message: `Ошибка сервера (HTTP ${r.status})` }
     return await r.json()
-  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
 }
 
 /** «Показать доступные поля отчёта» — вместо гадания по одному полю через "Unknown OLAP field". */
@@ -90,7 +90,7 @@ export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ o
   try {
     const r = await fetch(`/api/iiko/olap-columns?reportType=${encodeURIComponent(reportType)}`, { headers: authHeaders() })
     return await r.json()
-  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
 }
 
 export interface Venues { enabled: string[]; discovered: string[] }
@@ -143,13 +143,13 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
     const r = await fetch('/api/matrix/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...s, target }) })
     if (!r.ok) return { ok: false, message: `Ошибка сервера (HTTP ${r.status})` }
     return await r.json()
-  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
 }
 export async function syncMatrix(target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number }> {
   try {
     const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}) }) })
     return await r.json()
-  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
 }
 /** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. Без периода — план-цены не привязаны к месяцу. */
 export const fetchMatching = () => get<any>('/api/matching')
@@ -159,7 +159,7 @@ export async function triggerSync(period?: string): Promise<{ ok: boolean; messa
   try {
     const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(period ? { period } : {}) })
     return await r.json()
-  } catch { return { ok: false, message: 'Бэкенд недоступен' } }
+  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
 }
 
 export interface TeamUser { id: string; email: string; role: 'admin' | 'employee'; createdAt: string }

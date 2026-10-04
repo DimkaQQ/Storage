@@ -192,13 +192,25 @@ app.get('/api/data', requireAuth, (req, res) => {
 
 app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId) }))
 
-app.post('/api/sync', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
   const period = req.body?.period
   if (period !== undefined && !/^\d{4}-\d{2}$/.test(String(period))) {
     return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
   }
-  const result = await runSync(req.auth.orgId, 'manual', period || undefined)
-  res.status(result.ok ? 200 : 502).json(result)
+  const orgId = req.auth.orgId
+  if (syncing[orgId]) return res.status(409).json({ ok: false, message: 'Обновление уже выполняется' })
+  // Не ждём runSync здесь — у реального iikoServer запрос за полный месяц
+  // может идти десятками секунд (см. таймаут 60с в iikoServerFacts), а между
+  // браузером и этим сервером обычно есть ещё reverse-proxy/CDN со своим
+  // лимитом на длительность одного запроса (у nginx тут 120с, но перед ним
+  // бывает более короткий внешний лимит) — тогда соединение рвётся раньше,
+  // чем Express успевает ответить, и фронт получает не нормальный JSON с
+  // причиной, а голую сетевую ошибку ("Бэкенд недоступен"), хотя сам синк
+  // на сервере мог бы прекрасно досчитаться. Поэтому отвечаем сразу, что
+  // запуск принят, а реальный результат клиент добирает через /api/status
+  // (там уже есть флаг syncing) — один быстрый запрос вместо одного долгого.
+  res.json({ ok: true, started: true })
+  runSync(orgId, 'manual', period || undefined)
 })
 
 // Секретные поля настроек — не отдаём их наружу как есть, только маской, и
