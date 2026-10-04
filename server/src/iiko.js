@@ -289,7 +289,18 @@ async function iikoServerFacts(settings, period) {
       // задвоением, природа расхождения ещё не найдена. Убрано обратно,
       // чтобы не плодить лишние строки для товаров с настоящей историей
       // покупок.
-      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit'],
+      //
+      // ВРЕМЕННО (сейчас идёт диагностика Рибай стейк/ИП Кабаева у Сирены —
+      // наш фетч видит только 69 из реальных 110 шт за август, при этом
+      // других карточек контрагента с тем же именем нет): фильтр
+      // TransactionType убран (раньше ограничивал только INVOICE), сам
+      // TransactionType добавлен в groupByRowFields — если у части поставок
+      // этого товара реально другой тип транзакции (не INVOICE), сейчас это
+      // будет видно отдельной строкой с тем же товаром/поставщиком. Если
+      // после этого сумма по Рибай стейк всё равно не дотягивает до 110 шт —
+      // причина не в TransactionType, нужно искать дальше. Вернуть фильтр
+      // обратно после диагностики.
+      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'TransactionType'],
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
         // Голый "DateTime" сервер отклоняет (HTTP 409): "не найден ни один
@@ -299,7 +310,6 @@ async function iikoServerFacts(settings, period) {
         // группировку. DateTyped — фильтр по дню (без времени), что и
         // нужно для месячного диапазона from/to.
         'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
-        TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] },
       },
     }
     // Таймаут больше дефолтного — за целый прошлый месяц (а не текущий,
@@ -346,6 +356,7 @@ async function iikoServerFacts(settings, period) {
       const supplier = row['Counteragent.Name'] || lastSupplier
       lastProduct = product
       lastSupplier = supplier
+      const transactionType = row['TransactionType'] || ''
       return {
         restaurant: resolveStoreRestaurant(row['Store']),
         supplier,
@@ -353,6 +364,10 @@ async function iikoServerFacts(settings, period) {
         pack: row['Product.MeasureUnit'] || '',
         qty: Number(row['Amount']) || 0,
         sum: Number(row['Sum.Incoming']) || 0,
+        // ВРЕМЕННО, пока идёт диагностика (см. комментарий у groupByRowFields
+        // выше) — тип транзакции виден прямо в заметке строки, если это не
+        // обычная приходная накладная.
+        ...(transactionType && transactionType !== 'INVOICE' ? { comment: `[диагностика] TransactionType: ${transactionType}` } : {}),
       }
       // restaurant === null — известный бренд, но точно не кухонный склад
       // (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина) — такую
