@@ -780,12 +780,28 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // Убрано: ровно то же самое рассуждение однажды молча подменило "Ягода
   // импортная / голубика" на "Малина" — у Azik Trade прайсована только
   // малина, и логика решила, что раз вариант один, то и голубика — это она,
-  // хотя сама фасовка в закупке ясно говорит другое. Дальше сопоставление
-  // только точное (план по фасовке выше, либо плоский план ниже) — никакого
-  // автоматического подбора "похоже, это он". Всё, что не совпало точно —
-  // "нет в матрице", а привязку — вручную (см. packFixKey/setPackAlias,
-  // кнопка "Это «X»: цена" в Справочниках) — так безопаснее: молчаливая
-  // подмена товара хуже, чем лишний ручной клик.
+  // хотя сама фасовка в закупке ясно говорит другое.
+  //
+  // НО: это касалось только ассортимента (isAssortment — см.
+  // buildKnownFlatIndex), где разная фасовка реально значит разный товар.
+  // Для подавляющего большинства товаров фасовка вообще не должна мешать
+  // сопоставлению (подтверждено человеком явно: "мы не должны по фасовки
+  // проверять, есть такой поставщик есть такой товар — то берём") — матрица
+  // уже сама подтверждает, что под этим iiko-названием у ЭТОГО поставщика
+  // всегда один и тот же товар (knownFlatPairs — labels.size === 1), так что
+  // раз у него вообще есть прайсованный вариант (пусть под другой
+  // фасовкой/тиром цены — кг vs упаковка), берём его как есть. Ягоды и
+  // прочий ассортимент этот шорткат не затрагивает — там по-прежнему только
+  // точное совпадение фасовки выше, либо явная ручная привязка.
+  if (!isAssortment) {
+    const anyPacks = designatedIndex.bySupplierProduct.get(pairKey)
+    if (anyPacks && anyPacks.size > 0) {
+      const anyPack = [...anyPacks][0]
+      const anyKey = `${pairKey}::${anyPack}`
+      const anyPlan = matching.planPairsByPack[anyKey]
+      if (anyPlan != null) return { plan: anyPlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[anyKey]), unpricedMatch: false, matchedKey: anyKey, ...NONE }
+    }
+  }
 
   // Связь с iiko прописана в матрице ТОЧНО (их же название поставщика и
   // товара), просто цена (H) не заполнена — например "Агрофирма Курминское
@@ -822,20 +838,26 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
     ? `В матрице у этого поставщика есть цена по фасовке «${availableFasovki[0].pack}»: ${money(availableFasovki[0].price)}${availableFasovki[0].label ? ` (${availableFasovki[0].label})` : ''} — но фасовка и цена этой закупки сильно отличаются, похоже на другой товар. Если это на самом деле он же — можно поправить фасовку в Справочниках → «Нет в матрице».`
     : `В матрице у этого поставщика есть ${availableFasovki.length} прайсованных варианта(ов) фасовки для этого товара, но ни один не совпал с фактом по названию — если это просто иначе записанная фасовка, поправьте её в Справочниках → «Нет в матрице».`
 
-  // No price for THIS exact (supplier, pack) combo. Who's designated for
-  // THIS EXACT variant (pack included) matters — e.g. Ayakaz and Alga73 both
-  // price "Ягода импортная" for Сирена, but only for малина/голубика/ежевика;
-  // neither has клубника priced there. Checking product-level only would
-  // wrongly call that "wrong supplier" (Alga73!) instead of "not in the
-  // matrix at all for this variant". So: for a packed fact, use ONLY the
-  // pack-specific set, unioned with suppliers who are genuinely pack-agnostic
-  // in the matrix (byProductFlatOnly — e.g. "Агрофирма Курминское яйцо"
-  // never got split by fasovka at all, so they're designated regardless of
-  // what pack this particular purchase happens to show) — but never suppliers
-  // who are ONLY priced for some *other specific* pack. Packless facts fall
-  // back to the broad byProduct set, same as before.
+  // Кто "назначен" для этого товара. Для ассортимента (isAssortment —
+  // напр. ягоды) фасовка в факте важна, как и раньше: Ayakaz и Alga73 оба
+  // прайсуют "Ягода импортная" для Сирены, но только малину/голубику/
+  // ежевику — ни у кого нет клубники; если бы мы смотрели на товар целиком
+  // без фасовки, клубнику у Alga73 ошибочно назвали бы "заказ не по
+  // матрице" вместо честного "нет в матрице для этого варианта". Поэтому
+  // для ассортимента — только pack-specific набор, объединённый с теми, кто
+  // в принципе никогда не делился по фасовке (byProductFlatOnly).
+  //
+  // Для ВСЕГО остального (подавляющее большинство товаров, не ассортимент)
+  // фасовка не должна разводить поставщиков вообще (подтверждено человеком:
+  // "есть такой поставщик, есть такой товар — берём") — берём широкий
+  // byProduct (любая фасовка любого поставщика), иначе поставщик, у
+  // которого просто другой масштаб фасовки/цены для того же товара,
+  // ошибочно попадал бы в "заказ не по матрице" вместо честного
+  // распознавания.
   let designated: Set<string> | undefined
-  if (pack) {
+  if (!isAssortment) {
+    designated = designatedIndex.byProduct.get(`${restaurant}::${product}`)
+  } else if (pack) {
     const packSpecific = designatedIndex.byPack.get(`${restaurant}::${product}::${pack}`)
     const flatOnly = designatedIndex.byProductFlatOnly.get(`${restaurant}::${product}`)
     if (packSpecific || flatOnly) designated = new Set([...(packSpecific ?? []), ...(flatOnly ?? [])])
