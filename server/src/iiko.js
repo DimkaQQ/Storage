@@ -279,7 +279,14 @@ async function iikoServerFacts(settings, period) {
       // "Supplier.Name" не существует как поле OLAP (сервер прямо ответил
       // "Unknown OLAP field 'Supplier.Name'") — контрагент по приходной
       // накладной в iikoServer называется Counteragent, не Supplier.
-      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit'],
+      // TransactionType добавлен временно, для диагностики — почему в
+      // отчёте появляются позиции (и неверные суммы по существующим), которых
+      // нет в ручном "Отчёте о закупках по складам" самого iiko, хотя фильтр
+      // TransactionType=IncludeValues(['INVOICE']) ниже как будто должен
+      // пускать только приходные накладные. Значение попадает в comment
+      // каждого факта (см. ниже) — видно прямо в "Заметке" в Проверке цен,
+      // без отдельного похода в JSON. Убрать после того, как разберёмся.
+      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'TransactionType'],
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
         // Голый "DateTime" сервер отклоняет (HTTP 409): "не найден ни один
@@ -336,6 +343,8 @@ async function iikoServerFacts(settings, period) {
         pack: row['Product.MeasureUnit'] || '',
         qty: Number(row['Amount']) || 0,
         sum: Number(row['Sum.Incoming']) || 0,
+        // Временно — см. комментарий у groupByRowFields выше.
+        comment: `[диагностика] TransactionType: ${row['TransactionType']}`,
       }
       // restaurant === null — известный бренд, но точно не кухонный склад
       // (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина) — такую
