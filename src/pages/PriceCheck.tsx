@@ -8,15 +8,14 @@ import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct' | 'sum'
 
 /**
- * По умолчанию строки идут "как iiko загрузил" — по накладной (см.
- * groupByRowFields в server/src/iiko.js, Document) — один товар+поставщик
- * у одного ресторана может быть несколькими строками, если за период было
- * несколько накладных. Эта функция — ручной переключатель "Группировка":
- * схлопывает такие строки в одну (сумма/кол-во складываются), план и статус
- * у них и так совпадают (сопоставление теперь не зависит от фасовки, см.
- * resolveRowPlan), поэтому берём их у первой строки группы. Строки "не
- * закупали" (unit === null, это не реальная покупка, а позиция из матрицы)
- * в сложение не участвуют и остаются отдельно как есть.
+ * Переключатель "Группировка" (по умолчанию выключен — строки идут как есть,
+ * по одной на каждую связку товар+поставщик+фасовка, которую вернул iiko, см.
+ * groupByRowFields в server/src/iiko.js): схлопывает повторы одного товара+
+ * поставщика в одну строку (сумма/кол-во складываются), план и статус у них
+ * и так совпадают (сопоставление не зависит от фасовки, см. resolveRowPlan),
+ * поэтому берём их у первой строки группы. Строки "не закупали" (unit ===
+ * null, это не реальная покупка, а позиция из матрицы) в сложение не
+ * участвуют и остаются отдельно как есть.
  */
 function groupByProduct(rows: Row[]): Row[] {
   const groups = new Map<string, Row[]>()
@@ -58,7 +57,7 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
-  const { setRowComment, setRowColor } = useEdits()
+  const { setRowComment, setRowColor, period } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   // По умолчанию — сумма закупки по убыванию, как в их собственном "Отчёте
@@ -122,6 +121,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // при заходе на Проверку цен, чтобы сама страница открывалась быстро.
   const exportExcel = async () => {
     const XLSX = await import('xlsx')
+    // Период — отдельной строкой НАД заголовками (не просто в имени файла):
+    // имя файла легко потерять/переименовать при скачивании нескольких
+    // периодов подряд (ровно так один раз перепутали июнь/июль), а строка
+    // внутри самой таблицы остаётся видна, даже если файл переименовали.
+    const title = [`Проверка цен — ${period}`]
     const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Количество', 'Сумма', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у', 'Заметка']
     const lines = filtered.map((r) => [
       r.restaurant, r.supplier, r.product, r.pack,
@@ -129,11 +133,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       r.plan ?? '', r.unit ?? '', r.plan != null && r.unit != null ? r.unit - r.plan : '',
       STATUS_META[r.status].label, r.designatedSuppliers.join(', '), r.userComment ?? '',
     ])
-    const ws = XLSX.utils.aoa_to_sheet([head, ...lines])
+    const ws = XLSX.utils.aoa_to_sheet([title, head, ...lines])
     ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
-    XLSX.writeFile(wb, 'proverka-cen.xlsx')
+    // Период — и в имени файла, чтобы отличать скачивания разных месяцев
+    // друг от друга без открытия каждого.
+    const safePeriod = period.replace(/\s+/g, '_')
+    XLSX.writeFile(wb, `proverka-cen-${safePeriod}.xlsx`)
   }
 
   return (
