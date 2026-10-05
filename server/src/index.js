@@ -385,7 +385,11 @@ app.get('/api/edits', requireAuth, (req, res) => res.json(editsDb.getEditsForOrg
 // Explicit full restore (used by "Импорт") — everyone else's правки go
 // through /api/edits/op below, which applies one targeted change at a time
 // so two people editing different things never clobber each other.
-app.put('/api/edits', requireAuth, (req, res) => {
+// requireAdmin — это полная ЗАМЕНА всех правок организации сразу (не одна
+// правка), та же чувствительность, что у /api/org-data/reset ниже, который
+// уже requireAdmin — обычный сотрудник не должен мочь одним запросом стереть
+// переименования/комментарии/цвета, которые накопили все остальные.
+app.put('/api/edits', requireAuth, requireAdmin, (req, res) => {
   editsDb.replaceAllEdits(req.auth.orgId, req.body || {})
   res.json({ ok: true })
 })
@@ -416,6 +420,15 @@ app.post('/api/edits/op', requireAuth, (req, res) => {
   // безвредно (просто no-op), но это случайность, не гарантия.
   const apply = Object.prototype.hasOwnProperty.call(EDIT_OPS, type) ? EDIT_OPS[type] : undefined
   if (!apply) return res.status(400).json({ ok: false, message: `Неизвестная операция: ${type}` })
+  // 'reset' стирает ВСЕ правки организации сразу (не одну строку, как
+  // остальные операции здесь) — та же чувствительность, что у
+  // /api/org-data/reset, который уже requireAdmin. Остальной эндпоинт
+  // специально доступен обычным сотрудникам (переименовать товар, оставить
+  // комментарий — это не админская задача), поэтому requireAdmin нельзя
+  // навесить на весь роут, только на этот конкретный тип операции.
+  if (type === 'reset' && req.auth.role !== 'admin') {
+    return res.status(403).json({ ok: false, message: 'Только для администратора' })
+  }
   try {
     apply(req.auth.orgId, payload)
     res.json({ ok: true })
