@@ -64,8 +64,8 @@ let syncing = {}
 async function runSync(orgId, trigger, explicitPeriod) {
   if (syncing[orgId]) return { ok: false, message: 'Обновление уже выполняется' }
   syncing[orgId] = true
-  const settings = getSettings(orgId)
   try {
+    const settings = getSettings(orgId)
     const venues = getVenues(orgId)
     const targets = settings.provider === 'mock'
       ? getSeedPeriods().map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
@@ -184,6 +184,14 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
 app.get('/api/periods', requireAuth, (req, res) => res.json(listDatasetPeriods(req.auth.orgId)))
 
 app.get('/api/data', requireAuth, (req, res) => {
+  // period отсюда идёт прямиком в имя файла (orgDatasetPath в store.js) —
+  // без проверки формата "../../другая-папка" в query-параметре увело бы
+  // путь за пределы папки своей организации (path.join схлопывает ".."),
+  // потенциально к файлам другой организации. /api/sync уже проверяет
+  // формат так же — здесь просто не хватало той же проверки.
+  if (req.query.period !== undefined && !/^\d{4}-\d{2}$/.test(String(req.query.period))) {
+    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
+  }
   const periods = listDatasetPeriods(req.auth.orgId)
   const period = req.query.period || periods.at(-1)?.period
   if (!period) return res.json({ restaurants: [] })
@@ -210,7 +218,14 @@ app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
   // запуск принят, а реальный результат клиент добирает через /api/status
   // (там уже есть флаг syncing) — один быстрый запрос вместо одного долгого.
   res.json({ ok: true, started: true })
-  runSync(orgId, 'manual', period || undefined)
+  // runSync сама ловит всё внутри (try/catch целиком вокруг тела, см. выше) и
+  // всегда возвращает {ok,...}, никогда не бросает — .catch() здесь просто
+  // страховка на случай будущих правок, чтобы случайный синхронный throw
+  // внутри неё не ушёл необработанным отказом промиса (ответ клиенту уже
+  // отправлен выше, здесь ничего ждать не нужно).
+  runSync(orgId, 'manual', period || undefined).catch((e) => {
+    console.error('runSync: необработанная ошибка', e)
+  })
 })
 
 // Секретные поля настроек — не отдаём их наружу как есть, только маской, и
@@ -423,7 +438,9 @@ function armSchedule(orgId) {
   const s = getSettings(orgId)
   if (!s.autoEnabled) return
   const expr = CRON[s.interval] || CRON.daily
-  tasks[orgId] = cron.schedule(expr, () => { runSync(orgId, 'schedule') }, { timezone: process.env.TZ || 'Asia/Almaty' })
+  tasks[orgId] = cron.schedule(expr, () => {
+    runSync(orgId, 'schedule').catch((e) => console.error('runSync (cron): необработанная ошибка', e))
+  }, { timezone: process.env.TZ || 'Asia/Almaty' })
 }
 
 const PORT = process.env.PORT || 8090
