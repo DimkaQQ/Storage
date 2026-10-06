@@ -16,11 +16,22 @@ type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPc
  * поэтому берём их у первой строки группы. Строки "не закупали" (unit ===
  * null, это не реальная покупка, а позиция из матрицы) в сложение не
  * участвуют и остаются отдельно как есть.
+ *
+ * Для АССОРТИМЕНТА (isAssortment — ягоды и похожие случаи, где под одним
+ * iiko-названием у поставщика реально РАЗНЫЕ товары, см. resolveRowPlan)
+ * фасовка по-прежнему входит в ключ группировки: там план и статус у разных
+ * фасовок законно РАЗНЫЕ (малина и голубика под одним названием "Ягода
+ * импортная" могут быть у разных поставщиков по разным ценам) — без этого
+ * группировка схлопывала бы их в одну строку и тихо показывала план/статус
+ * только от первой попавшейся фасовки, маскируя реальный "заказ не по
+ * матрице" у второй.
  */
 function groupByProduct(rows: Row[]): Row[] {
   const groups = new Map<string, Row[]>()
   for (const r of rows) {
-    const key = `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.product)}`
+    const key = r.isAssortment
+      ? `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.product)}::${norm(r.pack)}`
+      : `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.product)}`
     const arr = groups.get(key)
     if (arr) arr.push(r)
     else groups.set(key, [r])

@@ -52,6 +52,13 @@ bootstrap()
 
 let syncing = {}
 
+// Общая проверка формата периода ("YYYY-MM") — period отсюда идёт прямиком
+// в имя файла на диске (orgDatasetPath в store.js), так что это не просто
+// валидация формы, а единственная защита от выхода пути за пределы папки
+// организации (см. аудит path traversal в /api/data). Один общий регэксп на
+// оба места (/api/data, /api/sync), чтобы они не разъехались при правке.
+const isValidPeriod = (p) => /^\d{4}-\d{2}$/.test(String(p))
+
 /**
  * Pulls facts from the configured provider and rebuilds the dataset for one
  * org. 'mock' has no live "current period" of its own — it's a set of fixed
@@ -189,7 +196,7 @@ app.get('/api/data', requireAuth, (req, res) => {
   // путь за пределы папки своей организации (path.join схлопывает ".."),
   // потенциально к файлам другой организации. /api/sync уже проверяет
   // формат так же — здесь просто не хватало той же проверки.
-  if (req.query.period !== undefined && !/^\d{4}-\d{2}$/.test(String(req.query.period))) {
+  if (req.query.period !== undefined && !isValidPeriod(req.query.period)) {
     return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
   }
   const periods = listDatasetPeriods(req.auth.orgId)
@@ -202,7 +209,7 @@ app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.au
 
 app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
   const period = req.body?.period
-  if (period !== undefined && !/^\d{4}-\d{2}$/.test(String(period))) {
+  if (period !== undefined && !isValidPeriod(period)) {
     return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
   }
   const orgId = req.auth.orgId

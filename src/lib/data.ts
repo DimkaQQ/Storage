@@ -793,9 +793,19 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // фасовкой/тиром цены — кг vs упаковка), берём его как есть. Ягоды и
   // прочий ассортимент этот шорткат не затрагивает — там по-прежнему только
   // точное совпадение фасовки выше, либо явная ручная привязка.
+  // Берём цену по "любой другой фасовке" только когда у поставщика ровно
+  // ОДИН прайсованный вариант — однозначно, гадать не нужно. Если их
+  // несколько (например "кг" за 500 и "мешок 50кг" за 20000 — одна и та же
+  // строка матрицы, но разный масштаб цены), автоматически подставлять
+  // любую из них нельзя: получится либо случайно верно, либо показывает
+  // надуманный "недоплатили/переплатили X%", сравнивая цену за кг с ценой
+  // за мешок. Несколько вариантов — та же неопределённость, что раньше уже
+  // ломала "Ягода голубика/малина" (см. выше), только теперь про цену, а
+  // не про идентичность товара — оставляем нерешённым, с подсказкой
+  // (candidateNote/availableFasovki ниже), а не угадываем.
   if (!isAssortment) {
     const anyPacks = designatedIndex.bySupplierProduct.get(pairKey)
-    if (anyPacks && anyPacks.size > 0) {
+    if (anyPacks && anyPacks.size === 1) {
       const anyPack = [...anyPacks][0]
       const anyKey = `${pairKey}::${anyPack}`
       const anyPlan = matching.planPairsByPack[anyKey]
@@ -854,10 +864,11 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // которого просто другой масштаб фасовки/цены для того же товара,
   // ошибочно попадал бы в "заказ не по матрице" вместо честного
   // распознавания.
+  // Пакетный разбор нужен только для ассортимента с известной фасовкой —
+  // в обоих остальных случаях (не ассортимент, либо фасовки в факте просто
+  // нет) берём широкий byProduct без разбора по фасовке.
   let designated: Set<string> | undefined
-  if (!isAssortment) {
-    designated = designatedIndex.byProduct.get(`${restaurant}::${product}`)
-  } else if (pack) {
+  if (isAssortment && pack) {
     const packSpecific = designatedIndex.byPack.get(`${restaurant}::${product}::${pack}`)
     const flatOnly = designatedIndex.byProductFlatOnly.get(`${restaurant}::${product}`)
     if (packSpecific || flatOnly) designated = new Set([...(packSpecific ?? []), ...(flatOnly ?? [])])
