@@ -498,12 +498,27 @@ export async function iikoServerInvoiceSample(settings, period, search = '') {
  * сконфигурированных для него фасовок/тар с человекочитаемыми именами,
  * которые должны включать "брусника"/"малина" и т.п.
  */
-export async function iikoServerProductByNum(settings, num) {
+export async function iikoServerProductByNum(settings, value) {
   const { base, token } = await iikoServerAuth(settings)
   try {
-    const res = await withTimeout(`${base}/resto/api/v2/entities/products/list?key=${token}&num=${encodeURIComponent(num)}&includeDeleted=false`, {}, 30000)
+    // Принимаем и артикул ("3122"), и сам GUID товара (уже известен из
+    // предыдущего шага — на случай, если фильтр по артикулу на сервере не
+    // сработает как ожидается) — у v2 entities это разные query-параметры.
+    const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim())
+    const paramName = isGuid ? 'id' : 'num'
+    const res = await withTimeout(
+      `${base}/resto/api/v2/entities/products/list?key=${token}&${paramName}=${encodeURIComponent(value.trim())}&includeDeleted=false`,
+      {}, 30000,
+    )
     if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
-    return await res.json()
+    const data = await res.json()
+    const list = Array.isArray(data) ? data : [data]
+    // Защита: если фильтр на сервере не сработал (вернул ВСЮ номенклатуру —
+    // это тысячи позиций), не раздувать ответ — такой многомегабайтный JSON
+    // через nginx-проксю был прошлой причиной "<!DOCTYPE"/502 вместо
+    // нормального результата.
+    if (list.length > 5) return { warning: `Фильтр не сработал как ожидалось — вернулось ${list.length} товаров, показаны первые 3`, items: list.slice(0, 3) }
+    return list
   } finally {
     await iikoServerLogout(base, token)
   }
