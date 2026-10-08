@@ -463,34 +463,74 @@ function extractIdNameMap(xml) {
 }
 
 /**
+ * Находит в ответе каждый блок openTag...closeTag и отдаёт его целиком в
+ * onBlock — ПОТОКОВО, документ/товар за раз: в памяти держится только
+ * текущий (недописанный) буфер, а не всё тело ответа, так что не зависит
+ * от общего размера выгрузки (полная номенклатура или накладные за месяц
+ * по всей сети — не угадаешь заранее, насколько это много).
+ */
+async function streamExtractBlocks(res, openTag, closeTag, onBlock) {
+  const reader = res.body?.getReader?.()
+  if (!reader) {
+    const text = await res.text()
+    let idx = 0
+    for (;;) {
+      const start = text.indexOf(openTag, idx)
+      if (start === -1) break
+      const end = text.indexOf(closeTag, start)
+      if (end === -1) break
+      onBlock(text.slice(start, end + closeTag.length))
+      idx = end + closeTag.length
+    }
+    return
+  }
+  const decoder = new TextDecoder('utf-8')
+  let buf = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (!done) buf += decoder.decode(value, { stream: true })
+      for (;;) {
+        const start = buf.indexOf(openTag)
+        if (start === -1) { buf = ''; break }
+        const end = buf.indexOf(closeTag, start)
+        if (end === -1) break // блок пока не дочитан целиком — ждём следующий кусок
+        onBlock(buf.slice(start, end + closeTag.length))
+        buf = buf.slice(end + closeTag.length)
+      }
+      if (done) break
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+}
+
+/**
  * Карточки товаров, чьё название содержит "асс" (ассортимент — "Ягода с/м
  * в асс", "Пюре в асс" и т.п., по запросу человека: именно эта категория
- * товаров, не вся номенклатура). products/search/ фильтрует НА СЕРВЕРЕ —
- * ответ маленький, в отличие от полной выгрузки (см. iikoServerProductByNum
- * ниже, та тащит всё и ищет потоково именно из-за риска размера). Для
- * каждого товара разбираем его containers — список фасовок/тар с именами
- * ("малина", "клубника"...) — это и есть расшифровка containerId из строки
- * накладной (подтверждено живьём).
+ * товаров, не вся номенклатура). Фильтр по имени — НЕ на сервере (не
+ * доверяем, что products/search/ там настоящий regex, а не SQL LIKE —
+ * "(?i).*асс.*" буквально как строка нигде не встретится, если это LIKE):
+ * тащим ту же полную выгрузку, что уже доказанно работает (см.
+ * iikoServerProductByNum), и фильтруем сами, потоково, без буферизации
+ * всего ответа целиком. Для каждого подходящего товара разбираем его
+ * containers — список фасовок/тар с именами ("малина", "клубника"...) —
+ * это и есть расшифровка containerId из строки накладной (подтверждено
+ * живьём).
  */
 export async function fetchAssortmentIndex(settings) {
   const { base, token } = await iikoServerAuth(settings)
   try {
-    const res = await withTimeout(
-      `${base}/resto/api/products/search/?key=${token}&name=${encodeURIComponent('(?i).*асс.*')}&includeDeleted=false`,
-      {}, 30000,
-    )
+    const res = await withTimeout(`${base}/resto/api/products?key=${token}&includeDeleted=false`, {}, 60000)
     if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
-    const xml = await readTextCapped(res)
     const byId = new Map()
     const byName = new Map()
-    const productRe = /<productDto>([\s\S]*?)<\/productDto>/g
-    let m
-    while ((m = productRe.exec(xml))) {
-      const seg = m[1]
-      const id = /<id>([^<]*)<\/id>/.exec(seg)?.[1]
+    await streamExtractBlocks(res, '<productDto>', '</productDto>', (seg) => {
       const name = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
+      if (!name || !name.toLowerCase().includes('асс')) return
+      const id = /<id>([^<]*)<\/id>/.exec(seg)?.[1]
+      if (!id) return
       const mainUnit = /<mainUnit>([^<]*)<\/mainUnit>/.exec(seg)?.[1] || ''
-      if (!id || !name) continue
       const containers = new Map()
       const containerRe = /<container>([\s\S]*?)<\/container>/g
       let cm
@@ -505,55 +545,16 @@ export async function fetchAssortmentIndex(settings) {
       const arr = byName.get(key) ?? []
       arr.push(id)
       byName.set(key, arr)
-    }
+    })
     return { byId, byName }
   } finally {
     await iikoServerLogout(base, token)
   }
 }
 
-/**
- * Разбирает строки накладных ПОТОКОВО, документ за документом — держит в
- * памяти только текущий (недописанный) буфер, а не всё тело ответа, так
- * что не зависит от общего размера выгрузки (она может быть за весь месяц
- * по всей сети). onDocument получает сырой XML одного <document>...
- * </document> целиком.
- */
+/** Разбирает строки накладных ПОТОКОВО, документ за документом (см. streamExtractBlocks). onDocument получает сырой XML одного <document>...</document> целиком. */
 async function streamInvoiceDocuments(res, onDocument) {
-  const TAG_OPEN = '<document>', TAG_CLOSE = '</document>'
-  const reader = res.body?.getReader?.()
-  if (!reader) {
-    const text = await res.text()
-    let idx = 0
-    for (;;) {
-      const start = text.indexOf(TAG_OPEN, idx)
-      if (start === -1) break
-      const end = text.indexOf(TAG_CLOSE, start)
-      if (end === -1) break
-      onDocument(text.slice(start, end + TAG_CLOSE.length))
-      idx = end + TAG_CLOSE.length
-    }
-    return
-  }
-  const decoder = new TextDecoder('utf-8')
-  let buf = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (!done) buf += decoder.decode(value, { stream: true })
-      for (;;) {
-        const start = buf.indexOf(TAG_OPEN)
-        if (start === -1) { buf = ''; break }
-        const end = buf.indexOf(TAG_CLOSE, start)
-        if (end === -1) break // документ пока не дочитан целиком — ждём следующий кусок
-        onDocument(buf.slice(start, end + TAG_CLOSE.length))
-        buf = buf.slice(end + TAG_CLOSE.length)
-      }
-      if (done) break
-    }
-  } finally {
-    await reader.cancel().catch(() => {})
-  }
+  return streamExtractBlocks(res, '<document>', '</document>', onDocument)
 }
 
 /** Разбирает <item>...</item> внутри одного документа, оставляя только строки с товаром из assortmentIds. */

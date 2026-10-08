@@ -109,7 +109,9 @@ async function runSync(orgId, trigger, explicitPeriod) {
     // типа документа/лимит ответа), а не в нашей фильтрации по отделу.
     const statsNote = fetchStatsByPeriod.length
       ? ' — ' + fetchStatsByPeriod.map((s) =>
-          `${s.period}: iikoServer вернул ${s.rawCount} строк, отсеяно без товара/кол-ва ${s.droppedNoData}, по отделу/бренду ${s.droppedDept}, осталось ${s.kept}`,
+          `${s.period}: iikoServer вернул ${s.rawCount} строк, отсеяно без товара/кол-ва ${s.droppedNoData}, по отделу/бренду ${s.droppedDept}, осталось ${s.kept}`
+          + (s.assortmentFacts != null ? `, товаров-ассортиментов по накладным: ${s.assortmentFacts}` : '')
+          + (s.assortmentError ? ` [асс.: ${s.assortmentError}]` : ''),
         ).join('; ')
       : ''
     const status = {
