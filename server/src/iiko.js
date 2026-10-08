@@ -24,6 +24,11 @@ const withTimeout = async (url, opts = {}, ms = 20000) => {
 }
 
 const normStoreKey = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+// Та же нормализация, что и в sheets.js/lib/data.ts — своя копия здесь,
+// этот файл их не импортирует. Использовалась (без объявления — баг)
+// ниже, в fetchAssortmentIndex/fetchAssortmentFacts: там нужно сравнивать
+// названия товаров без учёта регистра/лишних пробелов, не ключи складов.
+const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
 
 /**
  * iikoServer группирует закупки не по ресторану, а по СКЛАДУ/подразделению
