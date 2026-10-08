@@ -498,6 +498,34 @@ export async function iikoServerInvoiceSample(settings, period, search = '') {
  * сконфигурированных для него фасовок/тар с человекочитаемыми именами,
  * которые должны включать "брусника"/"малина" и т.п.
  */
+/**
+ * Читает ответ потоково с жёстким лимитом байт — не вызывает res.json()/
+ * res.text() напрямую. Подозрение (см. ниже): фильтр num/id на сервере не
+ * сработал, и ответ — вся номенклатура разом (многие МБ); попытка
+ * распарсить такое целиком в памяти могла класть весь процесс Node
+ * (OOM) — а не кидать обычную JS-ошибку, которую поймал бы try/catch
+ * вокруг неё: отсюда у пользователя была "<!DOCTYPE"/502 от nginx вместо
+ * любого нашего ответа, даже после первой защиты (она проверяла длину
+ * УЖЕ распарсенного массива — поздно, крах был раньше, на самом парсинге).
+ */
+async function readTextLimited(res, maxBytes = 3_000_000) {
+  const reader = res.body?.getReader?.()
+  if (!reader) return await res.text() // на всякий случай, если body недоступен как поток
+  let total = 0
+  const chunks = []
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.length
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {})
+      throw new Error(`Ответ сервера слишком большой (>${(maxBytes / 1e6).toFixed(0)}МБ) — похоже, фильтр num/id не сработал и вернулась вся номенклатура разом`)
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8')
+}
+
 export async function iikoServerProductByNum(settings, value) {
   const { base, token } = await iikoServerAuth(settings)
   try {
@@ -507,16 +535,13 @@ export async function iikoServerProductByNum(settings, value) {
     const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim())
     const paramName = isGuid ? 'id' : 'num'
     const res = await withTimeout(
-      `${base}/resto/api/v2/entities/products/list?key=${token}&${paramName}=${encodeURIComponent(value.trim())}&includeDeleted=false`,
+      `${base}/resto/api/v2/entities/products/list?key=${token}&${paramName}=${encodeURIComponent(value.trim())}&includeDeleted=false&revisionFrom=-1`,
       {}, 30000,
     )
     if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
-    const data = await res.json()
+    const text = await readTextLimited(res)
+    const data = JSON.parse(text)
     const list = Array.isArray(data) ? data : [data]
-    // Защита: если фильтр на сервере не сработал (вернул ВСЮ номенклатуру —
-    // это тысячи позиций), не раздувать ответ — такой многомегабайтный JSON
-    // через nginx-проксю был прошлой причиной "<!DOCTYPE"/502 вместо
-    // нормального результата.
     if (list.length > 5) return { warning: `Фильтр не сработал как ожидалось — вернулось ${list.length} товаров, показаны первые 3`, items: list.slice(0, 3) }
     return list
   } finally {
