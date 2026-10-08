@@ -528,17 +528,19 @@ async function streamExtractBlocks(res, openTag, closeTag, onBlock) {
 }
 
 /**
- * Карточки товаров, чьё название содержит "асс" (ассортимент — "Ягода с/м
- * в асс", "Пюре в асс" и т.п., по запросу человека: именно эта категория
- * товаров, не вся номенклатура). Фильтр по имени — НЕ на сервере (не
- * доверяем, что products/search/ там настоящий regex, а не SQL LIKE —
- * "(?i).*асс.*" буквально как строка нигде не встретится, если это LIKE):
- * тащим ту же полную выгрузку, что уже доказанно работает (см.
- * iikoServerProductByNum), и фильтруем сами, потоково, без буферизации
- * всего ответа целиком. Для каждого подходящего товара разбираем его
- * containers — список фасовок/тар с именами ("малина", "клубника"...) —
- * это и есть расшифровка containerId из строки накладной (подтверждено
- * живьём).
+ * Карточки товаров, у которых в самой номенклатуре реально заведено хотя
+ * бы одна тара/фасовка (containers) — не только "...в асс" (Ягода/Пюре),
+ * ровно так же устроены и другие категории (живой кейс: "Специи дешевые
+ * (вегета,кориандр,ГБ)" — под ней "Vegeta 1кг"/"Галина Бланка" такие же
+ * contaner-варианты). Критерий — не слово в названии (ненадёжно, слов
+ * может быть сколько угодно и без "асс" тоже), а сам факт, что у товара
+ * ЕСТЬ сконфигурированные контейнеры: это объективное свойство в
+ * iiko, не угадывание по тексту.
+ *
+ * Фильтр — НЕ на сервере (не доверяем, что products/search/ там
+ * настоящий regex, а не SQL LIKE): тащим ту же полную выгрузку, что уже
+ * доказанно работает (см. iikoServerProductByNum), и фильтруем сами,
+ * потоково, без буферизации всего ответа целиком.
  */
 export async function fetchAssortmentIndex(settings) {
   const { base, token } = await iikoServerAuth(settings)
@@ -548,12 +550,6 @@ export async function fetchAssortmentIndex(settings) {
     const byId = new Map()
     const byName = new Map()
     await streamExtractBlocks(res, '<productDto>', '</productDto>', (seg) => {
-      const rawName = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
-      if (!rawName || !rawName.toLowerCase().includes('асс')) return
-      const name = unescapeXml(rawName)
-      const id = /<id>([^<]*)<\/id>/.exec(seg)?.[1]
-      if (!id) return
-      const mainUnit = unescapeXml(/<mainUnit>([^<]*)<\/mainUnit>/.exec(seg)?.[1] || '')
       const containers = new Map()
       const containerRe = /<container>([\s\S]*?)<\/container>/g
       let cm
@@ -563,6 +559,13 @@ export async function fetchAssortmentIndex(settings) {
         const cname = /<name>([^<]*)<\/name>/.exec(cseg)?.[1]
         if (cid && cname) containers.set(cid, unescapeXml(cname))
       }
+      if (!containers.size) return // обычный товар без тар — не наш случай вовсе
+      const rawName = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
+      if (!rawName) return
+      const name = unescapeXml(rawName)
+      const id = /<id>([^<]*)<\/id>/.exec(seg)?.[1]
+      if (!id) return
+      const mainUnit = unescapeXml(/<mainUnit>([^<]*)<\/mainUnit>/.exec(seg)?.[1] || '')
       byId.set(id, { name, mainUnit, containers })
       const key = norm(name)
       const arr = byName.get(key) ?? []
@@ -600,10 +603,11 @@ function extractAssortmentItems(docXml, assortmentIds) {
 }
 
 /**
- * Факты по товарам-ассортиментам прямо из накладных (не из OLAP — он не
- * знает про containerId вовсе, см. комментарий в iikoServerFacts выше).
- * Пусто, если в номенклатуре нет товаров "...в асс" вовсе (fetchAssortmentIndex
- * вернула пустой список) — тогда накладные даже не запрашиваем.
+ * Факты по товарам с тарами/фасовками прямо из накладных (не из OLAP —
+ * он не знает про containerId вовсе, см. комментарий в iikoServerFacts
+ * выше). Пусто, если в номенклатуре нет вообще ни одного такого товара
+ * (fetchAssortmentIndex вернула пустой список) — тогда накладные даже не
+ * запрашиваем.
  */
 async function fetchAssortmentFacts(settings, period) {
   const index = await fetchAssortmentIndex(settings)
