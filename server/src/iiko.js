@@ -625,7 +625,13 @@ async function fetchAssortmentFacts(settings, period) {
     const { from, to } = periodRange(period)
     const res = await withTimeout(`${base}/resto/api/documents/export/incomingInvoice?key=${token}&from=${from}&to=${to}`, {}, 120000)
     if (!res.ok) throw new Error(`Накладные недоступны (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
-    const facts = []
+    // Схлопываем по (ресторан, поставщик, товар, фасовка) — так же, как
+    // OLAP сам суммирует все закупки этого товара за период в одну строку
+    // (groupByRowFields). Без этого при двух накладных за месяц с одной и
+    // той же фасовкой (обычное дело — два отдельных завоза) получались бы
+    // две строки на одну и ту же позицию вместо одной с суммарным
+    // количеством, расходясь с тем, как показаны все остальные товары.
+    const byKey = new Map()
     const names = new Set()
     await streamInvoiceDocuments(res, (docXml) => {
       for (const it of extractAssortmentItems(docXml, index.byId)) {
@@ -636,11 +642,14 @@ async function fetchAssortmentFacts(settings, period) {
         if (!restaurant) continue
         const supplierName = supplierNames.get(it.supplierId) || it.supplierId
         const pack = (it.containerId && info.containers.get(it.containerId)) || info.mainUnit || ''
-        facts.push({ restaurant, supplier: supplierName, product: info.name, pack, qty: it.amount, sum: it.sum })
+        const key = `${norm(restaurant)}::${norm(supplierName)}::${norm(info.name)}::${norm(pack)}`
+        const prev = byKey.get(key)
+        if (prev) { prev.qty += it.amount; prev.sum += it.sum }
+        else byKey.set(key, { restaurant, supplier: supplierName, product: info.name, pack, qty: it.amount, sum: it.sum })
         names.add(norm(info.name))
       }
     })
-    return { facts, names }
+    return { facts: [...byKey.values()], names }
   } finally {
     await iikoServerLogout(base, token)
   }
