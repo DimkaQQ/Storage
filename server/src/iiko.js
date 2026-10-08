@@ -296,20 +296,16 @@ async function iikoServerFacts(settings, period) {
       // для "пач. 2.250кг." — отсюда их разные строки в отчёте, а у нас
       // одна).
       //
-      // РАЗГАДАНО: это поле — Comment ("Комментарий"). У многих товаров-
-      // ассортиментов (напр. "Ягода с/м в асс") сама фасовка в iiko всегда
-      // голое "кг" — конкретный вкус (брусника/малина/...) кладовщик пишет
-      // в комментарий к строке накладной, и их собственный отчёт именно
-      // этот текст показывает как "Фасовку" (живой кейс: Berry Company/
-      // "Ягода с/м в асс" с Comment="брусника", живьём совпадает с F-
-      // колонкой матрицы). Добавляем в группировку, чтобы разные комментарии
-      // у одного и того же товара/поставщика/единицы измерения не схлопывались
-      // в одну строку с суммарным количеством (ровно то расхождение, что
-      // видно в их отчёте про "Картофель фри" — тут та же причина). Сам
-      // текст комментария кладём в facts[].comment — resolveRowPlan (lib/
-      // data.ts) использует его как ДОПОЛНИТЕЛЬНЫЙ кандидат фасовки, только
-      // если это буквально совпадёт с прайсованным вариантом в матрице —
-      // ничего не угадывает сверх точного совпадения текста.
+      // РАЗГАДАНО (не Comment — живой тест показал его всегда пустым):
+      // фасовка у товаров-ассортиментов (напр. "Ягода с/м в асс") — это
+      // containerId строки накладной, который резолвится в текст ("малина",
+      // "брусника"...) через список containers в карточке самого товара
+      // (api/products). OLAP ни разу не выдаёт containerId ни в одном
+      // поле — его просто нет в списке полей отчёта. Поэтому для таких
+      // товаров OLAP в принципе не может сказать больше, чем голое "кг";
+      // расклад по факту делает fetchAssortmentFacts ниже, отдельным
+      // запросом прямо по накладным, только для товаров "...в асс" — см.
+      // её собственный комментарий.
       //
       // Диагностика TransactionType (временно убирали фильтр и добавляли
       // поле в groupByRowFields, чтобы понять, почему фетч видит только 69
@@ -322,7 +318,7 @@ async function iikoServerFacts(settings, period) {
       // всех месяцев, кроме текущего. Причина расхождения по Рибай стейк
       // всё ещё не найдена, искать нужно иначе (не через расфильтровку всех
       // типов транзакций сразу).
-      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'Comment'],
+      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit'],
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
         // Голый "DateTime" сервер отклоняет (HTTP 409): "не найден ни один
@@ -386,7 +382,6 @@ async function iikoServerFacts(settings, period) {
         pack: row['Product.MeasureUnit'] || '',
         qty: Number(row['Amount']) || 0,
         sum: Number(row['Sum.Incoming']) || 0,
-        comment: row['Comment'] || '',
       }
       // restaurant === null — известный бренд, но точно не кухонный склад
       // (бар/кальян/инвентарь/посуда/хозтовары/упаковка/витрина) — такую
@@ -401,9 +396,227 @@ async function iikoServerFacts(settings, period) {
     // логике ниже.
     const droppedNoData = mapped.filter((f) => !(f.product && f.qty > 0)).length
     const droppedDept = mapped.filter((f) => f.product && f.qty > 0 && f.restaurant === null).length
-    const facts = mapped.filter((f) => f.product && f.qty > 0 && f.restaurant !== null)
-    facts.fetchStats = { rawCount: rawRows.length, droppedNoData, droppedDept, kept: facts.length }
+    let facts = mapped.filter((f) => f.product && f.qty > 0 && f.restaurant !== null)
+    const stats = { rawCount: rawRows.length, droppedNoData, droppedDept, kept: facts.length }
+
+    // Товары-ассортименты ("Ягода с/м в асс", "Пюре в асс" и т.п.) — у них
+    // OLAP-агрегат не просто без фасовки, а ВРЕДЕН: раз containerId нигде в
+    // OLAP не фигурирует (см. комментарий выше), разные вкусы одного и того
+    // же поставщика/товара/единицы схлопываются в ОДНУ строку с суммарным
+    // количеством — сами разные закупки теряются, не только их фасовка.
+    // Полностью заменяем такие строки раскладом по факту из самих накладных
+    // (см. fetchAssortmentFacts). Если это не удалось (сеть, неожиданный
+    // формат у этой версии сервера) — тихо остаёмся на OLAP-версии как
+    // раньше: голое "кг" без фасовки лучше, чем сломанный синк целиком.
+    try {
+      const assortment = await fetchAssortmentFacts(settings, period)
+      if (assortment.facts.length) {
+        facts = facts.filter((f) => !assortment.names.has(norm(f.product)))
+        facts.push(...assortment.facts)
+        stats.assortmentFacts = assortment.facts.length
+      }
+    } catch (e) {
+      stats.assortmentError = String(e.message || e)
+    }
+
+    facts.fetchStats = stats
     return facts
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
+/** Читает ответ ПОЛНОСТЬЮ потоково, но с жёстким лимитом — для заведомо небольших справочников (поставщики, склады, отфильтрованная номенклатура), где ответ целиком разумно держать в памяти, в отличие от огромных отчётов/накладных. */
+async function readTextCapped(res, maxBytes = 5_000_000) {
+  const reader = res.body?.getReader?.()
+  if (!reader) return await res.text()
+  const decoder = new TextDecoder('utf-8')
+  let total = 0
+  let text = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.length
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {})
+      throw new Error(`Ответ сервера слишком большой (>${(maxBytes / 1e6).toFixed(0)}МБ)`)
+    }
+    text += decoder.decode(value, { stream: true })
+  }
+  text += decoder.decode()
+  return text
+}
+
+/**
+ * Простой скрейпер плоских corporateItemDto-подобных списков (поставщики,
+ * склады) — не знаем точного имени оборачивающего элемента для этой версии
+ * сервера, поэтому ищем пары <id>GUID</id>...<name>ТЕКСТ</name>, не
+ * заходя за границу следующего <id> (чтобы имя не "утекло" от одной
+ * записи к другой).
+ */
+function extractIdNameMap(xml) {
+  const map = new Map()
+  const re = /<id>([^<]+)<\/id>(?:(?!<id>)[\s\S])*?<name>([^<]*)<\/name>/g
+  let m
+  while ((m = re.exec(xml))) map.set(m[1], m[2])
+  return map
+}
+
+/**
+ * Карточки товаров, чьё название содержит "асс" (ассортимент — "Ягода с/м
+ * в асс", "Пюре в асс" и т.п., по запросу человека: именно эта категория
+ * товаров, не вся номенклатура). products/search/ фильтрует НА СЕРВЕРЕ —
+ * ответ маленький, в отличие от полной выгрузки (см. iikoServerProductByNum
+ * ниже, та тащит всё и ищет потоково именно из-за риска размера). Для
+ * каждого товара разбираем его containers — список фасовок/тар с именами
+ * ("малина", "клубника"...) — это и есть расшифровка containerId из строки
+ * накладной (подтверждено живьём).
+ */
+export async function fetchAssortmentIndex(settings) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const res = await withTimeout(
+      `${base}/resto/api/products/search/?key=${token}&name=${encodeURIComponent('(?i).*асс.*')}&includeDeleted=false`,
+      {}, 30000,
+    )
+    if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const xml = await readTextCapped(res)
+    const byId = new Map()
+    const byName = new Map()
+    const productRe = /<productDto>([\s\S]*?)<\/productDto>/g
+    let m
+    while ((m = productRe.exec(xml))) {
+      const seg = m[1]
+      const id = /<id>([^<]*)<\/id>/.exec(seg)?.[1]
+      const name = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
+      const mainUnit = /<mainUnit>([^<]*)<\/mainUnit>/.exec(seg)?.[1] || ''
+      if (!id || !name) continue
+      const containers = new Map()
+      const containerRe = /<container>([\s\S]*?)<\/container>/g
+      let cm
+      while ((cm = containerRe.exec(seg))) {
+        const cseg = cm[1]
+        const cid = /<id>([^<]*)<\/id>/.exec(cseg)?.[1]
+        const cname = /<name>([^<]*)<\/name>/.exec(cseg)?.[1]
+        if (cid && cname) containers.set(cid, cname)
+      }
+      byId.set(id, { name, mainUnit, containers })
+      const key = norm(name)
+      const arr = byName.get(key) ?? []
+      arr.push(id)
+      byName.set(key, arr)
+    }
+    return { byId, byName }
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
+/**
+ * Разбирает строки накладных ПОТОКОВО, документ за документом — держит в
+ * памяти только текущий (недописанный) буфер, а не всё тело ответа, так
+ * что не зависит от общего размера выгрузки (она может быть за весь месяц
+ * по всей сети). onDocument получает сырой XML одного <document>...
+ * </document> целиком.
+ */
+async function streamInvoiceDocuments(res, onDocument) {
+  const TAG_OPEN = '<document>', TAG_CLOSE = '</document>'
+  const reader = res.body?.getReader?.()
+  if (!reader) {
+    const text = await res.text()
+    let idx = 0
+    for (;;) {
+      const start = text.indexOf(TAG_OPEN, idx)
+      if (start === -1) break
+      const end = text.indexOf(TAG_CLOSE, start)
+      if (end === -1) break
+      onDocument(text.slice(start, end + TAG_CLOSE.length))
+      idx = end + TAG_CLOSE.length
+    }
+    return
+  }
+  const decoder = new TextDecoder('utf-8')
+  let buf = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (!done) buf += decoder.decode(value, { stream: true })
+      for (;;) {
+        const start = buf.indexOf(TAG_OPEN)
+        if (start === -1) { buf = ''; break }
+        const end = buf.indexOf(TAG_CLOSE, start)
+        if (end === -1) break // документ пока не дочитан целиком — ждём следующий кусок
+        onDocument(buf.slice(start, end + TAG_CLOSE.length))
+        buf = buf.slice(end + TAG_CLOSE.length)
+      }
+      if (done) break
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+}
+
+/** Разбирает <item>...</item> внутри одного документа, оставляя только строки с товаром из assortmentIds. */
+function extractAssortmentItems(docXml, assortmentIds) {
+  const supplierId = /<supplier>([^<]*)<\/supplier>/.exec(docXml)?.[1] || ''
+  const out = []
+  const itemRe = /<item>([\s\S]*?)<\/item>/g
+  let m
+  while ((m = itemRe.exec(docXml))) {
+    const seg = m[1]
+    const productId = /<product>([^<]*)<\/product>/.exec(seg)?.[1]
+    if (!productId || !assortmentIds.has(productId)) continue
+    const containerId = /<containerId>([^<]*)<\/containerId>/.exec(seg)?.[1] || null
+    const amount = Number(/<amount>([^<]*)<\/amount>/.exec(seg)?.[1] || 0)
+    const sum = Number(/<sum>([^<]*)<\/sum>/.exec(seg)?.[1] || 0)
+    const storeId = /<store>([^<]*)<\/store>/.exec(seg)?.[1] || ''
+    out.push({ supplierId, productId, containerId, amount, sum, storeId })
+  }
+  return out
+}
+
+/**
+ * Факты по товарам-ассортиментам прямо из накладных (не из OLAP — он не
+ * знает про containerId вовсе, см. комментарий в iikoServerFacts выше).
+ * Пусто, если в номенклатуре нет товаров "...в асс" вовсе (fetchAssortmentIndex
+ * вернула пустой список) — тогда накладные даже не запрашиваем.
+ */
+async function fetchAssortmentFacts(settings, period) {
+  const index = await fetchAssortmentIndex(settings)
+  if (!index.byId.size) return { facts: [], names: new Set() }
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const [suppliersXml, storesXml] = await Promise.all([
+      withTimeout(`${base}/resto/api/suppliers?key=${token}`, {}, 30000).then((r) => {
+        if (!r.ok) throw new Error(`Поставщики недоступны (HTTP ${r.status})`)
+        return readTextCapped(r)
+      }),
+      withTimeout(`${base}/resto/api/corporation/stores?key=${token}`, {}, 30000).then((r) => {
+        if (!r.ok) throw new Error(`Склады недоступны (HTTP ${r.status})`)
+        return readTextCapped(r)
+      }),
+    ])
+    const supplierNames = extractIdNameMap(suppliersXml)
+    const storeNames = extractIdNameMap(storesXml)
+    const { from, to } = periodRange(period)
+    const res = await withTimeout(`${base}/resto/api/documents/export/incomingInvoice?key=${token}&from=${from}&to=${to}`, {}, 120000)
+    if (!res.ok) throw new Error(`Накладные недоступны (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const facts = []
+    const names = new Set()
+    await streamInvoiceDocuments(res, (docXml) => {
+      for (const it of extractAssortmentItems(docXml, index.byId)) {
+        if (!(it.amount > 0)) continue
+        const info = index.byId.get(it.productId)
+        const storeName = storeNames.get(it.storeId) || it.storeId
+        const restaurant = resolveStoreRestaurant(storeName)
+        if (!restaurant) continue
+        const supplierName = supplierNames.get(it.supplierId) || it.supplierId
+        const pack = (it.containerId && info.containers.get(it.containerId)) || info.mainUnit || ''
+        facts.push({ restaurant, supplier: supplierName, product: info.name, pack, qty: it.amount, sum: it.sum })
+        names.add(norm(info.name))
+      }
+    })
+    return { facts, names }
   } finally {
     await iikoServerLogout(base, token)
   }

@@ -784,24 +784,6 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const plan = matching.planPairs[pairKey]
   if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, ...NONE }
 
-  // Категории-ассортименты ("Ягода с/м в асс" и т.п.) не несут вкус в самой
-  // фасовке iiko (там просто "кг") — вкус (брусника/малина/...) кладовщик
-  // пишет в КОММЕНТАРИЙ к накладной, ровно как в их собственном отчёте
-  // (колонка «Фасовка» там на самом деле и есть этот комментарий). Это тот
-  // самый "более детальный" текст, который matching.planPairsByPack ждёт в
-  // ключе вместо голого "кг" — если он точно совпадает с прайсованным
-  // вариантом, это такое же точное совпадение, как и по обычной фасовке,
-  // просто источник текста другой. Если не совпал — молчим и идём дальше
-  // обычным путём (ничего не угадываем).
-  const commentPack = b.comment ? normPack(b.comment) : ''
-  if (commentPack && commentPack !== pack) {
-    const commentKey = `${pairKey}::${commentPack}`
-    const commentPlan = matching.planPairsByPack[commentKey]
-    if (commentPlan != null) {
-      return { plan: commentPlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[commentKey]), unpricedMatch: false, matchedKey: commentKey, ...NONE, resolvedPack: commentPack }
-    }
-  }
-
   // Раньше тут был автоматический подбор "у поставщика всего один
   // прайсованный вариант фасовки — значит, это он" (без проверки цены).
   // Убрано: ровно то же самое рассуждение однажды молча подменило "Ягода
