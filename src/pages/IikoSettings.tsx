@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -66,6 +66,9 @@ export default function IikoSettings() {
   const [astanaSyncResult, setAstanaSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [columnsLoading, setColumnsLoading] = useState(false)
   const [columnsResult, setColumnsResult] = useState<{ ok: boolean; columns?: unknown; message?: string } | null>(null)
+  const [sampleLoading, setSampleLoading] = useState(false)
+  const [sampleResult, setSampleResult] = useState<{ ok: boolean; rows?: unknown[]; message?: string } | null>(null)
+  const [sampleSearch, setSampleSearch] = useState('ягода')
 
   useEffect(() => { fetchSettings().then((s) => s && setForm(s)) }, [])
 
@@ -110,6 +113,17 @@ export default function IikoSettings() {
     setColumnsLoading(true); setColumnsResult(null)
     setColumnsResult(await fetchOlapColumns('TRANSACTIONS'))
     setColumnsLoading(false)
+  }
+
+  // «Проверить сырые поля» — Comment не оказался тем полем, где лежит
+  // вкус/фасовка у товаров-ассортиментов (живой тест не совпал). Вместо
+  // того чтобы перебирать кандидатов по одному через деплой, тащим сразу
+  // несколько вероятных OLAP-полей для строк отчёта, похожих на `search`,
+  // и показываем сырой JSON — нужное поле видно глазами.
+  const showSample = async () => {
+    setSampleLoading(true); setSampleResult(null)
+    setSampleResult(await fetchOlapSample(sampleSearch))
+    setSampleLoading(false)
   }
 
   const testMatrix = async () => {
@@ -340,6 +354,15 @@ export default function IikoSettings() {
               <IInfo width={16} height={16} /> {columnsLoading ? 'Спрашиваю…' : 'Показать доступные поля отчёта'}
             </button>
           )}
+          {form.provider === 'iikoserver' && (
+            <>
+              <input value={sampleSearch} onChange={(e) => setSampleSearch(e.target.value)} placeholder="ягода"
+                className="w-28 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+              <button onClick={showSample} disabled={sampleLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {sampleLoading ? 'Спрашиваю…' : 'Проверить сырые поля'}
+              </button>
+            </>
+          )}
           {testResult && (
             <span className={`chip ${testResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {testResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{testResult.message}
@@ -354,6 +377,21 @@ export default function IikoSettings() {
               </pre>
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{columnsResult.message}</span>
+            )}
+          </div>
+        )}
+        {sampleResult && (
+          <div className="mt-3">
+            {sampleResult.ok ? (
+              sampleResult.rows && sampleResult.rows.length > 0 ? (
+                <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                  {JSON.stringify(sampleResult.rows, null, 1)}
+                </pre>
+              ) : (
+                <span className="chip border-ink-600 bg-ink-800/60 text-slate-400">Ничего не нашлось по «{sampleSearch}» за текущий период</span>
+              )
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{sampleResult.message}</span>
             )}
           </div>
         )}

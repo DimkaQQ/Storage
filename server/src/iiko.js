@@ -409,6 +409,49 @@ async function iikoServerFacts(settings, period) {
   }
 }
 
+/**
+ * Диагностика: Comment не оказался тем полем, где лежит "брусника"/
+ * "малина" у товаров-ассортиментов (живьём, после деплоя — не совпало).
+ * Пользователь утверждает, что фасовку проставляют ПРЯМО В iiko
+ * (намеренно, при оформлении накладной) — значит, текст реально лежит в
+ * каком-то OLAP-поле отчёта TRANSACTIONS, просто не угадан. Вместо того
+ * чтобы перебирать поля по одному через деплой, тащим РАСШИРЕННЫЙ набор
+ * полей сразу и возвращаем только строки, похожие на искомый товар —
+ * сравниваем значения глазами одним запросом. Не используется в обычном
+ * синке (fetchFacts) — только через /api/iiko/olap-sample (кнопка в
+ * Настройках iiko).
+ */
+export async function iikoServerOlapSample(settings, period, { search = '', extraFields = [] } = {}) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const { from, to } = periodRange(period)
+    const fields = ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'Comment', ...extraFields]
+    const body = {
+      reportType: 'TRANSACTIONS',
+      buildSummary: false,
+      groupByRowFields: fields,
+      aggregateFields: ['Amount', 'Sum.Incoming'],
+      filters: {
+        'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
+        TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] },
+      },
+    }
+    const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }, 60000)
+    if (!res.ok) throw new Error(`Отчёт недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const data = await res.json()
+    const rows = data.data || []
+    const needle = search.trim().toLowerCase()
+    const filtered = needle
+      ? rows.filter((r) => fields.some((f) => String(r[f] || '').toLowerCase().includes(needle)))
+      : rows
+    return filtered.slice(0, 50)
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
 /* --- iikoCloud (api-ru.iiko.services) --- */
 async function iikoCloudToken({ apiLogin }) {
   const res = await withTimeout('https://api-ru.iiko.services/api/1/access_token', {

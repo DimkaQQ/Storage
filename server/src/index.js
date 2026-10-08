@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -279,6 +279,26 @@ app.get('/api/iiko/olap-columns', requireAuth, requireAdmin, async (req, res) =>
   const s = getSettings(req.auth.orgId)
   try {
     res.json({ ok: true, columns: await fetchOlapColumns(s, req.query.reportType || 'TRANSACTIONS') })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+/**
+ * «Проверить сырые поля» в Настройках iiko — одноразовая диагностика:
+ * Comment не оказался полем с фасовкой/вкусом (живой тест не совпал),
+ * так что тащим сразу несколько вероятных полей и несколько строк отчёта,
+ * похожих на искомый товар, чтобы увидеть текст глазами вместо того,
+ * чтобы перебирать поля по одному через деплой.
+ */
+app.get('/api/iiko/olap-sample', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    const period = String(req.query.period || resolveLivePeriod(s).period)
+    const search = String(req.query.search || 'ягода')
+    const extraFields = String(req.query.fields || 'Product.Num,Product.Tag.Name,Product.Tags.NamesCombo,Document,OrderNum')
+      .split(',').map((f) => f.trim()).filter(Boolean)
+    res.json({ ok: true, rows: await iikoServerOlapSample(s, period, { search, extraFields }) })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }

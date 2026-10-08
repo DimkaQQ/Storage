@@ -98,6 +98,14 @@ export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ o
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+/** «Проверить сырые поля» — несколько строк отчёта с расширенным набором полей, похожих на `search`, для поиска того самого поля с фасовкой/вкусом глазами. */
+export async function fetchOlapSample(search = 'ягода'): Promise<{ ok: boolean; rows?: unknown[]; message?: string }> {
+  try {
+    const r = await fetch(`/api/iiko/olap-sample?search=${encodeURIComponent(search)}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 export interface Venues { enabled: string[]; discovered: string[] }
 export const fetchVenues = () => get<Venues>('/api/venues')
 export async function enableVenue(name: string): Promise<Venues | null> {
