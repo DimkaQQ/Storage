@@ -9,7 +9,10 @@
  * case genuinely needs a human pick (or a supplier-aware/AI hint later).
  */
 
-const STOP = new Set(['с', 'м', 'кг', 'в', 'и', 'на', 'для', 'из', 'по'])
+// Однобуквенные предлоги/сокращения ("с", "м", "в", "и") сюда не нужны —
+// tokens() ниже уже отсекает все токены длиной 1 до проверки STOP, так что
+// они были бы мёртвым кодом (никогда не доходили бы до .has()).
+const STOP = new Set(['кг', 'на', 'для', 'из', 'по'])
 
 function tokens(s: string): string[] {
   return s

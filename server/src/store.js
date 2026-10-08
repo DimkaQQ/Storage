@@ -237,11 +237,20 @@ export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])
 // (сравнение факта за один месяц против плана, засинканного для другого) и
 // требовала гонять один и тот же синк по каждому месяцу отдельно. Теперь
 // матрица — один актуальный файл на организацию, без периода вообще.
+// Для организации без matrix.json (ещё не синканной вообще) каждый вызов
+// getMatrix — а это /api/matching, дёргается при каждом заходе на любую
+// страницу — раньше заново делал readdirSync по всей папке организации
+// (legacyMatrixPeriods), просто чтобы убедиться "мигрировать нечего". Раз
+// подтвердив это для orgId, больше не пересканируем до перезапуска сервера —
+// новые legacy-файлы matrix-*.json сами по себе на живом сервере не
+// появляются (их никто больше не пишет, это старый формат).
+const noLegacyMatrixFound = new Set()
 function migrateLegacyMatrixIfNeeded(orgId) {
   const path = orgPaths(orgId).matrix
   if (existsSync(path)) return
+  if (noLegacyMatrixFound.has(orgId)) return
   const periods = legacyMatrixPeriods(orgId).sort()
-  if (!periods.length) return
+  if (!periods.length) { noLegacyMatrixFound.add(orgId); return }
   // Мёрджим все найденные периоды по порядку (старые -> новые), так что при
   // совпадении ключа побеждает более свежий период — ближе к духу "актуальная
   // цена", чем просто взять последний файл и выбросить остальные.

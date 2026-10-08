@@ -65,7 +65,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       const data = await r.json()
       if (!r.ok || !data.ok) return { ok: false, message: data.message || 'Не удалось войти' }
-      localStorage.setItem(TOKEN_KEY, data.token)
+      // Отдельный try — сервер уже принял логин (r.ok/data.ok выше), и его
+      // не нужно превращать в "Сервер недоступен", если именно запись в
+      // localStorage бросит (приватный режим браузера, запрещённое хранение
+      // и т.п.): без токена сессия просто не переживёт перезагрузку
+      // страницы, но вход в ЭТОТ раз всё равно должен пройти — раньше это
+      // исключение ловилось общим catch ниже и выдавало ложную ошибку
+      // сервера при реально успешном логине.
+      try { localStorage.setItem(TOKEN_KEY, data.token) } catch { /* сессия не переживёт перезагрузку страницы, не более */ }
       setUser(data.user)
       return { ok: true }
     } catch {
