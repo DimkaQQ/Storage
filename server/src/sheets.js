@@ -219,17 +219,41 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
  * getMatrix/saveMatrix в store.js) — иначе пришлось бы менять формат
  * хранения и /api/matching. Ключи внутри каждой карты уже включают имя
  * ресторана (restaurant::supplier::product[::pack]), а рестораны Алматы и
- * Астаны не пересекаются по имени, так что просто объединяем карты —
- * синк одного города не задевает уже сохранённые данные другого.
+ * Астаны не пересекаются по имени, так что синк одного города не должен
+ * задевать уже сохранённые данные другого.
+ *
+ * restaurantNames — рестораны ИМЕННО ТОГО города, что только что синканули
+ * (b — его свежий, полный результат). Раньше merge был чисто аддитивным
+ * ({...a, ...b}) — если строку/цену УДАЛИЛИ из Google-таблицы, в b её
+ * просто не было, а в a она оставалась навсегда: удалённая в таблице
+ * позиция продолжала бы считаться актуальной сколько угодно синков подряд.
+ * Теперь из a сначала убираются ВСЕ ключи ресторанов этого города (b —
+ * его полная замена), а ключи другого города (restaurantNames не
+ * покрывает) остаются нетронутыми как раньше.
+ *
+ * supplierAlias — исключение: ключи там НЕ начинаются с имени ресторана
+ * (это плоский iiko-алиас -> каноническое имя, общий на весь файл), так
+ * что по ресторанам его не отфильтровать — остаётся чисто аддитивным,
+ * как раньше (тот же, отдельный недостаток: алиас, переставший
+ * встречаться в таблице, не забывается; алиас, который по ошибке
+ * одинаково записан в двух разных вкладках на разных поставщиков,
+ * молча побеждает тот, что обработан позже).
  */
-export function mergeMatching(a, b) {
+export function mergeMatching(a, b, restaurantNames) {
   if (!a) return b
   if (!b) return a
+  const scope = restaurantNames ? new Set(restaurantNames.map(norm)) : null
+  const replaceScoped = (prevMap, freshMap) => {
+    if (!scope) return { ...prevMap, ...freshMap }
+    const out = {}
+    for (const [k, v] of Object.entries(prevMap)) if (!scope.has(k.split('::')[0])) out[k] = v
+    return { ...out, ...freshMap }
+  }
   return {
     supplierAlias: { ...a.supplierAlias, ...b.supplierAlias },
-    planPairs: { ...a.planPairs, ...b.planPairs },
-    planPairsByPack: { ...a.planPairsByPack, ...b.planPairsByPack },
-    productLabels: { ...a.productLabels, ...b.productLabels },
-    noPriceExact: { ...a.noPriceExact, ...b.noPriceExact },
+    planPairs: replaceScoped(a.planPairs, b.planPairs),
+    planPairsByPack: replaceScoped(a.planPairsByPack, b.planPairsByPack),
+    productLabels: replaceScoped(a.productLabels, b.productLabels),
+    noPriceExact: replaceScoped(a.noPriceExact, b.noPriceExact),
   }
 }

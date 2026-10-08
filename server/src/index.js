@@ -10,7 +10,7 @@ import {
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns } from './iiko.js'
-import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
+import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
@@ -312,14 +312,18 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
   const googleSheetId = astana ? settings.astanaSheetId : settings.googleSheetId
   if (!googleSheetId) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
   try {
+    const sheetMap = astana ? SHEET_TO_RESTAURANT_ASTANA : SHEET_TO_RESTAURANT
     const { matching, summary } = await syncMatrix(
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
-      astana ? SHEET_TO_RESTAURANT_ASTANA : undefined,
+      sheetMap,
     )
     // Мёрджим с уже сохранённой матрицей, а не перезаписываем — иначе синк
     // Астаны стирал бы уже синканную Алматы (и наоборот), т.к. обе живут в
-    // одном файле matrix.json.
-    saveMatrix(orgId, mergeMatching(getMatrix(orgId), matching))
+    // одном файле matrix.json. Рестораны ИМЕННО этого города передаём
+    // явно (Object.values(sheetMap)) — mergeMatching полностью заменяет их
+    // данные свежими (строка/цена, которую убрали из таблицы, не должна
+    // жить в сторонном matrix.json вечно), не трогая другой город.
+    saveMatrix(orgId, mergeMatching(getMatrix(orgId), matching, Object.values(sheetMap)))
     res.json({ ok: true, target: astana ? 'astana' : 'almaty', ...summary })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })

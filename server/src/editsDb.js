@@ -102,9 +102,14 @@ function hasAnyRows(orgId) {
  * If the DB is still empty for this org and that file exists, import it once.
  */
 function migrateLegacyJsonIfNeeded(orgId) {
-  if (hasAnyRows(orgId)) return
+  // existsSync — один дешёвый syscall; hasAnyRows — до 11 SELECT-запросов
+  // (по одному на таблицу). Проверяем дешёвое первым: для организации без
+  // legacy-файла (все, кроме совсем старых) это каждый раз пропускает все
+  // 11 запросов вместо того, чтобы гонять их на КАЖДЫЙ вызов getEditsForOrg
+  // (а это GET /api/edits и /api/org-data/export) до конца жизни организации.
   const legacyPath = join(DATA_DIR, 'orgs', orgId, 'edits.json')
   if (!existsSync(legacyPath)) return
+  if (hasAnyRows(orgId)) return
   try {
     const legacy = JSON.parse(readFileSync(legacyPath, 'utf8'))
     if (legacy && typeof legacy === 'object') replaceAllEdits(orgId, legacy)

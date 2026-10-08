@@ -43,7 +43,18 @@ export function resolveLivePeriod(settings) {
   // PeriodPicker плодил кучу дублей "Сентябрь 2026", а синхронизированная
   // сегодня матрица не находилась бы под ключом периода, под которым её
   // искали вчера.
-  return { period: base.toISOString().slice(0, 7), periodLabel: `${MONTHS[base.getMonth()]} ${base.getFullYear()}` }
+  //
+  // base.toISOString() — это UTC, а MONTHS[base.getMonth()]/getFullYear() —
+  // локальное время сервера (TZ=Asia/Almaty, UTC+5, см. docker-compose.yml).
+  // Раньше period брался из toISOString(), а periodLabel — из локальных
+  // getMonth/getFullYear: с полуночи до 5 утра по Алматы (а именно в эти
+  // часы срабатывает ежедневный cron, CRON.daily = '0 3 * * *' в index.js)
+  // UTC-дата ещё "вчерашняя" — 1 июля 02:00 по Алматы это 30 июня 21:00 UTC,
+  // и синк сохранял датасет под ключом "2026-06", но с подписью "Июль
+  // 2026" — новый месяц тихо примешивался к данным старого. Теперь period
+  // и periodLabel оба считаются из ОДНИХ и тех же локальных компонентов.
+  const y = base.getFullYear(), m = base.getMonth() // m: 0-индексация
+  return { period: `${y}-${String(m + 1).padStart(2, '0')}`, periodLabel: `${MONTHS[m]} ${y}` }
 }
 
 /**
