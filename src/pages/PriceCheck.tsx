@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack, norm } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
@@ -121,10 +121,29 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   }, [rows, q, active, sort, grouped])
 
   const s = useMemo(() => summarize(filtered), [filtered])
-  // Раньше здесь была пагинация по 60/+100 с кнопкой "Показать ещё" —
-  // убрано по прямой просьбе (кнопка не работала как ожидалось) — просто
-  // показываем все строки сразу.
-  const shown = filtered
+  // Раньше была ручная кнопка "Показать ещё" (убрана — не работала как
+  // ожидалось), а рендер вообще без пагинации тормозит на ~1000+ строк —
+  // подгружаем партиями АВТОМАТИЧЕСКИ по приближению к низу списка
+  // (IntersectionObserver на невидимый сентинел ниже таблицы), без ручного
+  // клика.
+  const PAGE_SIZE = 80
+  const [limit, setLimit] = useState(PAGE_SIZE)
+  useEffect(() => { setLimit(PAGE_SIZE) }, [q, active, grouped])
+  const shown = filtered.slice(0, limit)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    // rootMargin с запасом — подгружаем следующую партию чуть РАНЬШЕ, чем
+    // сентинел реально появится в видимой области, чтобы скролл не
+    // "спотыкался" о короткую паузу рендера на самом краю экрана.
+    const obs = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) setLimit((l) => l + PAGE_SIZE) },
+      { rootMargin: '800px' },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
 
   const toggle = (st: Status) => {
     const n = new Set(active)
@@ -358,6 +377,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             </tbody>
           </table>
           {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено по заданным фильтрам.</div>}
+          {/* Невидимый сентинел для автоподгрузки по скроллу — рендерится, только
+              пока есть что ещё подгружать, иначе IntersectionObserver продолжал
+              бы наблюдать несуществующий "низ списка" без всякой нужды. */}
+          {shown.length < filtered.length && <div ref={sentinelRef} className="h-px" />}
         </div>
       </div>
     </div>
