@@ -338,7 +338,11 @@ app.get('/api/iiko/product-sample', requireAuth, requireAdmin, async (req, res) 
     if (!num) return res.status(400).json({ ok: false, message: 'Нужен артикул (num)' })
     res.json({ ok: true, product: await iikoServerProductByNum(s, num) })
   } catch (e) {
-    res.status(502).json({ ok: false, message: String(e.message || e) })
+    // Временно отдаём имя класса ошибки и стек — предыдущие два сообщения
+    // ("<!DOCTYPE") и ("не авторизовано" при прямом переходе) не совпали
+    // с гипотезами (роут жив, не OOM), так что дальше гадать бессмысленно —
+    // нужен настоящий стек, откуда это реально бросается.
+    res.status(502).json({ ok: false, message: String(e.message || e), errorName: e?.name, errorStack: String(e?.stack || '').split('\n').slice(0, 6) })
   }
 })
 

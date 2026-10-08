@@ -117,7 +117,7 @@ export async function fetchInvoiceSample(search = 'ягода', period = ''): Pr
 }
 
 /** «Проверить товар (артикул)» — карточка товара из номенклатуры по артикулу (`num`), ищем в ней имена фасовок/тар, которые resolve-ят GUID из накладной. */
-export async function fetchProductSample(num: string): Promise<{ ok: boolean; product?: unknown; message?: string }> {
+export async function fetchProductSample(num: string): Promise<{ ok: boolean; product?: unknown; message?: string; errorName?: string; errorStack?: string[] }> {
   try {
     const r = await fetch(`/api/iiko/product-sample?num=${encodeURIComponent(num)}`, { headers: authHeaders() })
     return await r.json()

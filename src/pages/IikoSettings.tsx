@@ -71,7 +71,7 @@ export default function IikoSettings() {
   const [sampleSearch, setSampleSearch] = useState('ягода')
   const [samplePeriod, setSamplePeriod] = useState('')
   const [productLoading, setProductLoading] = useState(false)
-  const [productResult, setProductResult] = useState<{ ok: boolean; product?: unknown; message?: string } | null>(null)
+  const [productResult, setProductResult] = useState<{ ok: boolean; product?: unknown; message?: string; errorName?: string; errorStack?: string[] } | null>(null)
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
 
@@ -446,7 +446,14 @@ export default function IikoSettings() {
                 {JSON.stringify(productResult.product, null, 1)}
               </pre>
             ) : (
-              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{productResult.message}</span>
+              <>
+                <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{productResult.errorName ? `${productResult.errorName}: ` : ''}{productResult.message}</span>
+                {productResult.errorStack && (
+                  <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-400">
+                    {productResult.errorStack.join('\n')}
+                  </pre>
+                )}
+              </>
             )}
           </div>
         )}
