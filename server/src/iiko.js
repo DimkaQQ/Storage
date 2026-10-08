@@ -452,6 +452,43 @@ export async function iikoServerOlapSample(settings, period, { search = '', extr
   }
 }
 
+/**
+ * Диагностика (продолжение): ни один OLAP-кандидат не оказался нужным
+ * полем (живой тест — все кандидаты пустые кроме Document). Фасовка —
+ * это, по документации iiko ("фасовки — дополнительные единицы
+ * измерения для приёма в разных упаковках"), выбор, который делают ПРИ
+ * ВВОДЕ самой накладной — OLAP всегда агрегирует в базовую единицу
+ * (отсюда голое "кг" в Product.MeasureUnit), так что этот выбор просто
+ * не долетает до отчёта по проводкам. Он должен быть только в самой
+ * накладной — тащим её напрямую через documents/export/incomingInvoice
+ * (отдельный, не-OLAP эндпоинт iikoServer) и возвращаем кусок сырого XML
+ * вокруг искомого товара/поставщика — чтобы увидеть реальные имена
+ * полей глазами, а не гадать ещё раз.
+ */
+export async function iikoServerInvoiceSample(settings, period, search = '') {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const { from, to } = periodRange(period)
+    const res = await withTimeout(`${base}/resto/api/documents/export/incomingInvoice?key=${token}&from=${from}&to=${to}`, {}, 60000)
+    if (!res.ok) throw new Error(`Накладные недоступны (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const xml = await res.text()
+    const needle = search.trim().toLowerCase()
+    if (!needle) return xml.slice(0, 4000)
+    const lower = xml.toLowerCase()
+    const windows = []
+    let idx = lower.indexOf(needle)
+    while (idx !== -1 && windows.length < 5) {
+      const start = Math.max(0, idx - 800)
+      const end = Math.min(xml.length, idx + 800)
+      windows.push(xml.slice(start, end))
+      idx = lower.indexOf(needle, end)
+    }
+    return windows.length ? windows.join('\n\n--- --- ---\n\n') : `(«${search}» не нашлось в выгрузке накладных за ${period})`
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
 /* --- iikoCloud (api-ru.iiko.services) --- */
 async function iikoCloudToken({ apiLogin }) {
   const res = await withTimeout('https://api-ru.iiko.services/api/1/access_token', {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -69,6 +69,8 @@ export default function IikoSettings() {
   const [sampleLoading, setSampleLoading] = useState(false)
   const [sampleResult, setSampleResult] = useState<{ ok: boolean; rows?: unknown[]; message?: string } | null>(null)
   const [sampleSearch, setSampleSearch] = useState('ягода')
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
+  const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
 
   useEffect(() => { fetchSettings().then((s) => s && setForm(s)) }, [])
 
@@ -124,6 +126,16 @@ export default function IikoSettings() {
     setSampleLoading(true); setSampleResult(null)
     setSampleResult(await fetchOlapSample(sampleSearch))
     setSampleLoading(false)
+  }
+
+  // «Проверить накладную (XML)» — OLAP не отдал фасовку ни по одному полю
+  // (кнопка выше); фасовка выбирается при вводе самой накладной, так что
+  // тащим её напрямую (не через OLAP) и показываем кусок сырого XML вокруг
+  // искомого товара.
+  const showInvoice = async () => {
+    setInvoiceLoading(true); setInvoiceResult(null)
+    setInvoiceResult(await fetchInvoiceSample(sampleSearch))
+    setInvoiceLoading(false)
   }
 
   const testMatrix = async () => {
@@ -361,6 +373,9 @@ export default function IikoSettings() {
               <button onClick={showSample} disabled={sampleLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {sampleLoading ? 'Спрашиваю…' : 'Проверить сырые поля'}
               </button>
+              <button onClick={showInvoice} disabled={invoiceLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {invoiceLoading ? 'Спрашиваю…' : 'Проверить накладную (XML)'}
+              </button>
             </>
           )}
           {testResult && (
@@ -392,6 +407,17 @@ export default function IikoSettings() {
               )
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{sampleResult.message}</span>
+            )}
+          </div>
+        )}
+        {invoiceResult && (
+          <div className="mt-3">
+            {invoiceResult.ok ? (
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                {invoiceResult.xml}
+              </pre>
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{invoiceResult.message}</span>
             )}
           </div>
         )}

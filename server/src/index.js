@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -299,6 +299,26 @@ app.get('/api/iiko/olap-sample', requireAuth, requireAdmin, async (req, res) => 
     const extraFields = String(req.query.fields || 'Product.Num,Product.Tag.Name,Product.Tags.NamesCombo,Document,OrderNum')
       .split(',').map((f) => f.trim()).filter(Boolean)
     res.json({ ok: true, rows: await iikoServerOlapSample(s, period, { search, extraFields }) })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+/**
+ * «Проверить накладную (XML)» — следующий шаг диагностики: OLAP ни по
+ * одному полю не отдал фасовку/вкус (см. olap-sample), а по документации
+ * iiko "фасовка" — это выбор при вводе самой накладной, который OLAP
+ * (агрегат, всегда в базовых единицах) не видит вовсе. Тащим саму
+ * накладную напрямую (documents/export/incomingInvoice, отдельный от OLAP
+ * эндпоинт) и возвращаем кусок сырого XML вокруг искомого товара —
+ * нужные имена полей будут видны глазами.
+ */
+app.get('/api/iiko/invoice-sample', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    const period = String(req.query.period || resolveLivePeriod(s).period)
+    const search = String(req.query.search || 'ягода')
+    res.json({ ok: true, xml: await iikoServerInvoiceSample(s, period, search) })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }

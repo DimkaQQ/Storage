@@ -106,6 +106,14 @@ export async function fetchOlapSample(search = 'ягода'): Promise<{ ok: bool
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+/** «Проверить накладную (XML)» — сырой кусок самой накладной (не OLAP) вокруг `search`, для поиска поля с фасовкой на уровне документа. */
+export async function fetchInvoiceSample(search = 'ягода'): Promise<{ ok: boolean; xml?: string; message?: string }> {
+  try {
+    const r = await fetch(`/api/iiko/invoice-sample?search=${encodeURIComponent(search)}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 export interface Venues { enabled: string[]; discovered: string[] }
 export const fetchVenues = () => get<Venues>('/api/venues')
 export async function enableVenue(name: string): Promise<Venues | null> {
