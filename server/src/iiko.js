@@ -453,6 +453,23 @@ async function readTextCapped(res, maxBytes = 5_000_000) {
 }
 
 /**
+ * Раскодирует XML-сущности в текстовом содержимом тега — &quot; на месте
+ * настоящей кавычки критично: названия контрагентов почти всегда
+ * ТОО "Так-то"/ИП "Эдак-то", и сравнение с матрицей (resolveRowPlan,
+ * lib/data.ts) идёт по точному тексту после норм() — "тоо &quot;x&quot;"
+ * и 'тоо "x"' для него просто разные строки, алиас не находится, закупка
+ * выглядит как "от другого поставщика" (включая самоссылку на себя же).
+ */
+function unescapeXml(s) {
+  return String(s || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+/**
  * Простой скрейпер плоских corporateItemDto-подобных списков (поставщики,
  * склады) — не знаем точного имени оборачивающего элемента для этой версии
  * сервера, поэтому ищем пары <id>GUID</id>...<name>ТЕКСТ</name>, не
@@ -463,7 +480,7 @@ function extractIdNameMap(xml) {
   const map = new Map()
   const re = /<id>([^<]+)<\/id>(?:(?!<id>)[\s\S])*?<name>([^<]*)<\/name>/g
   let m
-  while ((m = re.exec(xml))) map.set(m[1], m[2])
+  while ((m = re.exec(xml))) map.set(m[1], unescapeXml(m[2]))
   return map
 }
 
@@ -531,11 +548,12 @@ export async function fetchAssortmentIndex(settings) {
     const byId = new Map()
     const byName = new Map()
     await streamExtractBlocks(res, '<productDto>', '</productDto>', (seg) => {
-      const name = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
-      if (!name || !name.toLowerCase().includes('асс')) return
+      const rawName = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
+      if (!rawName || !rawName.toLowerCase().includes('асс')) return
+      const name = unescapeXml(rawName)
       const id = /<id>([^<]*)<\/id>/.exec(seg)?.[1]
       if (!id) return
-      const mainUnit = /<mainUnit>([^<]*)<\/mainUnit>/.exec(seg)?.[1] || ''
+      const mainUnit = unescapeXml(/<mainUnit>([^<]*)<\/mainUnit>/.exec(seg)?.[1] || '')
       const containers = new Map()
       const containerRe = /<container>([\s\S]*?)<\/container>/g
       let cm
@@ -543,7 +561,7 @@ export async function fetchAssortmentIndex(settings) {
         const cseg = cm[1]
         const cid = /<id>([^<]*)<\/id>/.exec(cseg)?.[1]
         const cname = /<name>([^<]*)<\/name>/.exec(cseg)?.[1]
-        if (cid && cname) containers.set(cid, cname)
+        if (cid && cname) containers.set(cid, unescapeXml(cname))
       }
       byId.set(id, { name, mainUnit, containers })
       const key = norm(name)
