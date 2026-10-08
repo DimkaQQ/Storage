@@ -49,7 +49,13 @@ function groupByProduct(rows: Row[]): Row[] {
     out.push({
       ...first,
       id: `grp-${first.id}`,
-      rowKey: `grp::${norm(first.restaurant)}::${norm(first.supplier)}::${norm(first.product)}`,
+      // Фасовка — часть ключа всегда (не только для ассортимента): группы
+      // строятся по тому же ключу, что в groups выше (см. туда) — два
+      // РАЗНЫХ ассортиментных товара под одним iiko-названием (малина и
+      // голубика) схлопнутся в ДВЕ разные группы с разной фасовкой, и без
+      // неё тут у обеих получился бы один и тот же rowKey — заметка/цвет
+      // одной тёрлась бы в другую.
+      rowKey: `grp::${norm(first.restaurant)}::${norm(first.supplier)}::${norm(first.product)}::${norm(first.pack)}`,
       qty, unit,
       pack: packs.size === 1 ? first.pack : packs.size > 1 ? `${packs.size} фасовки` : '',
       diffPct: first.plan != null && unit != null ? (unit - first.plan) / first.plan : null,
