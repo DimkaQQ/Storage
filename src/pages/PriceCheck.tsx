@@ -58,7 +58,7 @@ function groupByProduct(rows: Row[]): Row[] {
       rowKey: `grp::${norm(first.restaurant)}::${norm(first.supplier)}::${norm(first.product)}::${norm(first.pack)}`,
       qty, unit,
       pack: packs.size === 1 ? first.pack : packs.size > 1 ? `${packs.size} фасовки` : '',
-      diffPct: first.plan != null && unit != null ? (unit - first.plan) / first.plan : null,
+      diffPct: first.plan != null && first.plan !== 0 && unit != null ? (unit - first.plan) / first.plan : null,
       userComment: null, rowColor: null,
     })
     out.push(...notPurchased)

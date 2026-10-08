@@ -188,7 +188,22 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       if (!iikoNameRaw || !supplierCanonRaw) continue
       rowsSeen++
       const supplierCanon = norm(supplierCanonRaw)
-      if (iikoCompanyRaw) supplierAlias[norm(iikoCompanyRaw)] = supplierCanon
+      // Значение — текст С КАК ОН НАПИСАН в колонке C (пробелы схлопнуты,
+      // регистр не трогаем), а не supplierCanon (уже lowercase) — иначе
+      // любой код, который показывает это значение человеку как "красивое"
+      // каноническое имя поставщика (supplierDisplayByNorm в data.ts и
+      // DataEditor.tsx, и прямой показ matching.supplierAlias[...] на
+      // вкладке «Компании» в Справочниках), всегда получал бы голый нижний
+      // регистр — сопоставлению (resolveRowPlan) это всё равно, там
+      // результат ещё раз оборачивается в norm().
+      const supplierDisplay = String(supplierCanonRaw).replace(/\s+/g, ' ').trim()
+      if (iikoCompanyRaw) supplierAlias[norm(iikoCompanyRaw)] = supplierDisplay
+      // Канонических поставщиков, у которых в ЭТОЙ строке D (алиас) пуст —
+      // например название в iiko совпадает с каноническим один в один —
+      // supplierAlias раньше вообще не узнавал об их "красивом" написании
+      // (ключ supplierCanon туда никогда не попадал). Добавляем самоссылку,
+      // если её ещё нет — тот же эффект, не перетирает уже заданную.
+      if (!supplierAlias[supplierCanon]) supplierAlias[supplierCanon] = supplierDisplay
       const product = norm(iikoNameRaw)
       const pack = packRaw ? normPack(packRaw) : ''
       const flatKey = `${restaurant}::${supplierCanon}::${product}`

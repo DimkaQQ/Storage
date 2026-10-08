@@ -286,6 +286,8 @@ interface Resolved {
   availableFasovki: FasovkaOption[]  // все прайсованные варианты фасовки у ЭТОГО поставщика для этого товара, ни один не совпал с фактом — предлагаем выбрать вручную
   packFixKey: string | null  // ключ для edits.packAliases, если выбрать один из availableFasovki
   isAssortment: boolean  // фасовка может иметь значение (см. buildKnownFlatIndex) — считаем ровно тут же, где строится pairKey, чтобы не разъезжаться с computeRows
+  resolvedProduct: string  // товар (норм.), который resolveRowPlan реально использовал для сопоставления — после productLink, НЕ b.product0 напрямую. Нужен снаружи (buildRows), чтобы подсказка цены у "заказ не по матрице" искала план по ТОЙ ЖЕ строке матрицы, что дала designatedSuppliers, а не заново по сырому iiko-названию
+  resolvedPack: string  // фасовка (норм.), аналогично — после packAlias/curatedTarget
 }
 
 const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
@@ -755,7 +757,8 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // руками (Roti Azik 10шт/5шт получили одну и ту же цену).
   const isAssortment = !knownFlatPairs.has(pairKey)
 
-  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey' | 'isAssortment'> = { candidateNote: null, availableFasovki: [], packFixKey: null, isAssortment }
+  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey' | 'isAssortment' | 'resolvedProduct' | 'resolvedPack'> =
+    { candidateNote: null, availableFasovki: [], packFixKey: null, isAssortment, resolvedProduct: product, resolvedPack: pack }
 
   // Ручной план цены из Справочников (Товары → «План») — самая свежая,
   // осознанно введённая цена для этой ровно позиции, побеждает всё
@@ -878,9 +881,9 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const fixKeyIfAny = availableFasovki.length > 0 ? packFixKey : null
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, resolvedProduct: product, resolvedPack: pack }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, resolvedProduct: product, resolvedPack: pack }
 }
 
 export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
@@ -971,7 +974,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     const supplierDisplay = edits.supplierRenames[b.supplier0] ?? supplierCanonical
     const supplierLabel = supplierDisplay && norm(supplierDisplay) !== norm(supplier) ? supplierDisplay : null
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
+    const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, resolvedProduct, resolvedPack } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
     if (matchedKey) consumed.add(matchedKey)
     // Переименование хранится по товар+поставщик+фасовка (для категорий-
     // ассортиментов типа "Пюре в асс", где у одного iiko-названия за разными
@@ -986,7 +989,10 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       ?? (isAssortment ? undefined : edits.productRenames[`${b.product0}::${b.supplier0}`])
     const product = rename ?? b.product0
     const productLabel = matrixLabel
-    const diffPct = plan != null ? (b.unit - plan) / plan : null
+    // plan === 0 — вырожденная план-цена (кто-то вписал в таблицу буквально
+    // "0"), делить на неё не нужно: получили бы Infinity/NaN вместо
+    // процента — показываем как "нет план-цены", а не мусорное "+Infinity%".
+    const diffPct = plan != null && plan !== 0 ? (b.unit - plan) / plan : null
     // designatedNorm — нормализованные (нижний регистр) ключи из матрицы,
     // для показа переводим обратно в их же написание (колонка C).
     const designatedSuppliers = designatedNorm.map((s) => supplierDisplayByNorm.get(s) ?? s)
@@ -1010,7 +1016,14 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       if (unpricedMatch) parts.push(NO_PLAN_PRICE_NOTE)
       if (candidateNote) parts.push(candidateNote)
       if (status === 'wrongSupplier' && designatedNorm.length > 0) {
-        const restaurant = norm(b.restaurant), product0 = norm(b.product0), pack = normPack(b.pack)
+        // resolvedProduct/resolvedPack — та же пара, которую resolveRowPlan
+        // реально использовал, чтобы вычислить designatedSuppliers (после
+        // productLink/packAlias, если они есть) — раньше тут заново брали
+        // СЫРОЕ b.product0/b.pack, и если был явный productLink (iiko-
+        // название привязано к ДРУГОМУ названию из матрицы), цена по этому
+        // сырому тексту почти никогда не находилась — подсказка "По
+        // матрице должны были купить у: ..." молча пропадала.
+        const restaurant = norm(b.restaurant), product0 = resolvedProduct, pack = resolvedPack
         const prices = designatedNorm
           .map((s) => {
             const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
