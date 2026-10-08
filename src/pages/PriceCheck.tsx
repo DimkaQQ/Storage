@@ -86,7 +86,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // складывает повторы одного товара+поставщика в одну строку (см.
   // groupByProduct выше).
   const [grouped, setGrouped] = useState(false)
-  const [limit, setLimit] = useState(60)
   // Открытый попап "заметка/цвет" — по rowKey строки, не по id (id меняется
   // между парсингами, а попап открыт как раз пока пользователь печатает).
   const [openNoteFor, setOpenNoteFor] = useState<string | null>(null)
@@ -122,13 +121,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   }, [rows, q, active, sort, grouped])
 
   const s = useMemo(() => summarize(filtered), [filtered])
-  const shown = filtered.slice(0, limit)
+  // Раньше здесь была пагинация по 60/+100 с кнопкой "Показать ещё" —
+  // убрано по прямой просьбе (кнопка не работала как ожидалось) — просто
+  // показываем все строки сразу.
+  const shown = filtered
 
   const toggle = (st: Status) => {
     const n = new Set(active)
     n.has(st) ? n.delete(st) : n.add(st)
     setActive(n)
-    setLimit(60)
   }
   const setSortKey = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: -1 }))
@@ -177,13 +178,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
             <input
               value={q}
-              onChange={(e) => { setQ(e.target.value); setLimit(60) }}
+              onChange={(e) => setQ(e.target.value)}
               placeholder="Поиск: товар, поставщик, ресторан…"
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
           <button
-            onClick={() => { setGrouped((g) => !g); setLimit(60) }}
+            onClick={() => setGrouped((g) => !g)}
             title="Складывать несколько накладных одного товара и поставщика в одну строку"
             className={`btn border transition-colors ${grouped ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
           >
@@ -358,13 +359,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           </table>
           {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено по заданным фильтрам.</div>}
         </div>
-        {filtered.length > shown.length && (
-          <div className="border-t border-ink-700/50 p-3 text-center">
-            <button onClick={() => setLimit((l) => l + 100)} className="btn text-brand-300 hover:text-brand-200">
-              Показать ещё ({fmt(filtered.length - shown.length)})
-            </button>
-          </div>
-        )}
       </div>
     </div>
   )
