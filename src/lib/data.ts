@@ -49,7 +49,13 @@ export const EMPTY_MATCHING: MatchingTable = {
   supplierAlias: {}, planPairs: {}, planPairsByPack: {}, productLabels: {}, noPriceExact: {},
 }
 
-export const norm = (s: string) => String(s || '').trim().toLowerCase()
+// Схлопываем повторяющиеся пробелы (не только обрезаем края) — иначе
+// задвоенный пробел в самом iiko-тексте ("судака  с/м." вместо "судака
+// с/м.", живой кейс) делает ключ сопоставления другой строкой, чем тот же
+// товар в матрице, и точный матч молча теряется. sheets.js на сервере уже
+// делает это при сборке матрицы (её norm) — здесь та же нормализация
+// нужна и для текста самой закупки, иначе их ключи просто разные строки.
+export const norm = (s: string) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
 
 /**
  * Фасовка в отчёте iiko и в матрице иногда набрана по-разному для одного и

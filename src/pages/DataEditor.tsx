@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, money, plural, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption } from '../lib/data'
+import { fmt, money, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -68,7 +68,6 @@ export default function DataEditor() {
   }, [])
 
   const needle = q.trim().toLowerCase()
-  const norm = (s: string) => s.trim().toLowerCase()
 
   // «Нет в справочнике» — учитываем ручную правку: отметили «это новый
   // поставщик» — строка больше не считается нерешённой.
