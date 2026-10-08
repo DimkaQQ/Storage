@@ -490,60 +490,78 @@ export async function iikoServerInvoiceSample(settings, period, search = '') {
 }
 
 /**
+ * Ищет подстроку в ответе ПОТОКОВО, без буферизации всего тела в памяти —
+ * предыдущая защита (v2 entities/products, ниже была убрана) просто
+ * обрывалась с ошибкой при большом ответе вместо того, чтобы реально
+ * решить проблему; этот помощник работает корректно при ЛЮБОМ размере
+ * ответа, потому что никогда не держит в памяти больше, чем маленькое
+ * окно вокруг найденного совпадения (плюс короткий "хвост" на границе
+ * кусков, пока совпадение не найдено). maxScan — страховка от
+ * бесконечного чтения, если искомого там всё-таки нет вовсе.
+ */
+async function streamFindWindow(res, needle, { before = 500, after = 2500, maxScan = 60_000_000 } = {}) {
+  const reader = res.body?.getReader?.()
+  const needleLower = needle.toLowerCase()
+  if (!reader) {
+    const text = await res.text()
+    const idx = text.toLowerCase().indexOf(needleLower)
+    return idx === -1 ? null : text.slice(Math.max(0, idx - before), idx + needle.length + after)
+  }
+  const decoder = new TextDecoder('utf-8')
+  let carry = ''
+  let scanned = 0
+  let found = null // { buf, idx } — buf держим только ПОСЛЕ того, как нашли совпадение
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      scanned += value.length
+      const piece = carry + decoder.decode(value, { stream: true })
+      if (!found) {
+        const idx = piece.toLowerCase().indexOf(needleLower)
+        if (idx === -1) {
+          // Хвост с запасом под needle — иначе совпадение, разорванное ровно
+          // на границе двух кусков, никогда не будет найдено.
+          carry = piece.slice(-Math.max(needle.length * 4, 200))
+          if (scanned > maxScan) return null
+          continue
+        }
+        found = { buf: piece, idx }
+      } else {
+        found.buf += piece
+      }
+      if (found.buf.length - found.idx >= needle.length + after) break
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+  if (!found) return null
+  const start = Math.max(0, found.idx - before)
+  return found.buf.slice(start, found.idx + needle.length + after)
+}
+
+/**
  * Диагностика (ещё шаг): сама строка накладной (см. iikoServerInvoiceSample)
  * несёт <amountUnit> (есть всегда) и <containerId> (есть не у всех строк —
  * похоже на опциональный выбор тары/фасовки, а не обязательную единицу).
- * Оба — просто GUID без текста. Запрашиваем сам товар по артикулу через
- * номенклатуру (v2 entities/products) — там обычно и лежит список
- * сконфигурированных для него фасовок/тар с человекочитаемыми именами,
- * которые должны включать "брусника"/"малина" и т.п.
+ * Оба — просто GUID без текста.
+ *
+ * Первая попытка (v2 entities/products/list с фильтром по num/id) не
+ * удалась живьём — не разобрались, дало ли это обрезанный/невалидный
+ * ответ или фильтр просто не сработал, но гадать дальше смысла нет.
+ * Вместо нового JSON-эндпоинта берём СТАРЫЙ, простой — тот же механизм,
+ * что уже работает в iikoServerInvoiceSample (полная выгрузка + потоковый
+ * поиск окна текста, без буферизации целиком) — он не падает независимо
+ * от размера ответа, так что либо сразу увидим реальные поля, либо
+ * получим честное "не нашлось", а не повторный крэш.
  */
-/**
- * Читает ответ потоково с жёстким лимитом байт — не вызывает res.json()/
- * res.text() напрямую. Подозрение (см. ниже): фильтр num/id на сервере не
- * сработал, и ответ — вся номенклатура разом (многие МБ); попытка
- * распарсить такое целиком в памяти могла класть весь процесс Node
- * (OOM) — а не кидать обычную JS-ошибку, которую поймал бы try/catch
- * вокруг неё: отсюда у пользователя была "<!DOCTYPE"/502 от nginx вместо
- * любого нашего ответа, даже после первой защиты (она проверяла длину
- * УЖЕ распарсенного массива — поздно, крах был раньше, на самом парсинге).
- */
-async function readTextLimited(res, maxBytes = 3_000_000) {
-  const reader = res.body?.getReader?.()
-  if (!reader) return await res.text() // на всякий случай, если body недоступен как поток
-  let total = 0
-  const chunks = []
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.length
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {})
-      throw new Error(`Ответ сервера слишком большой (>${(maxBytes / 1e6).toFixed(0)}МБ) — похоже, фильтр num/id не сработал и вернулась вся номенклатура разом`)
-    }
-    chunks.push(value)
-  }
-  return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8')
-}
-
 export async function iikoServerProductByNum(settings, value) {
   const { base, token } = await iikoServerAuth(settings)
   try {
-    // Принимаем и артикул ("3122"), и сам GUID товара (уже известен из
-    // предыдущего шага — на случай, если фильтр по артикулу на сервере не
-    // сработает как ожидается) — у v2 entities это разные query-параметры.
-    const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim())
-    const paramName = isGuid ? 'id' : 'num'
-    const res = await withTimeout(
-      `${base}/resto/api/v2/entities/products/list?key=${token}&${paramName}=${encodeURIComponent(value.trim())}&includeDeleted=false&revisionFrom=-1`,
-      {}, 30000,
-    )
+    const res = await withTimeout(`${base}/resto/api/products?key=${token}`, {}, 60000)
     if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
-    const text = await readTextLimited(res)
-    const data = JSON.parse(text)
-    const list = Array.isArray(data) ? data : [data]
-    if (list.length > 5) return { warning: `Фильтр не сработал как ожидалось — вернулось ${list.length} товаров, показаны первые 3`, items: list.slice(0, 3) }
-    return list
+    const window = await streamFindWindow(res, value.trim())
+    return window ?? `(«${value}» не нашлось в выгрузке номенклатуры)`
   } finally {
     await iikoServerLogout(base, token)
   }

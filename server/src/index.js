@@ -336,7 +336,7 @@ app.get('/api/iiko/product-sample', requireAuth, requireAdmin, async (req, res) 
   try {
     const num = String(req.query.num || '')
     if (!num) return res.status(400).json({ ok: false, message: 'Нужен артикул (num)' })
-    res.json({ ok: true, product: await iikoServerProductByNum(s, num) })
+    res.json({ ok: true, xml: await iikoServerProductByNum(s, num) })
   } catch (e) {
     // Временно отдаём имя класса ошибки и стек — предыдущие два сообщения
     // ("<!DOCTYPE") и ("не авторизовано" при прямом переходе) не совпали
