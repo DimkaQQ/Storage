@@ -124,6 +124,16 @@ export async function fetchProductSample(num: string): Promise<{ ok: boolean; xm
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+export interface DatasetDebugItem { restaurant: string; supplier: string; product: string; pack: string; qty: number; sum: number }
+/** «Проверить сохранённый датасет» — то, что реально лежит в датасете организации после синка (не живой запрос к iiko) — для сверки с живой диагностикой. */
+export async function fetchDatasetDebug(search: string, period = ''): Promise<{ ok: boolean; items?: DatasetDebugItem[]; message?: string }> {
+  try {
+    const q = new URLSearchParams({ search, ...(period ? { period } : {}) })
+    const r = await fetch(`/api/debug/dataset-items?${q}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 /** «Проверить склад (GUID)» — сырой кусок выгрузки складов вокруг `search`, чтобы увидеть реальное имя/иерархию конкретного GUID склада. */
 export async function fetchStoresSample(search: string): Promise<{ ok: boolean; xml?: string; message?: string }> {
   try {

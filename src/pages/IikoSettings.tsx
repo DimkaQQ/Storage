@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -76,6 +76,8 @@ export default function IikoSettings() {
   const [storesResult, setStoresResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
   const [assortmentLoading, setAssortmentLoading] = useState(false)
   const [assortmentResult, setAssortmentResult] = useState<{ ok: boolean; matchedProducts?: string[]; items?: AssortmentDebugItem[]; message?: string } | null>(null)
+  const [datasetLoading, setDatasetLoading] = useState(false)
+  const [datasetResult, setDatasetResult] = useState<{ ok: boolean; items?: DatasetDebugItem[]; message?: string } | null>(null)
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
 
@@ -173,6 +175,15 @@ export default function IikoSettings() {
     setAssortmentLoading(true); setAssortmentResult(null)
     setAssortmentResult(await fetchAssortmentDebug(sampleSearch, samplePeriod))
     setAssortmentLoading(false)
+  }
+
+  // «Проверить сохранённый датасет» — живая диагностика может считать
+  // правильно, а то, что реально СОХРАНЕНО после синка — другое; смотрим
+  // прямо в сохранённые данные, без пересчёта.
+  const showDatasetDebug = async () => {
+    setDatasetLoading(true); setDatasetResult(null)
+    setDatasetResult(await fetchDatasetDebug(sampleSearch, samplePeriod))
+    setDatasetLoading(false)
   }
 
   const testMatrix = async () => {
@@ -424,6 +435,9 @@ export default function IikoSettings() {
               <button onClick={showAssortmentDebug} disabled={assortmentLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {assortmentLoading ? 'Спрашиваю…' : 'Проверить разброс по ресторанам'}
               </button>
+              <button onClick={showDatasetDebug} disabled={datasetLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {datasetLoading ? 'Спрашиваю…' : 'Проверить сохранённый датасет'}
+              </button>
             </>
           )}
           {testResult && (
@@ -525,6 +539,21 @@ export default function IikoSettings() {
               )
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{assortmentResult.message}</span>
+            )}
+          </div>
+        )}
+        {datasetResult && (
+          <div className="mt-3">
+            {datasetResult.ok ? (
+              datasetResult.items && datasetResult.items.length > 0 ? (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                  {datasetResult.items.map((it) => `${it.restaurant} · ${it.supplier} · ${it.product} · ${it.pack} · qty=${it.qty} · sum=${it.sum}`).join('\n')}
+                </pre>
+              ) : (
+                <span className="chip border-ink-600 bg-ink-800/60 text-slate-400">Ничего не нашлось в сохранённом датасете</span>
+              )
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{datasetResult.message}</span>
             )}
           </div>
         )}

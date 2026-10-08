@@ -354,6 +354,33 @@ app.get('/api/iiko/product-sample', requireAuth, requireAdmin, async (req, res) 
  * список складов плоским, хотя corporateItemDto — иерархия подразделений
  * (см. iikoServerStoresSample). Смотрим вживую, что реально за GUID.
  */
+/**
+ * «Проверить сохранённый датасет» — живая диагностика (assortment-debug)
+ * даёт 2000 для анчоусов/Олово 1, а в самом приложении после подтверждённо
+ * успешного пересинка (статус без ошибок) всё равно 125000 — расходятся
+ * РЕЗУЛЬТАТ синка и его ЖИВАЯ проверка, хотя обе должны считать одно и то
+ * же. Смотрим прямо в то, что реально ЛЕЖИТ в датасете после синка — без
+ * догадок, тот ли код его посчитал.
+ */
+app.get('/api/debug/dataset-items', requireAuth, requireAdmin, (req, res) => {
+  if (req.query.period !== undefined && !isValidPeriod(req.query.period)) {
+    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
+  }
+  const periods = listDatasetPeriods(req.auth.orgId)
+  const period = req.query.period || periods.at(-1)?.period
+  if (!period) return res.json({ ok: true, items: [] })
+  const needle = String(req.query.search || '').toLowerCase()
+  const dataset = getDataset(req.auth.orgId, period)
+  const items = []
+  for (const r of dataset.restaurants || []) {
+    for (const it of r.items || []) {
+      if (needle && !String(it.p || '').toLowerCase().includes(needle)) continue
+      items.push({ restaurant: r.name, supplier: it.s, product: it.p, pack: it.k, qty: it.q, sum: it.m })
+    }
+  }
+  res.json({ ok: true, period, items })
+})
+
 app.get('/api/iiko/stores-sample', requireAuth, requireAdmin, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
