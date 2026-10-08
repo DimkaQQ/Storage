@@ -243,14 +243,25 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // отсюда опросом /api/status, пока backend-флаг syncing не сбросится.
   // 2с * 90 — около 3 минут, этого достаточно даже полному месяцу у живого
   // iikoServer (внутренний таймаут там 60с на сам отчёт плюс авторизация).
+  // null здесь — НЕ "синк завершился без результата", а "за ~3 минуты так и
+  // не увидели, что синк закончился" (сам синк может быть жив и дотянуть
+  // чуть позже — вызывающая сторона должна считать это неопределённостью,
+  // не провалом, и не путать с содержимым st.lastResult от СОВСЕМ другого,
+  // более раннего синка).
   const pollUntilSyncDone = useCallback(async (): Promise<SyncStatus | null> => {
     for (let i = 0; i < 90; i++) {
       const st = await fetchStatus()
-      if (st) { setStatus(st); setBackendOnline(true) }
-      if (!st || !st.syncing) return st
+      // st === null — разовый сетевой сбой (не "синк закончился") — раньше
+      // это обрывало весь опрос и ложно трактовалось как готовый результат.
+      // Пробуем ещё раз, не бросая всю трёхминутную попытку из-за одной
+      // короткой заминки сети/прокси.
+      if (st) {
+        setStatus(st); setBackendOnline(true)
+        if (!st.syncing) return st
+      }
       await new Promise((r) => setTimeout(r, 2000))
     }
-    return await fetchStatus()
+    return null
   }, [])
   const loadEdits = useCallback(async () => {
     const data = await fetchEdits()
@@ -353,8 +364,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       if (!started.ok) { await reloadStatus(); return started }
       const final = await pollUntilSyncDone()
       await loadVenues(); await loadPeriods()
-      if (final?.lastResult === 'ok') { setPeriod(period); return { ok: true, message: final.message } }
-      return { ok: false, message: final?.message ?? 'Не удалось загрузить период' }
+      // final === null — не "провалился", а "не дождались за ~3 минуты": сам
+      // синк мог остаться в работе. Не выдаём это за успех и не выдаём за
+      // явную ошибку — честно говорим, что результат пока не известен,
+      // вместо того чтобы молча показать чей-то более ранний lastResult.
+      if (final === null) return { ok: false, message: 'Загрузка идёт дольше обычного — результат появится в «Обновление» чуть позже, попробуйте проверить там.' }
+      if (final.lastResult === 'ok') { setPeriod(period); return { ok: true, message: final.message } }
+      return { ok: false, message: final.message ?? 'Не удалось загрузить период' }
     } finally { setSyncing(false) }
   }, [loadPeriods, loadVenues, pollUntilSyncDone, reloadStatus, setPeriod])
 

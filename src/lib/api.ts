@@ -42,6 +42,11 @@ async function get<T>(path: string): Promise<T | null> {
   }
 }
 
+/** Текст реальной сетевой/JS-ошибки из catch(e) — раньше в каждом месте дублировался свой `${...}`. */
+const errMsg = (e: unknown) => String((e as Error)?.message || e)
+/** То же самое, с префиксом "Бэкенд недоступен" — для мест, где до этого даже не достучались до ответа сервера. */
+const backendErr = (e: unknown) => `Бэкенд недоступен: ${errMsg(e)}`
+
 export interface PeriodMeta { period: string; periodLabel: string }
 
 export const fetchDataset = (period?: string) => get<any>(period ? `/api/data?period=${encodeURIComponent(period)}` : '/api/data')
@@ -82,7 +87,7 @@ export async function testConnection(s: Partial<IikoSettings>): Promise<{ ok: bo
     const r = await fetch('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(s) })
     if (!r.ok) return { ok: false, message: `Ошибка сервера (HTTP ${r.status})` }
     return await r.json()
-  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
+  } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
 /** «Показать доступные поля отчёта» — вместо гадания по одному полю через "Unknown OLAP field". */
@@ -90,7 +95,7 @@ export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ o
   try {
     const r = await fetch(`/api/iiko/olap-columns?reportType=${encodeURIComponent(reportType)}`, { headers: authHeaders() })
     return await r.json()
-  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
+  } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
 export interface Venues { enabled: string[]; discovered: string[] }
@@ -122,14 +127,14 @@ export async function fetchOrgDataExport(): Promise<{ ok: true; data: unknown } 
     const r = await fetch('/api/org-data/export', { headers: authHeaders() })
     if (!r.ok) return { ok: false, message: await errorMessage(r) }
     return { ok: true, data: await r.json() }
-  } catch (e) { return { ok: false, message: String((e as Error)?.message || e) } }
+  } catch (e) { return { ok: false, message: errMsg(e) } }
 }
 /** Безвозвратный сброс всех данных организации (факты/матрицы/правки/включённые точки) — настройки подключения не трогает. */
 export async function resetOrgData(): Promise<{ ok: boolean; message?: string }> {
   try {
     const r = await fetch('/api/org-data/reset', { method: 'POST', headers: authHeaders() })
     return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
-  } catch (e) { return { ok: false, message: String((e as Error)?.message || e) } }
+  } catch (e) { return { ok: false, message: errMsg(e) } }
 }
 
 /**
@@ -143,13 +148,13 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
     const r = await fetch('/api/matrix/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...s, target }) })
     if (!r.ok) return { ok: false, message: `Ошибка сервера (HTTP ${r.status})` }
     return await r.json()
-  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
+  } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 export async function syncMatrix(target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number }> {
   try {
     const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}) }) })
     return await r.json()
-  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
+  } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 /** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. Без периода — план-цены не привязаны к месяцу. */
 export const fetchMatching = () => get<any>('/api/matching')
@@ -159,7 +164,7 @@ export async function triggerSync(period?: string): Promise<{ ok: boolean; messa
   try {
     const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(period ? { period } : {}) })
     return await r.json()
-  } catch (e) { return { ok: false, message: `Бэкенд недоступен: ${String((e as Error)?.message || e)}` } }
+  } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
 export interface TeamUser { id: string; email: string; role: 'admin' | 'employee'; createdAt: string }
