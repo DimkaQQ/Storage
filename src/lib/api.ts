@@ -124,6 +124,14 @@ export async function fetchProductSample(num: string): Promise<{ ok: boolean; xm
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+/** «Проверить склад (GUID)» — сырой кусок выгрузки складов вокруг `search`, чтобы увидеть реальное имя/иерархию конкретного GUID склада. */
+export async function fetchStoresSample(search: string): Promise<{ ok: boolean; xml?: string; message?: string }> {
+  try {
+    const r = await fetch(`/api/iiko/stores-sample?search=${encodeURIComponent(search)}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 export interface Venues { enabled: string[]; discovered: string[] }
 export const fetchVenues = () => get<Venues>('/api/venues')
 export async function enableVenue(name: string): Promise<Venues | null> {

@@ -817,6 +817,28 @@ export async function iikoServerProductByNum(settings, value) {
   }
 }
 
+/**
+ * Диагностика: Анчоусы/Олово 1 суммировались в разы больше, чем в их же
+ * отчёте (125000 вместо 2000) — подозрение на extractIdNameMap: склады
+ * (api/corporation/stores) отдаются как ИЕРАРХИЯ (corporateItemDto,
+ * вложенные подразделения), а не плоский список, как у поставщиков —
+ * простой скан "следующий <id> + следующий <name>" может перепутать
+ * родителя с ребёнком и разным складам присвоить одно и то же имя.
+ * Ищем конкретный GUID склада и смотрим его РЕАЛЬНОЕ окружение в XML,
+ * не угадывая по regex ещё раз.
+ */
+export async function iikoServerStoresSample(settings, search) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const res = await withTimeout(`${base}/resto/api/corporation/stores?key=${token}`, {}, 30000)
+    if (!res.ok) throw new Error(`Склады недоступны (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const window = await streamFindWindow(res, search.trim(), { before: 1500, after: 1500 })
+    return window ?? `(«${search}» не нашлось в выгрузке складов)`
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
 /* --- iikoCloud (api-ru.iiko.services) --- */
 async function iikoCloudToken({ apiLogin }) {
   const res = await withTimeout('https://api-ru.iiko.services/api/1/access_token', {

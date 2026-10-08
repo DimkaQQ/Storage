@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, fetchProductSample, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, fetchProductSample, fetchStoresSample, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -72,6 +72,8 @@ export default function IikoSettings() {
   const [samplePeriod, setSamplePeriod] = useState('')
   const [productLoading, setProductLoading] = useState(false)
   const [productResult, setProductResult] = useState<{ ok: boolean; xml?: string; message?: string; errorName?: string; errorStack?: string[] } | null>(null)
+  const [storesLoading, setStoresLoading] = useState(false)
+  const [storesResult, setStoresResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
 
@@ -149,6 +151,17 @@ export default function IikoSettings() {
     setProductLoading(true); setProductResult(null)
     setProductResult(await fetchProductSample(sampleSearch))
     setProductLoading(false)
+  }
+
+  // «Проверить склад (GUID)» — расхождение в сумме (Анчоусы/Олово 1 в разы
+  // больше, чем в их отчёте) наводит на мысль, что extractIdNameMap путает
+  // склады: corporateItemDto — иерархия подразделений, а не плоский список,
+  // как у поставщиков, и простой скан "id + следующий name" может отдать
+  // одно и то же имя разным GUID.
+  const showStores = async () => {
+    setStoresLoading(true); setStoresResult(null)
+    setStoresResult(await fetchStoresSample(sampleSearch))
+    setStoresLoading(false)
   }
 
   const testMatrix = async () => {
@@ -394,6 +407,9 @@ export default function IikoSettings() {
               <button onClick={showProduct} disabled={productLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {productLoading ? 'Спрашиваю…' : 'Проверить товар (артикул)'}
               </button>
+              <button onClick={showStores} disabled={storesLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {storesLoading ? 'Спрашиваю…' : 'Проверить склад (GUID)'}
+              </button>
             </>
           )}
           {testResult && (
@@ -454,6 +470,17 @@ export default function IikoSettings() {
                   </pre>
                 )}
               </>
+            )}
+          </div>
+        )}
+        {storesResult && (
+          <div className="mt-3">
+            {storesResult.ok ? (
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                {storesResult.xml}
+              </pre>
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{storesResult.message}</span>
             )}
           </div>
         )}

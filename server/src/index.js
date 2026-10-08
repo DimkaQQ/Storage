@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -345,6 +345,23 @@ app.get('/api/iiko/product-sample', requireAuth, requireAdmin, async (req, res) 
     // с гипотезами (роут жив, не OOM), так что дальше гадать бессмысленно —
     // нужен настоящий стек, откуда это реально бросается.
     res.status(502).json({ ok: false, message: String(e.message || e), errorName: e?.name, errorStack: String(e?.stack || '').split('\n').slice(0, 6) })
+  }
+})
+
+/**
+ * «Проверить склад (GUID)» — анчоусы на Олово 1 насчитали в разы больше,
+ * чем в их же отчёте: подозрение на extractIdNameMap, который считает
+ * список складов плоским, хотя corporateItemDto — иерархия подразделений
+ * (см. iikoServerStoresSample). Смотрим вживую, что реально за GUID.
+ */
+app.get('/api/iiko/stores-sample', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    const search = String(req.query.search || '')
+    if (!search) return res.status(400).json({ ok: false, message: 'Нужен текст поиска (search)' })
+    res.json({ ok: true, xml: await iikoServerStoresSample(s, search) })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
   }
 })
 
