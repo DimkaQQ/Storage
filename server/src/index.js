@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -360,6 +360,25 @@ app.get('/api/iiko/stores-sample', requireAuth, requireAdmin, async (req, res) =
     const search = String(req.query.search || '')
     if (!search) return res.status(400).json({ ok: false, message: 'Нужен текст поиска (search)' })
     res.json({ ok: true, xml: await iikoServerStoresSample(s, search) })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+/**
+ * «Проверить разброс по ресторанам» — прогоняет ТУ ЖЕ логику, что и
+ * настоящий fetchAssortmentFacts (см. iikoServerAssortmentDebug), для
+ * товара по текстовому фильтру, но возвращает КАЖДУЮ строку до
+ * схлопывания — чтобы увидеть разом все вклады в сумму по ресторанам/
+ * складам, без ручного перебора по одному GUID через окна XML.
+ */
+app.get('/api/iiko/assortment-debug', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    const period = String(req.query.period || resolveLivePeriod(s).period)
+    const search = String(req.query.search || '')
+    if (!search) return res.status(400).json({ ok: false, message: 'Нужен текст поиска (search)' })
+    res.json(await iikoServerAssortmentDebug(s, period, search))
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }

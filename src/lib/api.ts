@@ -132,6 +132,17 @@ export async function fetchStoresSample(search: string): Promise<{ ok: boolean; 
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+export interface AssortmentDebugItem {
+  product: string; storeId: string; storeName: string; restaurant: string | null; supplier: string; pack: string; containerId: string | null; qty: number; sum: number
+}
+/** «Проверить разброс по ресторанам» — та же логика, что настоящий синк товаров-ассортиментов, но до схлопывания — каждая строка отдельно, по всем ресторанам/складам разом. */
+export async function fetchAssortmentDebug(search: string): Promise<{ ok: boolean; matchedProducts?: string[]; items?: AssortmentDebugItem[]; message?: string }> {
+  try {
+    const r = await fetch(`/api/iiko/assortment-debug?search=${encodeURIComponent(search)}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 export interface Venues { enabled: string[]; discovered: string[] }
 export const fetchVenues = () => get<Venues>('/api/venues')
 export async function enableVenue(name: string): Promise<Venues | null> {

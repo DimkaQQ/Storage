@@ -660,6 +660,52 @@ async function fetchAssortmentFacts(settings, period) {
 }
 
 /**
+ * Диагностика: Анчоусы на Олово 1 насчитались в разы больше, чем в их
+ * отчёте (125000 вместо 2000) — извлечённые по отдельности имена складов
+ * оказались верными (da83e720 = "Кухня склад Олово", b2a1493a =
+ * "Кухня/Сирена" — другой ресторан, не Олово), так что гадать по одному
+ * GUID дальше бессмысленно. Прогоняем ТУ ЖЕ логику, что и настоящий
+ * fetchAssortmentFacts, но для товара по текстовому фильтру (не по
+ * заранее известному id) и возвращаем КАЖДУЮ отдельную строку до
+ * схлопывания — чтобы увидеть ВСЕ вклады в сумму разом, а не по 5 окон
+ * за раз руками.
+ */
+export async function iikoServerAssortmentDebug(settings, period, productFilter) {
+  const index = await fetchAssortmentIndex(settings)
+  const needle = productFilter.trim().toLowerCase()
+  const matchedIds = new Map()
+  for (const [id, info] of index.byId) if (norm(info.name).includes(needle)) matchedIds.set(id, info)
+  if (!matchedIds.size) return { ok: true, matchedProducts: [], items: [] }
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const [suppliersXml, storesXml] = await Promise.all([
+      withTimeout(`${base}/resto/api/suppliers?key=${token}`, {}, 30000).then((r) => readTextCapped(r)),
+      withTimeout(`${base}/resto/api/corporation/stores?key=${token}`, {}, 30000).then((r) => readTextCapped(r)),
+    ])
+    const supplierNames = extractIdNameMap(suppliersXml)
+    const storeNames = extractIdNameMap(storesXml)
+    const { from, to } = periodRange(period)
+    const res = await withTimeout(`${base}/resto/api/documents/export/incomingInvoice?key=${token}&from=${from}&to=${to}`, {}, 120000)
+    if (!res.ok) throw new Error(`Накладные недоступны (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const items = []
+    await streamInvoiceDocuments(res, (docXml) => {
+      for (const it of extractAssortmentItems(docXml, matchedIds)) {
+        if (!(it.amount > 0)) continue
+        const info = matchedIds.get(it.productId)
+        const storeName = storeNames.get(it.storeId) || it.storeId
+        const restaurant = resolveStoreRestaurant(storeName)
+        const supplierName = supplierNames.get(it.supplierId) || it.supplierId
+        const pack = (it.containerId && info.containers.get(it.containerId)) || info.mainUnit || ''
+        items.push({ product: info.name, storeId: it.storeId, storeName, restaurant, supplier: supplierName, pack, containerId: it.containerId, qty: it.amount, sum: it.sum })
+      }
+    })
+    return { ok: true, matchedProducts: [...matchedIds.values()].map((i) => i.name), items }
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
+/**
  * Диагностика: Comment не оказался тем полем, где лежит "брусника"/
  * "малина" у товаров-ассортиментов (живьём, после деплоя — не совпало).
  * Пользователь утверждает, что фасовку проставляют ПРЯМО В iiko

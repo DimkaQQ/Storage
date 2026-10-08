@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, fetchProductSample, fetchStoresSample, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -74,6 +74,8 @@ export default function IikoSettings() {
   const [productResult, setProductResult] = useState<{ ok: boolean; xml?: string; message?: string; errorName?: string; errorStack?: string[] } | null>(null)
   const [storesLoading, setStoresLoading] = useState(false)
   const [storesResult, setStoresResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
+  const [assortmentLoading, setAssortmentLoading] = useState(false)
+  const [assortmentResult, setAssortmentResult] = useState<{ ok: boolean; matchedProducts?: string[]; items?: AssortmentDebugItem[]; message?: string } | null>(null)
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
 
@@ -162,6 +164,15 @@ export default function IikoSettings() {
     setStoresLoading(true); setStoresResult(null)
     setStoresResult(await fetchStoresSample(sampleSearch))
     setStoresLoading(false)
+  }
+
+  // «Проверить разброс по ресторанам» — та же логика, что настоящий синк
+  // товаров-ассортиментов, но без схлопывания — видно разом, какие
+  // рестораны/склады реально вносят вклад в итоговую сумму.
+  const showAssortmentDebug = async () => {
+    setAssortmentLoading(true); setAssortmentResult(null)
+    setAssortmentResult(await fetchAssortmentDebug(sampleSearch))
+    setAssortmentLoading(false)
   }
 
   const testMatrix = async () => {
@@ -410,6 +421,9 @@ export default function IikoSettings() {
               <button onClick={showStores} disabled={storesLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {storesLoading ? 'Спрашиваю…' : 'Проверить склад (GUID)'}
               </button>
+              <button onClick={showAssortmentDebug} disabled={assortmentLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {assortmentLoading ? 'Спрашиваю…' : 'Проверить разброс по ресторанам'}
+              </button>
             </>
           )}
           {testResult && (
@@ -481,6 +495,36 @@ export default function IikoSettings() {
               </pre>
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{storesResult.message}</span>
+            )}
+          </div>
+        )}
+        {assortmentResult && (
+          <div className="mt-3">
+            {assortmentResult.ok ? (
+              assortmentResult.items && assortmentResult.items.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-500">Товары: {assortmentResult.matchedProducts?.join(', ')} — всего строк: {assortmentResult.items.length}</div>
+                  {Object.entries(
+                    assortmentResult.items.reduce<Record<string, { items: AssortmentDebugItem[]; sum: number }>>((acc, it) => {
+                      const key = it.restaurant ?? `(не определён: ${it.storeName})`
+                      if (!acc[key]) acc[key] = { items: [], sum: 0 }
+                      acc[key].items.push(it); acc[key].sum += it.sum
+                      return acc
+                    }, {}),
+                  ).sort((a, b) => b[1].sum - a[1].sum).map(([restaurant, g]) => (
+                    <div key={restaurant} className="rounded-lg border border-ink-600 bg-ink-900/60 p-3">
+                      <div className="mb-2 text-sm font-medium text-slate-200">{restaurant} — {g.sum.toLocaleString('ru-RU')} ₸ ({g.items.length} стр.)</div>
+                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-slate-400">
+                        {g.items.map((it) => `${it.storeName} (${it.storeId}) · ${it.supplier} · ${it.pack || it.product} · qty=${it.qty} · sum=${it.sum}`).join('\n')}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <span className="chip border-ink-600 bg-ink-800/60 text-slate-400">Совпадающих товаров не нашлось</span>
+              )
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{assortmentResult.message}</span>
             )}
           </div>
         )}
