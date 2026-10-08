@@ -69,7 +69,20 @@ export default function IikoSettings() {
 
   useEffect(() => { fetchSettings().then((s) => s && setForm(s)) }, [])
 
-  const set = (patch: Partial<Settings>) => { setForm((f) => (f ? { ...f, ...patch } : f)); setSaved(false); setTestResult(null) }
+  // Любое поле формы может относиться к подключению iiko ИЛИ к матрице
+  // (Алматы/Астана) — чистим все "зелёные" результаты сразу, а не только
+  // testResult: иначе, например, отредактировав googleSheetId после
+  // успешной проверки матрицы, старый зелёный чип "Доступ есть" остаётся
+  // висеть рядом с новым, непроверенным значением.
+  const set = (patch: Partial<Settings>) => {
+    setForm((f) => (f ? { ...f, ...patch } : f))
+    setSaved(false)
+    setTestResult(null)
+    setMatrixTestResult(null)
+    setAstanaTestResult(null)
+    setMatrixSyncResult(null)
+    setAstanaSyncResult(null)
+  }
 
   const save = async () => {
     if (!form) return
@@ -108,7 +121,14 @@ export default function IikoSettings() {
     setMatrixTesting(false)
   }
   const doSyncMatrix = async () => {
+    if (!form) return
     setMatrixSyncing(true); setMatrixSyncResult(null)
+    // Сохраняем перед синком, как и testMatrix — иначе синк ушёл бы со
+    // старым googleSheetId/ключом, сохранённым раньше, а не с тем, что
+    // только что вписали в поле: синк "успевает", но тянет не ту таблицу,
+    // без единой ошибки об этом.
+    const r0 = await saveSettings(form)
+    if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix()
     setMatrixSyncResult(r)
     if (r.ok) await refreshMatrix()
@@ -124,7 +144,11 @@ export default function IikoSettings() {
     setAstanaTesting(false)
   }
   const doSyncAstana = async () => {
+    if (!form) return
     setAstanaSyncing(true); setAstanaSyncResult(null)
+    // См. doSyncMatrix — та же причина, тот же фикс, для таблицы Астаны.
+    const r0 = await saveSettings(form)
+    if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix('astana')
     setAstanaSyncResult(r)
     if (r.ok) await refreshMatrix()
@@ -204,7 +228,15 @@ export default function IikoSettings() {
           </div>
         </div>
         <button
-          onClick={refresh}
+          onClick={async () => {
+            // Сохраняем форму перед синком — та же причина, что у
+            // doSyncMatrix: иначе правки serverUrl/login/password,
+            // сделанные прямо перед нажатием, использует не этот синк
+            // (уходит со старыми, уже сохранёнными настройками), а только
+            // следующий.
+            if (form) { const r = await saveSettings(form); if (r) { setForm(r); setSaved(true) } }
+            await refresh()
+          }}
           disabled={syncing}
           className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60"
         >
