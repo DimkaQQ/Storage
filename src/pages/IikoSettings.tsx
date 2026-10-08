@@ -69,6 +69,7 @@ export default function IikoSettings() {
   const [sampleLoading, setSampleLoading] = useState(false)
   const [sampleResult, setSampleResult] = useState<{ ok: boolean; rows?: unknown[]; message?: string } | null>(null)
   const [sampleSearch, setSampleSearch] = useState('ягода')
+  const [samplePeriod, setSamplePeriod] = useState('')
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
 
@@ -124,7 +125,7 @@ export default function IikoSettings() {
   // и показываем сырой JSON — нужное поле видно глазами.
   const showSample = async () => {
     setSampleLoading(true); setSampleResult(null)
-    setSampleResult(await fetchOlapSample(sampleSearch))
+    setSampleResult(await fetchOlapSample(sampleSearch, samplePeriod))
     setSampleLoading(false)
   }
 
@@ -134,7 +135,7 @@ export default function IikoSettings() {
   // искомого товара.
   const showInvoice = async () => {
     setInvoiceLoading(true); setInvoiceResult(null)
-    setInvoiceResult(await fetchInvoiceSample(sampleSearch))
+    setInvoiceResult(await fetchInvoiceSample(sampleSearch, samplePeriod))
     setInvoiceLoading(false)
   }
 
@@ -370,6 +371,8 @@ export default function IikoSettings() {
             <>
               <input value={sampleSearch} onChange={(e) => setSampleSearch(e.target.value)} placeholder="ягода"
                 className="w-28 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+              <input value={samplePeriod} onChange={(e) => setSamplePeriod(e.target.value)} placeholder="2026-08" title="Период YYYY-MM — по умолчанию текущий/прошлый месяц из настроек"
+                className="w-24 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
               <button onClick={showSample} disabled={sampleLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {sampleLoading ? 'Спрашиваю…' : 'Проверить сырые поля'}
               </button>

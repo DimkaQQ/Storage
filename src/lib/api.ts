@@ -98,18 +98,20 @@ export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ o
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
-/** «Проверить сырые поля» — несколько строк отчёта с расширенным набором полей, похожих на `search`, для поиска того самого поля с фасовкой/вкусом глазами. */
-export async function fetchOlapSample(search = 'ягода'): Promise<{ ok: boolean; rows?: unknown[]; message?: string }> {
+/** «Проверить сырые поля» — несколько строк отчёта с расширенным набором полей, похожих на `search`, для поиска того самого поля с фасовкой/вкусом глазами. period — "YYYY-MM", по умолчанию решает сервер (текущий/прошлый месяц из настроек). */
+export async function fetchOlapSample(search = 'ягода', period = ''): Promise<{ ok: boolean; rows?: unknown[]; message?: string }> {
   try {
-    const r = await fetch(`/api/iiko/olap-sample?search=${encodeURIComponent(search)}`, { headers: authHeaders() })
+    const q = new URLSearchParams({ search, ...(period ? { period } : {}) })
+    const r = await fetch(`/api/iiko/olap-sample?${q}`, { headers: authHeaders() })
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
-/** «Проверить накладную (XML)» — сырой кусок самой накладной (не OLAP) вокруг `search`, для поиска поля с фасовкой на уровне документа. */
-export async function fetchInvoiceSample(search = 'ягода'): Promise<{ ok: boolean; xml?: string; message?: string }> {
+/** «Проверить накладную (XML)» — сырой кусок самой накладной (не OLAP) вокруг `search`, для поиска поля с фасовкой на уровне документа. period — "YYYY-MM", по умолчанию решает сервер. */
+export async function fetchInvoiceSample(search = 'ягода', period = ''): Promise<{ ok: boolean; xml?: string; message?: string }> {
   try {
-    const r = await fetch(`/api/iiko/invoice-sample?search=${encodeURIComponent(search)}`, { headers: authHeaders() })
+    const q = new URLSearchParams({ search, ...(period ? { period } : {}) })
+    const r = await fetch(`/api/iiko/invoice-sample?${q}`, { headers: authHeaders() })
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
