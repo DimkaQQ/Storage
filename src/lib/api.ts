@@ -135,10 +135,11 @@ export async function fetchStoresSample(search: string): Promise<{ ok: boolean; 
 export interface AssortmentDebugItem {
   product: string; storeId: string; storeName: string; restaurant: string | null; supplier: string; pack: string; containerId: string | null; qty: number; sum: number
 }
-/** «Проверить разброс по ресторанам» — та же логика, что настоящий синк товаров-ассортиментов, но до схлопывания — каждая строка отдельно, по всем ресторанам/складам разом. */
-export async function fetchAssortmentDebug(search: string): Promise<{ ok: boolean; matchedProducts?: string[]; items?: AssortmentDebugItem[]; message?: string }> {
+/** «Проверить разброс по ресторанам» — та же логика, что настоящий синк товаров-ассортиментов, но до схлопывания — каждая строка отдельно, по всем ресторанам/складам разом. period — "YYYY-MM", по умолчанию решает сервер (текущий/прошлый месяц из настроек) — почти всегда стоит передавать явно. */
+export async function fetchAssortmentDebug(search: string, period = ''): Promise<{ ok: boolean; matchedProducts?: string[]; items?: AssortmentDebugItem[]; message?: string }> {
   try {
-    const r = await fetch(`/api/iiko/assortment-debug?search=${encodeURIComponent(search)}`, { headers: authHeaders() })
+    const q = new URLSearchParams({ search, ...(period ? { period } : {}) })
+    const r = await fetch(`/api/iiko/assortment-debug?${q}`, { headers: authHeaders() })
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }

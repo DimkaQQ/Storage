@@ -171,7 +171,7 @@ export default function IikoSettings() {
   // рестораны/склады реально вносят вклад в итоговую сумму.
   const showAssortmentDebug = async () => {
     setAssortmentLoading(true); setAssortmentResult(null)
-    setAssortmentResult(await fetchAssortmentDebug(sampleSearch))
+    setAssortmentResult(await fetchAssortmentDebug(sampleSearch, samplePeriod))
     setAssortmentLoading(false)
   }
 
