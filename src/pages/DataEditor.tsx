@@ -367,7 +367,16 @@ export default function DataEditor() {
     const pack = u.pack ? normPack(u.pack) : ''
     const key = `${u.supplierNorm}::${norm(u.product)}::${pack}`
     if (!targetProduct) { setProductLink(key, null); return }
-    setProductLink(key, { targetProduct, supplier: u.supplier, rawProduct: u.product, pack })
+    // link.supplier — то же каноническое написание, что кладёт
+    // commitMatrixIikoName (row.supplier = supplierDisplayByNorm...), не
+    // сырое u.supplier (как было: iiko-поставщик "ИП Иванов..." вместо
+    // канона "Ромашка") — linkedRawNameByTarget (обратный индекс для снятия
+    // старой привязки при переименовании на вкладке Товары) ищет именно по
+    // канону через row.supplierNorm, а норм(сырого названия) с ним не
+    // совпадёт никогда — привязка, заведённая отсюда, просто не находилась
+    // бы и оставалась бы висеть в edits.productLinks навсегда.
+    const supplier = supplierDisplayByNorm.get(u.supplierNorm) ?? u.supplier
+    setProductLink(key, { targetProduct, supplier, rawProduct: u.product, pack })
   }
 
   // "У поставщика есть цена по фасовке X — это она же?" — человек решает
@@ -694,8 +703,16 @@ export default function DataEditor() {
                             value={currentLabel}
                             suggestions={options}
                             onCommit={(v) => {
+                              // Пустое поле — явно снимаем привязку. Текст, который
+                              // ТОЧНО совпал с подсказкой — ставим её. А свободный
+                              // текст без точного совпадения (напечатали что-то,
+                              // не выбрали из списка, увели фокус) раньше тоже
+                              // снимал уже стоявшую привязку молча — оставляем её
+                              // как есть, ничего не делаем, пока не выберут вариант
+                              // или явно не очистят поле.
+                              if (!v) { commitUnmatchedLink(u, undefined); return }
                               const picked = options.find((o) => o.label === v)
-                              commitUnmatchedLink(u, picked?.targetProduct)
+                              if (picked) commitUnmatchedLink(u, picked.targetProduct)
                             }}
                           />
                           {notPricedHere && (
