@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, money, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption } from '../lib/data'
+import { fmt, money, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption, anySupplierAlias, supplierAliasFor } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -72,7 +72,7 @@ export default function DataEditor() {
   // «Нет в справочнике» — учитываем ручную правку: отметили «это новый
   // поставщик» — строка больше не считается нерешённой.
   const isUnresolved = (name: string) =>
-    !matching.supplierAlias[norm(name)] && !edits.acknowledgedSuppliers[name]
+    !anySupplierAlias(matching, name) && !edits.acknowledgedSuppliers[name]
 
   const supplierCounts = useMemo(() => ({
     all: suppliersBase.length,
@@ -343,7 +343,7 @@ export default function DataEditor() {
     const groups = new Map<string, UnmatchedRow>()
     for (const r of rows) {
       if (r.unit == null || r.status !== 'nomatrix') continue
-      const supplierNorm = norm(matching.supplierAlias[norm(r.supplier)] ?? r.supplier)
+      const supplierNorm = norm(supplierAliasFor(matching, r.restaurant, r.supplier) ?? r.supplier)
       const key = `${norm(r.restaurant)}::${supplierNorm}::${norm(r.productRaw)}::${r.pack ? normPack(r.pack) : ''}`
       let g = groups.get(key)
       // note — та же подсказка, что resolveRowPlan уже готовит (у поставщика
@@ -435,7 +435,7 @@ export default function DataEditor() {
   const duplicateByName = useMemo(() => {
     const map = new Map<string, string | null>()
     for (const s of suppliers.slice(0, limit)) {
-      if (matching.supplierAlias[norm(s.name)]) continue
+      if (anySupplierAlias(matching, s.name)) continue
       if (edits.acknowledgedSuppliers[s.name] === true) continue
       const top = rankSimilar(s.name, canonicalSupplierNames, (x) => x, 0.45)[0]
       map.set(s.name, top?.item ?? null)
@@ -808,7 +808,7 @@ export default function DataEditor() {
             <tbody>
               {tab === 'suppliers'
                 ? (shown as typeof suppliersBase).map((s) => {
-                    const canon = matching.supplierAlias[norm(s.name)]
+                    const canon = anySupplierAlias(matching, s.name)
                     const acknowledged = edits.acknowledgedSuppliers[s.name] === true
                     const supplierRename = edits.supplierRenames[s.name]
                     const duplicate = duplicateByName.get(s.name)

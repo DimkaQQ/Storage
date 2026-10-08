@@ -22,7 +22,7 @@ export const BUNDLED_PERIODS = BUNDLED_DATASETS.map((d) => ({ period: d.period, 
  * May's matrix, not whichever month was uploaded last.
  */
 export interface MatchingTable {
-  supplierAlias: Record<string, string>       // iiko supplier name (norm) -> canonical supplier name
+  supplierAlias: Record<string, string>       // "restaurant::iiko supplier name" (norm) -> canonical supplier name — ресторан в ключе, потому что одна и та же D-колонка (iiko-алиас) реально писалась по-разному в разных вкладках таблицы для одного и того же поставщика
   planPairs: Record<string, number>           // "restaurant::supplier::product" (norm) -> plan price
   planPairsByPack: Record<string, number>     // "restaurant::supplier::product::pack" (norm) -> plan price
   productLabels: Record<string, string>       // same keys as planPairs/planPairsByPack -> их собственное "Наименование товара" (колонка I)
@@ -56,6 +56,42 @@ export const EMPTY_MATCHING: MatchingTable = {
 // делает это при сборке матрицы (её norm) — здесь та же нормализация
 // нужна и для текста самой закупки, иначе их ключи просто разные строки.
 export const norm = (s: string) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+
+/**
+ * supplierAlias теперь ключи "ресторан::iiko-имя" (см. MatchingTable) —
+ * для мест, где известен КОНКРЕТНЫЙ ресторан закупки (resolveRowPlan,
+ * показ названия строки), нужен именно его канон, не чей-то чужой.
+ *
+ * Вшитые демо-датасеты (src/data/matching-*.json) собраны отдельным
+ * скриптом ДО этого изменения и всё ещё хранят supplierAlias плоским
+ * (без ресторана в ключе) — пересобрать их здесь нечем (исходной Excel-
+ * таблицы под рукой нет). Фолбэк на старый плоский ключ держит демо-режим
+ * рабочим: у живых (синканных через sheets.js) данных плоского ключа
+ * просто не существует, так что для них фолбэк — no-op.
+ */
+export function supplierAliasFor(matching: MatchingTable, restaurant: string, rawSupplier: string): string | null {
+  return matching.supplierAlias[`${norm(restaurant)}::${norm(rawSupplier)}`]
+    ?? matching.supplierAlias[norm(rawSupplier)]
+    ?? null
+}
+
+/**
+ * Для мест БЕЗ привязки к конкретной закупке (Справочники → Компании,
+ * счётчик "новых" поставщиков, автоподсказки при переименовании) — тот же
+ * raw iiko-текст мог оказаться с разным каноном в разных ресторанах;
+ * здесь это не угадывается, просто берётся первый найденный — для
+ * информационного списка/подсказки этого достаточно, в отличие от
+ * сопоставления закупки с планом (там нужен supplierAliasFor с точным
+ * рестораном). Тот же фолбэк на плоский ключ для вшитых демо-датасетов,
+ * что и в supplierAliasFor.
+ */
+export function anySupplierAlias(matching: MatchingTable, rawSupplier: string): string | null {
+  const flat = norm(rawSupplier)
+  if (matching.supplierAlias[flat] != null) return matching.supplierAlias[flat]
+  const suffix = `::${flat}`
+  for (const k in matching.supplierAlias) if (k.endsWith(suffix)) return matching.supplierAlias[k]
+  return null
+}
 
 /**
  * Фасовка в отчёте iiko и в матрице иногда набрана по-разному для одного и
@@ -704,8 +740,16 @@ const CURATED_PACK_FIXES: Record<string, string[]> = {
 }
 
 function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex, knownFlatPairs: Set<string>): Resolved {
-  const supplierCanon = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
   const restaurant = norm(b.restaurant)
+  // Канон строго ДЛЯ ЭТОГО ресторана (см. supplierAliasFor) — один и тот
+  // же iiko-алиас реально писался по-разному в разных вкладках таблицы
+  // для одного и того же поставщика; раньше тут был глобальный
+  // (не ресторан-скоуп) matching.supplierAlias, и для ресторана, чья
+  // вкладка обработалась не последней при синке, supplierCanon не
+  // совпадал с тем, что реально прайсовано в planPairsByPack ЭТОГО
+  // ресторана — закупка у правильного поставщика выглядела как "заказ
+  // не по матрице" со ссылкой на самого себя же.
+  const supplierCanon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
 
   const rawPack = normPack(b.pack)
 
@@ -901,8 +945,8 @@ export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 // ресторану — тысячи лишних итераций на каждый пересчёт. Обрезаем матрицу
 // до RESTAURANT_SCOPE ОДИН РАЗ (дальше — из кэша по ссылке на исходный
 // matching, он неизменяем), и везде, где идёт полный проход по ключам,
-// используем эту версию вместо исходной. supplierAlias не трогаем — он не
-// привязан к ресторану, там нечего обрезать.
+// используем эту версию вместо исходной. supplierAlias теперь тоже
+// ресторан-скоуп (см. MatchingTable) — обрезаем его так же.
 let scopedMatchingCache = new WeakMap<MatchingTable, MatchingTable>()
 export function scopedMatching(matching: MatchingTable): MatchingTable {
   if (!RESTAURANT_SCOPE) return matching
@@ -916,7 +960,7 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
     return out
   }
   const result: MatchingTable = {
-    supplierAlias: matching.supplierAlias,
+    supplierAlias: filterKeys(matching.supplierAlias),
     planPairs: filterKeys(matching.planPairs),
     planPairsByPack: filterKeys(matching.planPairsByPack),
     productLabels: filterKeys(matching.productLabels),
@@ -941,7 +985,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     ['ип асип назир фрукты овощи', 'ип "асип"', 'ип "фруктовый рай"', 'ип "фруктовый рай" / зеленый мир'].map(norm),
   )
   base = base.filter((b) => {
-    const canon = norm(matching.supplierAlias[norm(b.supplier0)] ?? b.supplier0)
+    const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
     return !EXCLUDED_PRODUCE_SUPPLIERS.has(norm(b.supplier0)) && !EXCLUDED_PRODUCE_SUPPLIERS.has(canon)
   })
   const designatedIndex = buildDesignatedIndex(matching)
@@ -973,10 +1017,10 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // Их название компании из матрицы (колонка C) — отдельная серая подпись
     // снизу, так же, как название товара из матрицы под самим товаром.
     const supplier = b.supplier0
-    const supplierCanonical = matching.supplierAlias[norm(b.supplier0)] ?? null
+    const supplierCanonical = supplierAliasFor(matching, b.restaurant, b.supplier0)
     // Ручное переименование побеждает каноническое название из матрицы —
     // только подпись, на само сопоставление (supplierCanon в resolveRowPlan)
-    // не влияет, там по-прежнему используется matching.supplierAlias как есть.
+    // не влияет, там по-прежнему используется тот же supplierAliasFor.
     const supplierDisplay = edits.supplierRenames[b.supplier0] ?? supplierCanonical
     const supplierLabel = supplierDisplay && norm(supplierDisplay) !== norm(supplier) ? supplierDisplay : null
     const venue = edits.venueOverrides[b.restaurant]
@@ -1202,7 +1246,7 @@ export function parseDataset(data: RawDataset, matching: MatchingTable = bundled
   const pm = new Map<string, ProductAgg>()
   const prm = new Map<string, Set<string>>()
   for (const b of base) {
-    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, isNew: matching.supplierAlias[norm(b.supplier0)] == null }
+    const s = sm.get(b.supplier0) || { name: b.supplier0, count: 0, isNew: anySupplierAlias(matching, b.supplier0) == null }
     s.count++; sm.set(b.supplier0, s)
     const p = pm.get(b.product0) || { name: b.product0, count: 0, restaurantCount: 0 }
     p.count++

@@ -197,13 +197,24 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       // регистр — сопоставлению (resolveRowPlan) это всё равно, там
       // результат ещё раз оборачивается в norm().
       const supplierDisplay = String(supplierCanonRaw).replace(/\s+/g, ' ').trim()
-      if (iikoCompanyRaw) supplierAlias[norm(iikoCompanyRaw)] = supplierDisplay
+      // Ключ — С ИМЕНЕМ РЕСТОРАНА, как у planPairs и остальных карт: та же
+      // D-колонка (iiko-алиас) реально писалась по-разному в разных
+      // вкладках для одного и того же поставщика (живой кейс: "Berry
+      // Company" — "Berry Company ТОО Берри" на одной вкладке, другое
+      // написание на другой) — раньше supplierAlias был ОДНИМ общим
+      // словарём на всю сеть, и застрявшая строка вкладки, обработанной
+      // позже, тихо подменяла канон для ДРУГОГО ресторана: supplierCanon
+      // внутри resolveRowPlan (lib/data.ts) не совпадал с тем, что
+      // реально прайсовано в planPairsByPack ЭТОГО ресторана — закупка у
+      // правильного поставщика выглядела как "заказ не по матрице" со
+      // ссылкой на самого себя.
+      if (iikoCompanyRaw) supplierAlias[`${restaurant}::${norm(iikoCompanyRaw)}`] = supplierDisplay
       // Канонических поставщиков, у которых в ЭТОЙ строке D (алиас) пуст —
       // например название в iiko совпадает с каноническим один в один —
       // supplierAlias раньше вообще не узнавал об их "красивом" написании
       // (ключ supplierCanon туда никогда не попадал). Добавляем самоссылку,
       // если её ещё нет — тот же эффект, не перетирает уже заданную.
-      if (!supplierAlias[supplierCanon]) supplierAlias[supplierCanon] = supplierDisplay
+      if (!supplierAlias[`${restaurant}::${supplierCanon}`]) supplierAlias[`${restaurant}::${supplierCanon}`] = supplierDisplay
       const product = norm(iikoNameRaw)
       const pack = packRaw ? normPack(packRaw) : ''
       const flatKey = `${restaurant}::${supplierCanon}::${product}`
@@ -246,13 +257,12 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
  * его полная замена), а ключи другого города (restaurantNames не
  * покрывает) остаются нетронутыми как раньше.
  *
- * supplierAlias — исключение: ключи там НЕ начинаются с имени ресторана
- * (это плоский iiko-алиас -> каноническое имя, общий на весь файл), так
- * что по ресторанам его не отфильтровать — остаётся чисто аддитивным,
- * как раньше (тот же, отдельный недостаток: алиас, переставший
- * встречаться в таблице, не забывается; алиас, который по ошибке
- * одинаково записан в двух разных вкладках на разных поставщиков,
- * молча побеждает тот, что обработан позже).
+ * supplierAlias — теперь ключи там ТОЖЕ начинаются с имени ресторана (см.
+ * syncMatrix выше), так что отфильтровать по ресторанам можно точно так
+ * же, как остальные карты — раньше это было явное исключение (плоский
+ * словарь на весь файл), из-за которого алиас, одинаково записанный в
+ * двух разных вкладках на разных поставщиков/с разным написанием,
+ * молча побеждал тот, что обработан позже, независимо от ресторана.
  */
 export function mergeMatching(a, b, restaurantNames) {
   if (!a) return b
@@ -265,7 +275,7 @@ export function mergeMatching(a, b, restaurantNames) {
     return { ...out, ...freshMap }
   }
   return {
-    supplierAlias: { ...a.supplierAlias, ...b.supplierAlias },
+    supplierAlias: replaceScoped(a.supplierAlias, b.supplierAlias),
     planPairs: replaceScoped(a.planPairs, b.planPairs),
     planPairsByPack: replaceScoped(a.planPairsByPack, b.planPairsByPack),
     productLabels: replaceScoped(a.productLabels, b.productLabels),
