@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -319,6 +319,24 @@ app.get('/api/iiko/invoice-sample', requireAuth, requireAdmin, async (req, res) 
     const period = String(req.query.period || resolveLivePeriod(s).period)
     const search = String(req.query.search || 'ягода')
     res.json({ ok: true, xml: await iikoServerInvoiceSample(s, period, search) })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+/**
+ * «Проверить товар (артикул)» — следующий шаг: сама строка накладной несёт
+ * <amountUnit>/<containerId> как голые GUID. Запрашиваем номенклатуру по
+ * артикулу товара (см. iikoServerProductByNum) — там должен быть список
+ * сконфигурированных для него фасовок/тар с именами, которые и resolve-ят
+ * эти GUID в текст типа "брусника".
+ */
+app.get('/api/iiko/product-sample', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    const num = String(req.query.num || '')
+    if (!num) return res.status(400).json({ ok: false, message: 'Нужен артикул (num)' })
+    res.json({ ok: true, product: await iikoServerProductByNum(s, num) })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }

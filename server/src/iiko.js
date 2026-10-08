@@ -489,6 +489,26 @@ export async function iikoServerInvoiceSample(settings, period, search = '') {
   }
 }
 
+/**
+ * Диагностика (ещё шаг): сама строка накладной (см. iikoServerInvoiceSample)
+ * несёт <amountUnit> (есть всегда) и <containerId> (есть не у всех строк —
+ * похоже на опциональный выбор тары/фасовки, а не обязательную единицу).
+ * Оба — просто GUID без текста. Запрашиваем сам товар по артикулу через
+ * номенклатуру (v2 entities/products) — там обычно и лежит список
+ * сконфигурированных для него фасовок/тар с человекочитаемыми именами,
+ * которые должны включать "брусника"/"малина" и т.п.
+ */
+export async function iikoServerProductByNum(settings, num) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const res = await withTimeout(`${base}/resto/api/v2/entities/products/list?key=${token}&num=${encodeURIComponent(num)}&includeDeleted=false`, {}, 30000)
+    if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    return await res.json()
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
 /* --- iikoCloud (api-ru.iiko.services) --- */
 async function iikoCloudToken({ apiLogin }) {
   const res = await withTimeout('https://api-ru.iiko.services/api/1/access_token', {

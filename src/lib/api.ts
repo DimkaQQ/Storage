@@ -116,6 +116,14 @@ export async function fetchInvoiceSample(search = 'ягода', period = ''): Pr
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+/** «Проверить товар (артикул)» — карточка товара из номенклатуры по артикулу (`num`), ищем в ней имена фасовок/тар, которые resolve-ят GUID из накладной. */
+export async function fetchProductSample(num: string): Promise<{ ok: boolean; product?: unknown; message?: string }> {
+  try {
+    const r = await fetch(`/api/iiko/product-sample?num=${encodeURIComponent(num)}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 export interface Venues { enabled: string[]; discovered: string[] }
 export const fetchVenues = () => get<Venues>('/api/venues')
 export async function enableVenue(name: string): Promise<Venues | null> {

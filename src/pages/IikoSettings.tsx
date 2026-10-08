@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, fetchProductSample, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -70,6 +70,8 @@ export default function IikoSettings() {
   const [sampleResult, setSampleResult] = useState<{ ok: boolean; rows?: unknown[]; message?: string } | null>(null)
   const [sampleSearch, setSampleSearch] = useState('ягода')
   const [samplePeriod, setSamplePeriod] = useState('')
+  const [productLoading, setProductLoading] = useState(false)
+  const [productResult, setProductResult] = useState<{ ok: boolean; product?: unknown; message?: string } | null>(null)
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
 
@@ -137,6 +139,16 @@ export default function IikoSettings() {
     setInvoiceLoading(true); setInvoiceResult(null)
     setInvoiceResult(await fetchInvoiceSample(sampleSearch, samplePeriod))
     setInvoiceLoading(false)
+  }
+
+  // «Проверить товар (артикул)» — строка накладной несёт <amountUnit>/
+  // <containerId> голыми GUID; карточка товара по артикулу (см. поле
+  // поиска — впишите туда артикул, напр. "3122") должна содержать список
+  // сконфигурированных фасовок/тар с именами.
+  const showProduct = async () => {
+    setProductLoading(true); setProductResult(null)
+    setProductResult(await fetchProductSample(sampleSearch))
+    setProductLoading(false)
   }
 
   const testMatrix = async () => {
@@ -379,6 +391,9 @@ export default function IikoSettings() {
               <button onClick={showInvoice} disabled={invoiceLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {invoiceLoading ? 'Спрашиваю…' : 'Проверить накладную (XML)'}
               </button>
+              <button onClick={showProduct} disabled={productLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {productLoading ? 'Спрашиваю…' : 'Проверить товар (артикул)'}
+              </button>
             </>
           )}
           {testResult && (
@@ -421,6 +436,17 @@ export default function IikoSettings() {
               </pre>
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{invoiceResult.message}</span>
+            )}
+          </div>
+        )}
+        {productResult && (
+          <div className="mt-3">
+            {productResult.ok ? (
+              <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                {JSON.stringify(productResult.product, null, 1)}
+              </pre>
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{productResult.message}</span>
             )}
           </div>
         )}
