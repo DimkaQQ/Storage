@@ -279,9 +279,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   </td>
                   <td className="td overflow-hidden">
                     <StatusBadge status={r.status} />
-                    {r.status === 'wrongSupplier' && r.designatedSuppliers.length > 0 && (
-                      <HoverName text={`должны: ${r.designatedSuppliers.join(', ')}`} className="mt-0.5 block text-[11px] text-slate-500" />
-                    )}
                     {r.note && (
                       <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
                         <InfoTip text={r.note} align="left" />
