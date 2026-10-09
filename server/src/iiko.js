@@ -737,9 +737,13 @@ export async function iikoServerOlapSample(settings, period, { search = '', extr
         ...(allTypes ? {} : { TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] } }),
       },
     }
+    // Без TransactionType — OLAP считает вообще все типы операций по всей
+    // сети за месяц (продажи, списания, перемещения и т.п.), а не только
+    // накладные — заметно тяжелее и дольше одной лишь IncludeValues-фильтрации,
+    // так что даём больше времени именно на этот запрос.
     const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    }, 60000)
+    }, allTypes ? 180000 : 60000)
     if (!res.ok) throw new Error(`Отчёт недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
     const data = await res.json()
     const rows = data.data || []
