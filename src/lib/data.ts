@@ -312,6 +312,11 @@ export interface VenuePatch { city?: string; brand?: string; entity?: string; ca
  * rawPack нормализованные) нужен только для лукапа при сопоставлении;
  * значения храним отдельно в их же написании — иначе список в Справочниках
  * пришлось бы собирать обратно из нижнего регистра, а этого не восстановить.
+ *
+ * UI, создававший такие правки по клику (Справочники → «Нет в матрице» →
+ * «Похоже, просто другая фасовка»), убран — угадывать фасовку оказалось
+ * опасно (см. ProductLink выше). Тип/edits.packAliases остаются только
+ * ради уже когда-то сохранённых значений, новых отсюда больше не пишется.
  */
 export interface PackAlias { targetPack: string; supplier: string; product: string; rawPack: string }
 
@@ -325,9 +330,8 @@ export interface PackAlias { targetPack: string; supplier: string; product: stri
  * разных товара под одним и тем же iiko-названием — различать их по
  * голому тексту нельзя, нужна явная привязка).
  *
- * Ключ (для лукапа в resolveRowPlan) — "поставщик(канон)::iiko-название::
- * фасовка" (норм., БЕЗ ресторана — тот же поставщик называет товар
- * одинаково во всех точках). Ровно та же двухуровневая логика, что уже
+ * Ключ (для лукапа в resolveRowPlan) — "ресторан::поставщик(канон)::iiko-
+ * название::фасовка" (норм.). Ровно та же двухуровневая логика, что уже
  * работает в самой матрице (planPairsByPack прежде planPairs): фасовка в
  * ключе может быть пустой строкой ("плоская" привязка, работает для любой
  * фасовки этого названия) — а может быть указана точно, и тогда
@@ -337,6 +341,11 @@ export interface PackAlias { targetPack: string; supplier: string; product: stri
  * фасовки в ключе привязка для одной фасовки (например "малина")
  * ошибочно применилась бы и к остальным ("голубика", "клубника" — под
  * тем же самым названием "Ягода в асс").
+ *
+ * Ресторан в ключе — явно, по той же причине, что и у PackAlias: привязка
+ * "это брусника" для одной точки не должна молча утечь на закупку с тем
+ * же голым названием/фасовкой в другом ресторане (там за тем же текстом
+ * может стоять другой реальный товар).
  *
  * Поставщик берётся из самой закупки/строки автоматически — пользователь
  * его никогда не вводит вручную, так что в интерфейсе это никак не
@@ -352,7 +361,7 @@ export interface PackAlias { targetPack: string; supplier: string; product: stri
  * плоской привязки), только для показа/обратного поиска в Справочниках,
  * на сам лукап (там используется сам ключ, не эти поля) не влияют.
  */
-export interface ProductLink { targetProduct: string; supplier: string; rawProduct: string; pack: string }
+export interface ProductLink { targetProduct: string; supplier: string; rawProduct: string; pack: string; restaurant: string }
 
 export interface Edits {
   productRenames: Record<string, string>   // "товар::поставщик::фасовка" (raw, как в iiko) -> название из матрицы для этой ровно позиции
@@ -834,15 +843,23 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // только если её нет — плоская (для любой фасовки этого названия) — та
   // же логика, что уже работает у самой матрицы (planPairsByPack прежде
   // planPairs).
-  const productLinkKeyByPack = rawPack ? `${supplierCanon}::${norm(b.product0)}::${rawPack}` : null
-  const productLinkKeyFlat = `${supplierCanon}::${norm(b.product0)}::`
+  // Ключ — С рестораном (см. Edits.productLinks): привязка, сделанная для
+  // одной точки, не должна молча "утекать" в другую — там могла прийти
+  // совсем другая реальная позиция под тем же текстом iiko (подтверждено
+  // человеком явно, после случая с "Ягода с/м в асс" и голой фасовкой "кг" —
+  // привязка "это брусника" для одного месяца/ресторана рисковала молча
+  // примениться и к клубнике в другом).
+  const productLinkKeyByPack = rawPack ? `${restaurant}::${supplierCanon}::${norm(b.product0)}::${rawPack}` : null
+  const productLinkKeyFlat = `${restaurant}::${supplierCanon}::${norm(b.product0)}::`
   const productLink = (productLinkKeyByPack && edits.productLinks[productLinkKeyByPack]) ?? edits.productLinks[productLinkKeyFlat]
   const product = productLink ? norm(productLink.targetProduct) : norm(b.product0)
 
   // Ручная правка "эта фасовка из iiko на самом деле вот эта фасовка из
-  // матрицы" (Справочники / прямо на строке в «Проверке цен») — подставляем
-  // ДО любого сопоставления, дальше вся логика работает уже с исправленным
-  // текстом, как будто iiko изначально написал именно так.
+  // матрицы" — живых правок больше нет (UI в Справочниках убрали: угадывать
+  // фасовку по одному клику оказалось опасно — голая "кг" у товара-
+  // ассортимента ничего не говорит о вкусе, см. CURATED_PACK_FIXES ниже
+  // про тот же риск). Ключ и сам edits.packAliases остаются только для
+  // уже сохранённых где-то старых правок, ничего нового сюда не пишется.
   const packFixKey = rawPack ? `${supplierCanon}::${product}::${rawPack}` : null
   const packAlias = packFixKey ? edits.packAliases[packFixKey] : undefined
   // Живая ручная правка (см. выше) побеждает — если её нет, проверяем

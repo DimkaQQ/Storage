@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, money, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption, anySupplierAlias, supplierAliasFor } from '../lib/data'
+import { fmt, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
@@ -15,7 +15,7 @@ export default function DataEditor() {
   const {
     edits, editCount, rows, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setPackAlias, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey,
     noMatrixTest, setNoMatrixTest,
   } = useEdits()
@@ -44,6 +44,14 @@ export default function DataEditor() {
   const [newBrand, setNewBrand] = useState('')
   const [newEntity, setNewEntity] = useState('')
   const [newCategory, setNewCategory] = useState('')
+  // Выбор точки — верхнеуровневый фильтр, общий для Компаний и Товаров (в
+  // т.ч. «Нет в матрице»), не только для Товаров, как было раньше. Пусто —
+  // вся сеть, как и было. При выборе точки список Компаний показывает
+  // только тех, кто реально привозит что-то именно в неё (со своим счётом
+  // позиций), а клик по компании переключает на Товары с поиском по этой
+  // же компании — так видно сразу и что она везёт в эту точку, и что из
+  // этого «нет в матрице» именно здесь.
+  const [editorRestaurant, setEditorRestaurant] = useState('')
 
   // Фильтр Товаров (значок слева от строки поиска). Название и Фасовка — оба
   // чек-лист с поиском внутри, как в Google Sheets (значений в каждом не
@@ -69,21 +77,39 @@ export default function DataEditor() {
 
   const needle = q.trim().toLowerCase()
 
+  // Компании для ОДНОЙ выбранной точки (см. editorRestaurant) — suppliersBase
+  // (из parseDataset) считает позиции по всей сети сразу, без разбивки по
+  // ресторану; здесь считаем заново из уже готовых `rows`, у каждой из
+  // которых есть свой restaurant. null — ничего не выбрано, работаем как
+  // раньше, по всей сети (suppliersBase).
+  const suppliersForRestaurant = useMemo(() => {
+    if (!editorRestaurant) return null
+    const map = new Map<string, { name: string; count: number; isNew: boolean }>()
+    for (const r of rows) {
+      if (r.unit == null || r.restaurant !== editorRestaurant) continue
+      const s = map.get(r.supplier) ?? { name: r.supplier, count: 0, isNew: anySupplierAlias(matching, r.supplier) == null }
+      s.count++
+      map.set(r.supplier, s)
+    }
+    return [...map.values()]
+  }, [rows, editorRestaurant, matching])
+  const suppliersBaseEffective = suppliersForRestaurant ?? suppliersBase
+
   // «Нет в справочнике» — учитываем ручную правку: отметили «это новый
   // поставщик» — строка больше не считается нерешённой.
   const isUnresolved = (name: string) =>
     !anySupplierAlias(matching, name) && !edits.acknowledgedSuppliers[name]
 
   const supplierCounts = useMemo(() => ({
-    all: suppliersBase.length,
-    new: suppliersBase.filter((s) => isUnresolved(s.name)).length,
-  }), [suppliersBase, edits.acknowledgedSuppliers, matching])
+    all: suppliersBaseEffective.length,
+    new: suppliersBaseEffective.filter((s) => isUnresolved(s.name)).length,
+  }), [suppliersBaseEffective, edits.acknowledgedSuppliers, matching])
 
   const suppliers = useMemo(() => {
-    let list = needle ? suppliersBase.filter((s) => s.name.toLowerCase().includes(needle)) : suppliersBase
+    let list = needle ? suppliersBaseEffective.filter((s) => s.name.toLowerCase().includes(needle)) : suppliersBaseEffective
     if (sFilter === 'new') list = list.filter((s) => isUnresolved(s.name))
     return list
-  }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBase, matching])
+  }, [needle, edits.acknowledgedSuppliers, sFilter, suppliersBaseEffective, matching])
 
   // norm(каноническое название поставщика) -> отображаемое написание — то же
   // сопоставление, что строит computeRows в data.ts, нужно здесь отдельно
@@ -281,15 +307,16 @@ export default function DataEditor() {
   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
   // замене — см. commitMatrixIikoName) — обратный индекс по edits.
   // productLinks, считаем один раз, а не пересканированием на каждую
-  // строку. Ключ — «поставщик(канон)::targetProduct::фасовка»; поставщик
-  // и фасовка всегда берутся из самой строки матрицы (link.supplier/
-  // link.pack), пользователь их не вводит вручную — это просто не даёт
-  // одинаковому тексту у разных поставщиков/разных товаров-ассортиментов
-  // "слипнуться" в одну привязку (см. Edits.productLinks).
+  // строку. Ключ — «ресторан::поставщик(канон)::targetProduct::фасовка»;
+  // ресторан/поставщик/фасовка всегда берутся из самой строки матрицы
+  // (link.restaurant/link.supplier/link.pack), пользователь их не вводит
+  // вручную — это просто не даёт одинаковому тексту у разных ресторанов/
+  // поставщиков/разных товаров-ассортиментов "слипнуться" в одну привязку
+  // (см. Edits.productLinks).
   const linkedRawNameByTarget = useMemo(() => {
     const map = new Map<string, string>()
     for (const link of Object.values(edits.productLinks)) {
-      map.set(`${norm(link.supplier)}::${norm(link.targetProduct)}::${link.pack}`, link.rawProduct)
+      map.set(`${norm(link.restaurant)}::${norm(link.supplier)}::${norm(link.targetProduct)}::${link.pack}`, link.rawProduct)
     }
     return map
   }, [edits.productLinks])
@@ -319,9 +346,9 @@ export default function DataEditor() {
     // Явную старую привязку (если реально была) ищем отдельно по тому же
     // ключу строки матрицы, а не по тому, что было в поле — иначе при
     // замене названия рискуем не найти, что удалять.
-    const explicitLink = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}::${row.pack}`)
-    if (explicitLink) setProductLink(`${row.supplierNorm}::${norm(explicitLink)}::${row.pack}`, null)
-    if (next) setProductLink(`${row.supplierNorm}::${norm(next)}::${row.pack}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next, pack: row.pack })
+    const explicitLink = linkedRawNameByTarget.get(`${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}::${row.pack}`)
+    if (explicitLink) setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(explicitLink)}::${row.pack}`, null)
+    if (next) setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(next)}::${row.pack}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next, pack: row.pack, restaurant: row.restaurant })
   }
 
   // «Нет в матрице» — закупки этого периода, для которых ни прямое
@@ -332,39 +359,47 @@ export default function DataEditor() {
   // существующему товару из матрицы прямо здесь.
   interface UnmatchedRow {
     restaurant: string; supplier: string; supplierNorm: string; product: string; pack: string | null; count: number; note: string | null
-    // У поставщика есть цена, но по ДРУГОЙ фасовке (см. resolveRowPlan) — не
-    // угадываем сами (кг ≠ пач. 10гр — не всегда безопасно пересчитать в одно
-    // и то же), а даём человеку одним кликом сказать "да, это она" —
-    // дальше это уже обычная привязка фасовки (edits.packAliases), не разовая
-    // догадка приложения.
-    availableFasovki: FasovkaOption[]; packFixKey: string | null
   }
+  // Раньше эта секция вообще не учитывала ни поиск, ни фильтр по ресторану
+  // с Товаров (подтверждено человеком явно, что это мешает) — теперь оба
+  // применяются: editorRestaurant (верхнеуровневый выбор точки) и needle
+  // (тот же поиск, что и у Товаров) сужают список точно так же, как сами
+  // Товары.
   const unmatchedRows = useMemo(() => {
     const groups = new Map<string, UnmatchedRow>()
     for (const r of rows) {
       if (r.unit == null || r.status !== 'nomatrix') continue
-      const supplierNorm = norm(supplierAliasFor(matching, r.restaurant, r.supplier) ?? r.supplier)
+      if (editorRestaurant && r.restaurant !== editorRestaurant) continue
+      const supplierCanon = supplierAliasFor(matching, r.restaurant, r.supplier) ?? r.supplier
+      // И сырое название (как в iiko), и каноническое (как в матрице) —
+      // переход "Товары →" из Компаний передаёт сюда каноническое, а сам
+      // человек может искать и тем и другим текстом.
+      if (needle && !r.restaurant.toLowerCase().includes(needle) && !r.supplier.toLowerCase().includes(needle) &&
+        !supplierCanon.toLowerCase().includes(needle) &&
+        !r.productRaw.toLowerCase().includes(needle) && !(r.pack || '').toLowerCase().includes(needle)) continue
+      const supplierNorm = norm(supplierCanon)
       const key = `${norm(r.restaurant)}::${supplierNorm}::${norm(r.productRaw)}::${r.pack ? normPack(r.pack) : ''}`
       let g = groups.get(key)
       // note — та же подсказка, что resolveRowPlan уже готовит (у поставщика
-      // есть цена по другой фасовке, но она не совпала) — раньше нигде не
-      // показывалась в «Нет в матрице», хотя это ровно то место, где она
-      // нужнее всего: объясняет, ПОЧЕМУ не сошлось, а не просто "не сошлось".
+      // есть цена по другой фасовке, но она не совпала) — объясняет, ПОЧЕМУ
+      // не сошлось, а не просто "не сошлось". Раньше рядом ещё были кнопки
+      // "похоже, это она" (угадывание по клику) — убрали: голая фасовка
+      // ("кг" без уточнения) у товара-ассортимента ничего не говорит о
+      // конкретном вкусе, и однажды подтверждённая привязка применялась бы
+      // ко всем будущим закупкам с тем же текстом, даже если там на самом
+      // деле другой вкус — слишком рискованно угадывать одним кликом.
       if (!g) {
-        g = {
-          restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0, note: r.note,
-          availableFasovki: r.availableFasovki, packFixKey: r.packFixKey,
-        }
+        g = { restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0, note: r.note }
         groups.set(key, g)
       }
       g.count++
     }
     return [...groups.values()]
-  }, [rows, matching])
+  }, [rows, matching, editorRestaurant, needle])
 
   const commitUnmatchedLink = (u: UnmatchedRow, targetProduct: string | undefined) => {
     const pack = u.pack ? normPack(u.pack) : ''
-    const key = `${u.supplierNorm}::${norm(u.product)}::${pack}`
+    const key = `${norm(u.restaurant)}::${u.supplierNorm}::${norm(u.product)}::${pack}`
     if (!targetProduct) { setProductLink(key, null); return }
     // link.supplier — то же каноническое написание, что кладёт
     // commitMatrixIikoName (row.supplier = supplierDisplayByNorm...), не
@@ -375,17 +410,7 @@ export default function DataEditor() {
     // совпадёт никогда — привязка, заведённая отсюда, просто не находилась
     // бы и оставалась бы висеть в edits.productLinks навсегда.
     const supplier = supplierDisplayByNorm.get(u.supplierNorm) ?? u.supplier
-    setProductLink(key, { targetProduct, supplier, rawProduct: u.product, pack })
-  }
-
-  // "У поставщика есть цена по фасовке X — это она же?" — человек решает
-  // сам, приложение не пересчитывает автоматически (кг ≠ пач. 10гр не
-  // всегда одно и то же по факту, гадать рискованно). После подтверждения
-  // это обычная фасовочная привязка — план-цена сравнивается уже как
-  // с любой другой совпавшей фасовкой, не разовым исключением.
-  const commitPackFix = (u: UnmatchedRow, option: FasovkaOption) => {
-    if (!u.packFixKey) return
-    setPackAlias(u.packFixKey, { targetPack: option.pack, supplier: u.supplier, product: u.product, rawPack: u.pack ? normPack(u.pack) : '' })
+    setProductLink(key, { targetProduct, supplier, rawProduct: u.product, pack, restaurant: u.restaurant })
   }
 
   // Значения для чек-листов «Ресторан», «Название» и «Фасовка» — как в
@@ -416,8 +441,9 @@ export default function DataEditor() {
       list = list.filter((r) =>
         !excludedRestaurant.has(r.restaurant) && !excludedName.has(r.matrixLabel) && !excludedPack.has(r.pack || '—'))
     }
+    if (editorRestaurant) list = list.filter((r) => r.restaurant === editorRestaurant)
     return list
-  }, [needle, matrixRows, excludedRestaurant, excludedName, excludedPack, matchedRawNamesByKey])
+  }, [needle, matrixRows, excludedRestaurant, excludedName, excludedPack, matchedRawNamesByKey, editorRestaurant])
 
   const activeFilterDims = (excludedRestaurant.size ? 1 : 0) + (excludedName.size ? 1 : 0) + (excludedPack.size ? 1 : 0)
   const resetAllFilters = () => { setExcludedRestaurant(new Set()); setExcludedName(new Set()); setExcludedPack(new Set()) }
@@ -515,10 +541,30 @@ export default function DataEditor() {
       </div>
 
       <Section title={undefined} right={undefined}>
+        {/* Точка — общий фильтр для Компаний и Товаров (в т.ч. «Нет в
+            матрице»); выбор здесь не трогает тестовый режим "без матрицы"
+            выше и не зависит от чек-листа "Ресторан" в фильтре Товаров —
+            оба применяются вместе. */}
+        {tab !== 'venues' && (
+          <div className="mb-3 flex items-center gap-2">
+            <IPin width={14} height={14} className="shrink-0 text-slate-500" />
+            <select
+              value={editorRestaurant}
+              onChange={(e) => { setEditorRestaurant(e.target.value); setQ(''); setLimit(60) }}
+              className="rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+            >
+              <option value="">Все точки</option>
+              {restaurants.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+            </select>
+            {editorRestaurant && tab === 'suppliers' && (
+              <span className="text-xs text-slate-500">Клик по компании — её товары и «нет в матрице» именно для этой точки.</span>
+            )}
+          </div>
+        )}
         {/* tabs + search */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
-            <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBase.length)})</button>
+            <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBaseEffective.length)})</button>
             <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(matrixRows.length)})</button>
             <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
           </div>
@@ -677,7 +723,7 @@ export default function DataEditor() {
                     // статус всё равно не сошёлся (например, разошлась ещё и
                     // фасовка) — не молчим об этом пустым полем, показываем,
                     // что уже назначено.
-                    const currentLink = edits.productLinks[`${u.supplierNorm}::${norm(u.product)}::${u.pack ? normPack(u.pack) : ''}`]
+                    const currentLink = edits.productLinks[`${norm(u.restaurant)}::${u.supplierNorm}::${norm(u.product)}::${u.pack ? normPack(u.pack) : ''}`]
                     const currentLabel = currentLink
                       ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
                       : ''
@@ -719,29 +765,8 @@ export default function DataEditor() {
                               В матрице есть у: {[...(pricedFor ?? [])].join(', ') || '—'} — но не у «{u.restaurant}».
                             </div>
                           )}
-                          {/* Длинное объяснение (candidateNote из resolveRowPlan) не влезало в
-                              узкую колонку — а когда есть чипы ниже, оно и не нужно, они говорят
-                              то же самое короче и с кнопкой. Показываем текстом только то, для чего
-                              чипов нет (комментарий из iiko, "нет плановой цены" и т.п.). */}
-                          {!currentLink && u.note && !(u.packFixKey && u.availableFasovki.length > 0) && (
+                          {!currentLink && u.note && (
                             <div className="mt-1 text-[11px] text-slate-500">{u.note}</div>
-                          )}
-                          {!currentLink && u.packFixKey && u.availableFasovki.length > 0 && (
-                            <div className="mt-1">
-                              <div className="text-[11px] text-slate-500">Похоже, просто другая фасовка:</div>
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                {u.availableFasovki.map((f) => (
-                                  <button
-                                    key={f.pack}
-                                    onClick={() => commitPackFix(u, f)}
-                                    title={f.label ?? undefined}
-                                    className="chip border-brand-500/40 text-brand-300 hover:bg-brand-500/10"
-                                  >
-                                    «{f.pack}»: {money(f.price)}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
                           )}
                         </td>
                       </tr>
@@ -815,7 +840,18 @@ export default function DataEditor() {
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-slate-400">
-                          <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={s.name} /></span>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={s.name} />
+                            {editorRestaurant && (
+                              <button
+                                onClick={() => { setTab('products'); setQ(supplierAliasFor(matching, editorRestaurant, s.name) ?? s.name); setLimit(60); setUnmatchedOpen(true) }}
+                                title={`Товары и «нет в матрице» этой компании в «${editorRestaurant}»`}
+                                className="ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-brand-300 hover:bg-brand-500/10"
+                              >
+                                Товары →
+                              </button>
+                            )}
+                          </span>
                         </td>
                         <td className="td overflow-hidden">
                           <div className="flex items-center gap-1.5">
