@@ -5,7 +5,25 @@ import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
 import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '../components/icons'
 
-type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'unit' | 'diffPct' | 'sum'
+type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'sum' | 'diff'
+
+// Что реально показываем в колонках План/Факт/Δ. Раньше там была цена за
+// единицу матрицы (кг и т.п.) — на мелких фасовках (банка 16г за 2000₸)
+// это давало пугающие "125 000₸/кг", хотя реально заплатили 2000₸. Теперь
+// показываем деньги как они есть: Факт — сколько реально заплатили за эту
+// закупку (qty*цена), План — сколько ожидали заплатить за ТО ЖЕ количество
+// (план-цена*qty). Если позицию вообще не покупали (r.unit === null, это
+// строка из матрицы "не закупали") — показываем план-цену за единицу как
+// есть, умножать её не на что.
+function factOf(r: Row): number | null { return r.unit != null ? r.qty * r.unit : null }
+function planOf(r: Row): number | null {
+  if (r.plan == null) return null
+  return r.unit != null ? r.plan * r.qty : r.plan
+}
+function diffOf(r: Row): number | null {
+  const f = factOf(r), p = planOf(r)
+  return f != null && p != null ? f - p : null
+}
 
 /**
  * Переключатель "Группировка" (по умолчанию выключен — строки идут как есть,
@@ -107,16 +125,12 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     if (grouped) r = groupByProduct(r)
     const dir = sort.dir
     const key = sort.key
-    // "Сумма" — не поле Row (там только цена за единицу, qty отдельно), как
-    // в их отчёте считаем на лету: qty * факт.
-    const sumOf = (x: Row) => x.qty * (x.unit ?? 0)
     return [...r].sort((a, b) => {
-      if (key === 'sum') return (sumOf(a) - sumOf(b)) * dir
-      let av: any = a[key], bv: any = b[key]
-      if (av == null) av = key === 'plan' || key === 'diffPct' || key === 'unit' ? -Infinity : ''
-      if (bv == null) bv = key === 'plan' || key === 'diffPct' || key === 'unit' ? -Infinity : ''
-      if (typeof av === 'string') return av.localeCompare(bv) * dir
-      return (av - bv) * dir
+      if (key === 'sum') return ((factOf(a) ?? 0) - (factOf(b) ?? 0)) * dir
+      if (key === 'plan') return ((planOf(a) ?? -Infinity) - (planOf(b) ?? -Infinity)) * dir
+      if (key === 'diff') return ((diffOf(a) ?? -Infinity) - (diffOf(b) ?? -Infinity)) * dir
+      const av = a[key], bv = b[key]
+      return av.localeCompare(bv) * dir
     })
   }, [rows, q, active, sort, grouped])
 
@@ -163,15 +177,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     // периодов подряд (ровно так один раз перепутали июнь/июль), а строка
     // внутри самой таблицы остаётся видна, даже если файл переименовали.
     const title = [`Проверка цен — ${period}`]
-    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Количество', 'Сумма', 'План цена', 'Факт цена', 'Δ', 'Статус', 'Должны у', 'Заметка']
+    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Количество', 'План', 'Факт', 'Δ', 'Статус', 'Должны у', 'Заметка']
     const lines = filtered.map((r) => [
-      r.restaurant, r.supplier, r.product, r.pack,
-      r.qty, r.qty * (r.unit ?? 0),
-      r.plan ?? '', r.unit ?? '', r.plan != null && r.unit != null ? r.unit - r.plan : '',
+      r.restaurant, r.supplier, r.product, r.pack, r.qty,
+      planOf(r) ?? '', factOf(r) ?? '', diffOf(r) ?? '',
       STATUS_META[r.status].label, r.designatedSuppliers.join(', '), r.userComment ?? '',
     ])
     const ws = XLSX.utils.aoa_to_sheet([title, head, ...lines])
-    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
+    ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
     // Период — и в имени файла, чтобы отличать скачивания разных месяцев
@@ -250,14 +263,16 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[16%]" tight>Поставщик</Th>
                 <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[19%]" tight>Товар</Th>
                 <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
-                <Th onClick={() => setSortKey('unit')} sort={sort} k="unit" right width="w-[13%]">Факт</Th>
-                <Th onClick={() => setSortKey('diffPct')} sort={sort} k="diffPct" right width="w-[10%]">Δ</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[13%]">Факт</Th>
+                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[10%]">Δ</Th>
                 <th className="th w-[11%]">Статус</th>
                 <th className="th w-[8%]">Заметка</th>
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => (
+              {shown.map((r) => {
+                const planVal = planOf(r), factVal = factOf(r), diffVal = diffOf(r)
+                return (
                 <tr key={r.id} className={`row-hover hover:bg-ink-800/40 ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''} ${r.rowColor ? ROW_COLORS.find((c) => c.id === r.rowColor)?.rowBg ?? '' : ''}`}>
                   <td className="td overflow-hidden px-2 text-slate-400"><HoverName text={r.restaurant} /></td>
                   <td className="td overflow-hidden px-2 font-medium text-slate-100">
@@ -308,10 +323,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       </>
                     )}
                   </td>
-                  <td className="td text-right tabnum text-slate-400">{r.plan != null ? money(r.plan) : '—'}</td>
-                  <td className="td text-right tabnum text-slate-200">{r.unit != null ? money(r.unit) : <span className="text-slate-600">—</span>}</td>
+                  <td className="td text-right tabnum text-slate-400">{planVal != null ? money(planVal) : '—'}</td>
+                  <td className="td text-right tabnum text-slate-200">{factVal != null ? money(factVal) : <span className="text-slate-600">—</span>}</td>
                   <td className="td text-right tabnum font-semibold text-slate-300">
-                    {r.plan != null && r.unit != null ? (r.unit - r.plan >= 0 ? '+' : '') + money(r.unit - r.plan) : <span className="text-slate-600">—</span>}
+                    {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="td overflow-hidden">
                     <StatusBadge status={r.status} />
@@ -373,7 +388,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     )}
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
           {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено по заданным фильтрам.</div>}
