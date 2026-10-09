@@ -1030,9 +1030,16 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   const EXCLUDED_PRODUCE_SUPPLIERS = new Set(
     ['ип асип назир фрукты овощи', 'ип "асип"', 'ип "фруктовый рай"', 'ип "фруктовый рай" / зеленый мир'].map(norm),
   )
+  // Не еда (хозтовары/инвентарь бара) и не закупка вовсе ("Ввод остатков" —
+  // ручная коррекция остатка в iiko, не реальная покупка у поставщика) —
+  // попросили убрать целиком, та же логика, что и выше. Список — только
+  // вручную проверенные названия товаров, не угадывается по слову.
+  const EXCLUDED_PRODUCTS = new Set(['баллончики для сифона'].map(norm))
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
-    return !EXCLUDED_PRODUCE_SUPPLIERS.has(norm(b.supplier0)) && !EXCLUDED_PRODUCE_SUPPLIERS.has(canon)
+    if (EXCLUDED_PRODUCE_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_PRODUCE_SUPPLIERS.has(canon)) return false
+    if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
+    return true
   })
   const designatedIndex = buildDesignatedIndex(matching)
   const knownFlatPairs = buildKnownFlatIndex(matching)
