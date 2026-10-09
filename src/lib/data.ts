@@ -69,10 +69,8 @@ export const norm = (s: string) => String(s || '').replace(/\s+/g, ' ').trim().t
  * рабочим: у живых (синканных через sheets.js) данных плоского ключа
  * просто не существует, так что для них фолбэк — no-op.
  */
-export function supplierAliasFor(matching: MatchingTable, restaurant: string, rawSupplier: string, overrides: Record<string, SupplierAliasOverride> = {}): string | null {
-  const key = `${norm(restaurant)}::${norm(rawSupplier)}`
-  return overrides[key]?.targetSupplier
-    ?? matching.supplierAlias[key]
+export function supplierAliasFor(matching: MatchingTable, restaurant: string, rawSupplier: string): string | null {
+  return matching.supplierAlias[`${norm(restaurant)}::${norm(rawSupplier)}`]
     ?? matching.supplierAlias[norm(rawSupplier)]
     ?? null
 }
@@ -287,21 +285,6 @@ export interface PackAlias { targetPack: string; supplier: string; product: stri
  */
 export interface ProductLink { targetProduct: string; supplier: string; rawProduct: string; pack: string }
 
-/**
- * "Для ЭТОГО ресторана iiko-алиас X на самом деле вот этот канонический
- * поставщик из матрицы" — ручная правка на случай, когда у одного
- * физического поставщика НЕСКОЛЬКО разных iiko-названий компании (живой
- * пример: "Семь морей ... / ИП PELAGIA KZ" — для одних точек в матрице
- * записан iiko-алиас "ИП Pelagia KZ", для других — "ИП Семь морей", а
- * реальная закупка прошла под именем, которого в матрице ЭТОГО ресторана
- * просто нет под этим товаром), либо когда matching.supplierAlias для
- * этого ресторана просто не собрался при синке (опечатка в самой
- * Google-таблице). Ключ — тот же формат, что у matching.supplierAlias
- * ("ресторан::iiko-алиас", норм.) — supplierAliasFor проверяет эту карту
- * ПЕРВОЙ, раньше самой матрицы.
- */
-export interface SupplierAliasOverride { targetSupplier: string; rawSupplier: string }
-
 export interface Edits {
   productRenames: Record<string, string>   // "товар::поставщик::фасовка" (raw, как в iiko) -> название из матрицы для этой ровно позиции
   supplierRenames: Record<string, string>  // iiko-имя поставщика (raw) -> название из матрицы — только подпись (HoverName/"Справочник"), на сопоставление с матрицей не влияет
@@ -314,11 +297,10 @@ export interface Edits {
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
   rowComments: Record<string, string>      // buildRowKey(...) -> свой комментарий пользователя к этой ровно закупке (Проверка цен)
   rowColors: Record<string, RowColor>      // buildRowKey(...) -> цветовая метка строки, если поставили вручную
-  supplierAliasOverrides: Record<string, SupplierAliasOverride> // "ресторан::iiko-алиас" (норм.) -> канонический поставщик для ЭТОГО ресторана, см. SupplierAliasOverride
 }
 export const EMPTY_EDITS: Edits = {
   productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, productLinks: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
-  rowComments: {}, rowColors: {}, supplierAliasOverrides: {},
+  rowComments: {}, rowColors: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -767,7 +749,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // совпадал с тем, что реально прайсовано в planPairsByPack ЭТОГО
   // ресторана — закупка у правильного поставщика выглядела как "заказ
   // не по матрице" со ссылкой на самого себя же.
-  const supplierCanon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0, edits.supplierAliasOverrides) ?? b.supplier0)
+  const supplierCanon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
 
   const rawPack = normPack(b.pack)
 
@@ -1003,7 +985,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     ['ип асип назир фрукты овощи', 'ип "асип"', 'ип "фруктовый рай"', 'ип "фруктовый рай" / зеленый мир'].map(norm),
   )
   base = base.filter((b) => {
-    const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0, edits.supplierAliasOverrides) ?? b.supplier0)
+    const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
     return !EXCLUDED_PRODUCE_SUPPLIERS.has(norm(b.supplier0)) && !EXCLUDED_PRODUCE_SUPPLIERS.has(canon)
   })
   const designatedIndex = buildDesignatedIndex(matching)
@@ -1035,7 +1017,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // Их название компании из матрицы (колонка C) — отдельная серая подпись
     // снизу, так же, как название товара из матрицы под самим товаром.
     const supplier = b.supplier0
-    const supplierCanonical = supplierAliasFor(matching, b.restaurant, b.supplier0, edits.supplierAliasOverrides)
+    const supplierCanonical = supplierAliasFor(matching, b.restaurant, b.supplier0)
     // Ручное переименование побеждает каноническое название из матрицы —
     // только подпись, на само сопоставление (supplierCanon в resolveRowPlan)
     // не влияет, там по-прежнему используется тот же supplierAliasFor.

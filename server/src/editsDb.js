@@ -46,20 +46,18 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS plan_overrides    (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS row_comments      (org_id TEXT NOT NULL, key TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS row_colors        (org_id TEXT NOT NULL, key TEXT NOT NULL, color TEXT NOT NULL, PRIMARY KEY (org_id, key));
-  CREATE TABLE IF NOT EXISTS supplier_alias_overrides (org_id TEXT NOT NULL, key TEXT NOT NULL, target_supplier TEXT NOT NULL, raw_supplier TEXT NOT NULL, PRIMARY KEY (org_id, key));
 `)
 // Миграция: product_links изначально была без pack (ключ привязки стал
 // учитывать фасовку позже) — на уже существующих базах столбца может не
 // быть; ALTER падает, если он уже есть, это и есть проверка "уже сделано".
 try { db.exec("ALTER TABLE product_links ADD COLUMN pack TEXT NOT NULL DEFAULT ''") } catch { /* столбец уже есть */ }
 
-const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides', 'row_comments', 'row_colors', 'supplier_alias_overrides']
+const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides', 'row_comments', 'row_colors']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
 export function getEditsForOrg(orgId) {
   migrateLegacyJsonIfNeeded(orgId)
-  seedKnownSupplierAliasFixes(orgId)
   const productRenames = Object.fromEntries(
     db.prepare('SELECT original, name FROM product_renames WHERE org_id=?').all(orgId).map((r) => [r.original, r.name]))
   const supplierRenames = Object.fromEntries(
@@ -91,10 +89,7 @@ export function getEditsForOrg(orgId) {
     db.prepare('SELECT key, text FROM row_comments WHERE org_id=?').all(orgId).map((r) => [r.key, r.text]))
   const rowColors = Object.fromEntries(
     db.prepare('SELECT key, color FROM row_colors WHERE org_id=?').all(orgId).map((r) => [r.key, r.color]))
-  const supplierAliasOverrides = Object.fromEntries(
-    db.prepare('SELECT key, target_supplier, raw_supplier FROM supplier_alias_overrides WHERE org_id=?').all(orgId)
-      .map((r) => [r.key, { targetSupplier: r.target_supplier, rawSupplier: r.raw_supplier }]))
-  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides, rowComments, rowColors, supplierAliasOverrides }
+  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides, rowComments, rowColors }
 }
 
 function hasAnyRows(orgId) {
@@ -119,38 +114,6 @@ function migrateLegacyJsonIfNeeded(orgId) {
     const legacy = JSON.parse(readFileSync(legacyPath, 'utf8'))
     if (legacy && typeof legacy === 'object') replaceAllEdits(orgId, legacy)
   } catch { /* corrupt or unreadable — leave the org starting empty */ }
-}
-
-// Та же нормализация, что norm() в src/lib/data.ts — своя копия здесь
-// (этот файл её не импортирует), нужна только для ключа ниже.
-const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
-
-/**
- * Живой случай (проверен вручную по выгрузке самой Google-таблицы, не
- * угадано): "Семь морей ТОО Семь морей Алматы Своя коптильня / ИП PELAGIA
- * KZ" — один поставщик, но в матрице колонка D (iiko-алиас) для ресторанов
- * Le Dome и ЦФК хранит "ИП Семь морей", тогда как сама закупка в iiko
- * реально прошла под "ИП Pelagia KZ" (ровно тот алиас, что matching
- * ожидает для ОСТАЛЬНЫХ точек сети — Сирена/Renee/Акку/Tangirs/Six1/Six2).
- * Без привязки эти две точки показывали реальную закупку у верного
- * поставщика как "заказ не по матрице". Зашито здесь (не через Справочники
- * вручную), но пишется как ОБЫЧНАЯ строка в ту же таблицу, что и ручная
- * привязка через UI — значит, видна и редактируема в Справочники →
- * Компании → «по ресторанам» точно так же, просто без единого клика.
- * INSERT OR IGNORE — только если строки с этим ключом ещё нет: если кто-то
- * позже сам поправит/снимет эту привязку руками, сид не должен её
- * воскрешать на следующий запрос.
- */
-const SEED_SUPPLIER_ALIAS_FIXES = [
-  { restaurant: 'Ле Дом', rawSupplier: 'ИП " Pelagia KZ "', targetSupplier: 'Семь морей ТОО Семь морей Алматы  Своя коптильня / ИП PELAGIA KZ' },
-  { restaurant: 'ЦФК', rawSupplier: 'ИП " Pelagia KZ "', targetSupplier: 'Семь морей ТОО Семь морей Алматы  Своя коптильня / ИП PELAGIA KZ' },
-]
-function seedKnownSupplierAliasFixes(orgId) {
-  for (const fix of SEED_SUPPLIER_ALIAS_FIXES) {
-    const key = `${norm(fix.restaurant)}::${norm(fix.rawSupplier)}`
-    db.prepare('INSERT OR IGNORE INTO supplier_alias_overrides (org_id, key, target_supplier, raw_supplier) VALUES (?,?,?,?)')
-      .run(orgId, key, fix.targetSupplier, fix.rawSupplier)
-  }
 }
 
 /* ---------- writes: one targeted operation per call — safe under concurrent editors ---------- */
@@ -297,20 +260,6 @@ export function setRowColor(orgId, key, value) {
   db.prepare('INSERT INTO row_colors (org_id, key, color) VALUES (?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET color=excluded.color').run(orgId, k, value)
 }
 
-/** value: { targetSupplier, rawSupplier } — "для этого ресторана iiko-алиас на самом деле вот этот канонический поставщик"; null — снять правку. */
-export function setSupplierAliasOverride(orgId, key, value) {
-  const k = str(key)
-  if (!k) return
-  if (value === null || value === undefined) { db.prepare('DELETE FROM supplier_alias_overrides WHERE org_id=? AND key=?').run(orgId, k); return }
-  const v = value && typeof value === 'object' ? value : {}
-  const targetSupplier = String(v.targetSupplier || '').trim()
-  if (!targetSupplier) { db.prepare('DELETE FROM supplier_alias_overrides WHERE org_id=? AND key=?').run(orgId, k); return }
-  db.prepare(`
-    INSERT INTO supplier_alias_overrides (org_id, key, target_supplier, raw_supplier) VALUES (?,?,?,?)
-    ON CONFLICT(org_id, key) DO UPDATE SET target_supplier=excluded.target_supplier, raw_supplier=excluded.raw_supplier
-  `).run(orgId, k, targetSupplier, String(v.rawSupplier || ''))
-}
-
 // e's fields are whatever JSON the client sent ("Импорт" uploads a file
 // verbatim) — Object.entries()/keys() on a non-object (a string, an array)
 // silently iterates its indices/characters instead of throwing, which used
@@ -378,13 +327,6 @@ export function replaceAllEdits(orgId, e) {
     for (const [key, color] of Object.entries(plainObject(edits.rowColors))) {
       const k = str(key); if (!k || !VALID_ROW_COLORS.has(color)) continue
       db.prepare('INSERT INTO row_colors (org_id, key, color) VALUES (?,?,?)').run(orgId, k, color)
-    }
-    for (const [key, vRaw] of Object.entries(plainObject(edits.supplierAliasOverrides))) {
-      const k = str(key); if (!k) continue
-      const v = plainObject(vRaw)
-      const targetSupplier = String(v.targetSupplier || '').trim(); if (!targetSupplier) continue
-      db.prepare('INSERT INTO supplier_alias_overrides (org_id, key, target_supplier, raw_supplier) VALUES (?,?,?,?)')
-        .run(orgId, k, targetSupplier, String(v.rawSupplier || ''))
     }
   })
 }
