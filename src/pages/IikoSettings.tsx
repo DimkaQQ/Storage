@@ -12,8 +12,6 @@ function extractSheetId(input: string): string {
 
 const PROVIDERS: { id: Settings['provider']; label: string; note: string }[] = [
   { id: 'iikoserver', label: 'iikoOffice / RMS', note: 'Сервер iiko (resto API) — отсюда «Отчёт о закупках по складам»' },
-  { id: 'iikocloud', label: 'iikoCloud', note: 'Облачный API (api-ru.iiko.services)' },
-  { id: 'mock', label: 'Демо-режим', note: 'Встроенные данные — без подключения к iiko' },
 ]
 const INTERVALS: { id: Settings['interval']; label: string }[] = [
   { id: 'hourly', label: 'Каждый час' },
@@ -411,16 +409,6 @@ export default function IikoSettings() {
             <Field label="Пароль" type="password" value={form.password} onChange={(v) => set({ password: v })} placeholder="•••••••• (не менять — оставьте пустым)" />
           </div>
         )}
-        {form.provider === 'iikocloud' && (
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <Field label="apiLogin" hint="Ключ из личного кабинета iiko" value={form.apiLogin} onChange={(v) => set({ apiLogin: v })} />
-            <Field label="ID организации (опц.)" value={form.organizationId} onChange={(v) => set({ organizationId: v })} />
-          </div>
-        )}
-        {form.provider === 'mock' && (
-          <p className="mt-4 rounded-lg bg-ink-900/40 px-3 py-2 text-sm text-slate-400">Демо-режим: обновление подставит встроенный набор данных. Для реальных данных выберите iikoOffice/RMS.</p>
-        )}
-
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button onClick={test} disabled={testing} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
             <IPlug width={16} height={16} /> {testing ? 'Сохраняю и проверяю…' : 'Сохранить и проверить подключение'}

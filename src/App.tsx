@@ -127,10 +127,6 @@ export default function App() {
               </button>
             </div>
           </div>
-          <div className="border-t border-ink-700/50 px-5 py-4 text-[11px] text-slate-500">
-            <span>Данные iiko × Матрица</span>
-            <div className="mt-1 text-slate-600">{restaurants.length} точек</div>
-          </div>
         </aside>
 
         {/* Main — колонка на всю высоту экрана: шапка не скроллится сама

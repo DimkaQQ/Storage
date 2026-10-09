@@ -7,7 +7,7 @@ import { Row, summarize, byRestaurant, fmt, pct, STATUS_META, Status } from '../
 import StatCard from '../components/StatCard'
 import { Section } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
-import { IScale, ICheck, ISpark, IStore } from '../components/icons'
+import { IScale, ICheck, IStore } from '../components/icons'
 
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
   const s = useMemo(() => summarize(rows), [rows])
@@ -35,15 +35,6 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
 
   return (
     <div className="space-y-6">
-      {/* orientation primer */}
-      <div className="animate-fade-up flex items-center gap-3 rounded-xl border border-ink-700/60 bg-ink-850/60 px-4 py-2.5 text-sm">
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand-500/15 text-brand-300"><ISpark width={14} height={14} /></span>
-        <p className="text-slate-400">
-          Сравниваем <b className="text-slate-200">плановую цену</b> (из матрицы) с <b className="text-slate-200">фактической</b> (из iiko)
-          и проверяем, куплено ли у назначенного поставщика.
-        </p>
-      </div>
-
       {/* KPI row */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard delay={0} label="Позиций проверено" info="Все закупленные позиции за период по выбранным точкам." value={fmt(s.positions)} accent="brand" icon={<IStore width={16} height={16} />} />
