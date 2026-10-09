@@ -1158,15 +1158,20 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
         // название привязано к ДРУГОМУ названию из матрицы), цена по этому
         // сырому тексту почти никогда не находилась — подсказка "По
         // матрице должны были купить у: ..." молча пропадала.
+        // Часть назначенных поставщиков может быть подтверждена в матрице
+        // только через noPriceExact (привязка точная, но цена в колонке H
+        // не заполнена) — такие тоже должны попасть в подсказку, просто с
+        // пометкой "цена не указана", а не молча выпадать из списка (иначе
+        // при единственном назначенном поставщике без цены подсказка
+        // пропадала целиком — именно так было с "Яйцо куриное"/"Акку").
         const restaurant = norm(b.restaurant), product0 = resolvedProduct, pack = resolvedPack
-        const prices = designatedNorm
-          .map((s) => {
-            const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
-            const price = byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`]
-            return price != null ? `${supplierDisplayByNorm.get(s) ?? s}: ${money(price)}` : null
-          })
-          .filter((x): x is string => x != null)
-        if (prices.length) parts.push(`По матрице должны были купить у: ${prices.join('; ')}.`)
+        const prices = designatedNorm.map((s) => {
+          const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
+          const price = byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`]
+          const name = supplierDisplayByNorm.get(s) ?? s
+          return price != null ? `${name}: ${money(price)}` : `${name} (цена не указана)`
+        })
+        if (prices.length) parts.push(`Заказано у другого поставщика — по матрице должны были купить у: ${prices.join('; ')}.`)
       }
     }
     const note: string | null = parts.length ? parts.join(' ') : null
