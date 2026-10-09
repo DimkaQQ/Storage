@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack, norm } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -31,65 +31,6 @@ function diffUnitOf(r: Row): number | null {
   return r.unit != null && r.plan != null ? r.unit - r.plan : null
 }
 
-/**
- * Переключатель "Группировка" (по умолчанию выключен — строки идут как есть,
- * по одной на каждую связку товар+поставщик+фасовка, которую вернул iiko, см.
- * groupByRowFields в server/src/iiko.js): схлопывает повторы одного товара+
- * поставщика в одну строку (сумма/кол-во складываются), план и статус у них
- * и так совпадают (сопоставление не зависит от фасовки, см. resolveRowPlan),
- * поэтому берём их у первой строки группы. Строки "не закупали" (unit ===
- * null, это не реальная покупка, а позиция из матрицы) в сложение не
- * участвуют и остаются отдельно как есть.
- *
- * Для АССОРТИМЕНТА (isAssortment — ягоды и похожие случаи, где под одним
- * iiko-названием у поставщика реально РАЗНЫЕ товары, см. resolveRowPlan)
- * фасовка по-прежнему входит в ключ группировки: там план и статус у разных
- * фасовок законно РАЗНЫЕ (малина и голубика под одним названием "Ягода
- * импортная" могут быть у разных поставщиков по разным ценам) — без этого
- * группировка схлопывала бы их в одну строку и тихо показывала план/статус
- * только от первой попавшейся фасовки, маскируя реальный "заказ не по
- * матрице" у второй.
- */
-function groupByProduct(rows: Row[]): Row[] {
-  const groups = new Map<string, Row[]>()
-  for (const r of rows) {
-    const key = r.isAssortment
-      ? `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.product)}::${norm(r.pack)}`
-      : `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.product)}`
-    const arr = groups.get(key)
-    if (arr) arr.push(r)
-    else groups.set(key, [r])
-  }
-  const out: Row[] = []
-  for (const group of groups.values()) {
-    const purchased = group.filter((g) => g.unit != null)
-    const notPurchased = group.filter((g) => g.unit == null)
-    if (purchased.length <= 1) { out.push(...group); continue }
-    const qty = purchased.reduce((s, g) => s + g.qty, 0)
-    const sum = purchased.reduce((s, g) => s + g.qty * (g.unit as number), 0)
-    const unit = qty > 0 ? sum / qty : null
-    const first = purchased[0]
-    const packs = new Set(purchased.map((g) => g.pack).filter(Boolean))
-    out.push({
-      ...first,
-      id: `grp-${first.id}`,
-      // Фасовка — часть ключа всегда (не только для ассортимента): группы
-      // строятся по тому же ключу, что в groups выше (см. туда) — два
-      // РАЗНЫХ ассортиментных товара под одним iiko-названием (малина и
-      // голубика) схлопнутся в ДВЕ разные группы с разной фасовкой, и без
-      // неё тут у обеих получился бы один и тот же rowKey — заметка/цвет
-      // одной тёрлась бы в другую.
-      rowKey: `grp::${norm(first.restaurant)}::${norm(first.supplier)}::${norm(first.product)}::${norm(first.pack)}`,
-      qty, unit,
-      pack: packs.size === 1 ? first.pack : packs.size > 1 ? `${packs.size} фасовки` : '',
-      diffPct: first.plan != null && first.plan !== 0 && unit != null ? (unit - first.plan) / first.plan : null,
-      userComment: null, rowColor: null,
-    })
-    out.push(...notPurchased)
-  }
-  return out
-}
-
 const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'ok', label: 'По матрице' },
   { id: 'wrongSupplier', label: 'Заказ не по матрице' },
@@ -105,11 +46,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // о закупках по складам" из iiko (крупнейшие позиции сверху), а не
   // алфавит по ресторану/товару.
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'sum', dir: -1 })
-  // По умолчанию выключено — строки идут раздельно, по одной на каждую
-  // накладную, как iiko их прислал (подтверждено человеком явно). Включение
-  // складывает повторы одного товара+поставщика в одну строку (см.
-  // groupByProduct выше).
-  const [grouped, setGrouped] = useState(false)
   // Переключатель двух версий расчёта Плана/Факта/Δ (см. комментарий у
   // factMoneyOf выше) — временно, чтобы показать заказчику обе сразу без
   // пересборки/переключения веток. По умолчанию — новая (деньги).
@@ -135,7 +71,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
         (x.productLabel ?? '').toLowerCase().includes(needle) || (x.supplierLabel ?? '').toLowerCase().includes(needle),
       )
     }
-    if (grouped) r = groupByProduct(r)
     const dir = sort.dir
     const key = sort.key
     return [...r].sort((a, b) => {
@@ -145,7 +80,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       const av = a[key], bv = b[key]
       return av.localeCompare(bv) * dir
     })
-  }, [rows, q, active, sort, grouped, moneyMode])
+  }, [rows, q, active, sort, moneyMode])
 
   const s = useMemo(() => summarize(filtered), [filtered])
   // Раньше была ручная кнопка "Показать ещё" (убрана — не работала как
@@ -155,7 +90,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // клика.
   const PAGE_SIZE = 80
   const [limit, setLimit] = useState(PAGE_SIZE)
-  useEffect(() => { setLimit(PAGE_SIZE) }, [q, active, grouped])
+  useEffect(() => { setLimit(PAGE_SIZE) }, [q, active])
   const shown = filtered.slice(0, limit)
   const sentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -229,14 +164,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
-          <button
-            onClick={() => setGrouped((g) => !g)}
-            title="Складывать несколько накладных одного товара и поставщика в одну строку"
-            className={`btn border transition-colors ${grouped ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${grouped ? 'bg-brand-400' : 'bg-slate-600'}`} />
-            Группировка
-          </button>
           <button
             onClick={() => setMoneyMode((m) => !m)}
             title="Переключить, как считаются План/Факт/Δ: реальные деньги за закупку, или цена за единицу матрицы (кг и т.п.)"
