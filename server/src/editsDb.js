@@ -59,6 +59,7 @@ const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_v
 
 export function getEditsForOrg(orgId) {
   migrateLegacyJsonIfNeeded(orgId)
+  seedKnownSupplierAliasFixes(orgId)
   const productRenames = Object.fromEntries(
     db.prepare('SELECT original, name FROM product_renames WHERE org_id=?').all(orgId).map((r) => [r.original, r.name]))
   const supplierRenames = Object.fromEntries(
@@ -118,6 +119,38 @@ function migrateLegacyJsonIfNeeded(orgId) {
     const legacy = JSON.parse(readFileSync(legacyPath, 'utf8'))
     if (legacy && typeof legacy === 'object') replaceAllEdits(orgId, legacy)
   } catch { /* corrupt or unreadable — leave the org starting empty */ }
+}
+
+// Та же нормализация, что norm() в src/lib/data.ts — своя копия здесь
+// (этот файл её не импортирует), нужна только для ключа ниже.
+const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+
+/**
+ * Живой случай (проверен вручную по выгрузке самой Google-таблицы, не
+ * угадано): "Семь морей ТОО Семь морей Алматы Своя коптильня / ИП PELAGIA
+ * KZ" — один поставщик, но в матрице колонка D (iiko-алиас) для ресторанов
+ * Le Dome и ЦФК хранит "ИП Семь морей", тогда как сама закупка в iiko
+ * реально прошла под "ИП Pelagia KZ" (ровно тот алиас, что matching
+ * ожидает для ОСТАЛЬНЫХ точек сети — Сирена/Renee/Акку/Tangirs/Six1/Six2).
+ * Без привязки эти две точки показывали реальную закупку у верного
+ * поставщика как "заказ не по матрице". Зашито здесь (не через Справочники
+ * вручную), но пишется как ОБЫЧНАЯ строка в ту же таблицу, что и ручная
+ * привязка через UI — значит, видна и редактируема в Справочники →
+ * Компании → «по ресторанам» точно так же, просто без единого клика.
+ * INSERT OR IGNORE — только если строки с этим ключом ещё нет: если кто-то
+ * позже сам поправит/снимет эту привязку руками, сид не должен её
+ * воскрешать на следующий запрос.
+ */
+const SEED_SUPPLIER_ALIAS_FIXES = [
+  { restaurant: 'Ле Дом', rawSupplier: 'ИП " Pelagia KZ "', targetSupplier: 'Семь морей ТОО Семь морей Алматы  Своя коптильня / ИП PELAGIA KZ' },
+  { restaurant: 'ЦФК', rawSupplier: 'ИП " Pelagia KZ "', targetSupplier: 'Семь морей ТОО Семь морей Алматы  Своя коптильня / ИП PELAGIA KZ' },
+]
+function seedKnownSupplierAliasFixes(orgId) {
+  for (const fix of SEED_SUPPLIER_ALIAS_FIXES) {
+    const key = `${norm(fix.restaurant)}::${norm(fix.rawSupplier)}`
+    db.prepare('INSERT OR IGNORE INTO supplier_alias_overrides (org_id, key, target_supplier, raw_supplier) VALUES (?,?,?,?)')
+      .run(orgId, key, fix.targetSupplier, fix.rawSupplier)
+  }
 }
 
 /* ---------- writes: one targeted operation per call — safe under concurrent editors ---------- */
