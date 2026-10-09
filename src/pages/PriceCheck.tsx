@@ -42,6 +42,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const { setRowComment, setRowColor, period } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
+  // «С заметкой» — строки, где уже есть свой комментарий или цветовая
+  // метка (любая из них, не обе сразу) — быстро найти то, что уже
+  // разбирали/помечали вручную, без поиска по тексту.
+  const [onlyNoted, setOnlyNoted] = useState(false)
   // По умолчанию — сумма закупки по убыванию, как в их собственном "Отчёте
   // о закупках по складам" из iiko (крупнейшие позиции сверху), а не
   // алфавит по ресторану/товару.
@@ -62,6 +66,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     const needle = q.trim().toLowerCase()
     let r = rows
     if (active.size) r = r.filter((x) => active.has(x.status))
+    if (onlyNoted) r = r.filter((x) => x.userComment || x.rowColor)
     if (needle) {
       r = r.filter((x) =>
         x.product.toLowerCase().includes(needle) || x.supplier.toLowerCase().includes(needle) ||
@@ -80,7 +85,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       const av = a[key], bv = b[key]
       return av.localeCompare(bv) * dir
     })
-  }, [rows, q, active, sort, moneyMode])
+  }, [rows, q, active, sort, moneyMode, onlyNoted])
 
   const s = useMemo(() => summarize(filtered), [filtered])
   // Раньше была ручная кнопка "Показать ещё" (убрана — не работала как
@@ -90,7 +95,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // клика.
   const PAGE_SIZE = 80
   const [limit, setLimit] = useState(PAGE_SIZE)
-  useEffect(() => { setLimit(PAGE_SIZE) }, [q, active])
+  useEffect(() => { setLimit(PAGE_SIZE) }, [q, active, onlyNoted])
   const shown = filtered.slice(0, limit)
   const sentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -191,8 +196,16 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               </button>
             )
           })}
-          {active.size > 0 && (
-            <button onClick={() => setActive(new Set())} className="chip border-ink-600 text-slate-500 hover:text-slate-300">
+          <button
+            onClick={() => setOnlyNoted((v) => !v)}
+            title="Только строки, где уже есть свой комментарий или цветовая метка"
+            className={`chip transition-colors ${onlyNoted ? 'border-brand-400 bg-ink-750 text-brand-300' : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
+            С заметкой
+          </button>
+          {(active.size > 0 || onlyNoted) && (
+            <button onClick={() => { setActive(new Set()); setOnlyNoted(false) }} className="chip border-ink-600 text-slate-500 hover:text-slate-300">
               сбросить
             </button>
           )}
