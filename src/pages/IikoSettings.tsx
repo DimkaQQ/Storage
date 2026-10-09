@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -71,6 +71,9 @@ export default function IikoSettings() {
   const [sampleSearch, setSampleSearch] = useState('ягода')
   const [samplePeriod, setSamplePeriod] = useState('')
   const [sampleAllTypes, setSampleAllTypes] = useState(false)
+  const [sampleTypes, setSampleTypes] = useState('')
+  const [typesLoading, setTypesLoading] = useState(false)
+  const [typesResult, setTypesResult] = useState<{ ok: boolean; rows?: unknown[]; message?: string } | null>(null)
   const [productLoading, setProductLoading] = useState(false)
   const [productResult, setProductResult] = useState<{ ok: boolean; xml?: string; message?: string; errorName?: string; errorStack?: string[] } | null>(null)
   const [storesLoading, setStoresLoading] = useState(false)
@@ -134,8 +137,20 @@ export default function IikoSettings() {
   // и показываем сырой JSON — нужное поле видно глазами.
   const showSample = async () => {
     setSampleLoading(true); setSampleResult(null)
-    setSampleResult(await fetchOlapSample(sampleSearch, samplePeriod, sampleAllTypes))
+    setSampleResult(await fetchOlapSample(sampleSearch, samplePeriod, sampleAllTypes, sampleTypes))
     setSampleLoading(false)
+  }
+
+  // «Показать типы операций» — дешёвая разведка перед «все типы операций»
+  // (тот режим гоняет всю сеть по Store×Product×Counteragent и на реальных
+  // объёмах не успевает за таймаут прокси/CDN): агрегат только по одному
+  // полю TransactionType, должен отвечать быстро — из результата видно,
+  // какие типы вообще есть и сколько там "веса", чтобы затем прицельно
+  // проверить конкретный тип через поле "типы" выше (узко и быстро).
+  const showTypes = async () => {
+    setTypesLoading(true); setTypesResult(null)
+    setTypesResult(await fetchOlapTypes(samplePeriod))
+    setTypesLoading(false)
   }
 
   // «Проверить накладную (XML)» — OLAP не отдал фасовку ни по одному полю
@@ -421,13 +436,19 @@ export default function IikoSettings() {
                 className="w-28 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
               <input value={samplePeriod} onChange={(e) => setSamplePeriod(e.target.value)} placeholder="2026-08" title="Период YYYY-MM — по умолчанию текущий/прошлый месяц из настроек"
                 className="w-24 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
-              <label className="flex items-center gap-1.5 text-xs text-slate-400" title="Обычно смотрим только накладные (TransactionType=INVOICE) — включите, если накладная по отчёту iiko есть, а в обычной проверке не находится, чтобы увидеть, не проведена ли она другим типом операции">
-                <input type="checkbox" checked={sampleAllTypes} onChange={(e) => setSampleAllTypes(e.target.checked)} className="accent-brand-500" />
-                все типы операций
-              </label>
+              <input value={sampleTypes} onChange={(e) => setSampleTypes(e.target.value)} placeholder="типы (напр. WRITEOFF)"
+                title="Конкретные типы операций через запятую вместо INVOICE — быстро, в отличие от «все типы». Сначала узнайте список типов кнопкой «Показать типы операций»"
+                className="w-40 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
               <button onClick={showSample} disabled={sampleLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {sampleLoading ? 'Спрашиваю…' : 'Проверить сырые поля'}
               </button>
+              <button onClick={showTypes} disabled={typesLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {typesLoading ? 'Спрашиваю…' : 'Показать типы операций'}
+              </button>
+              <label className="flex items-center gap-1.5 text-xs text-slate-400" title="Без фильтра по типу вообще — считает всю сеть за месяц, медленно и может не успеть за таймаут прокси. Сначала попробуйте «Показать типы операций» + конкретный тип в поле выше">
+                <input type="checkbox" checked={sampleAllTypes} onChange={(e) => setSampleAllTypes(e.target.checked)} className="accent-brand-500" />
+                все типы (медленно)
+              </label>
               <button onClick={showInvoice} disabled={invoiceLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {invoiceLoading ? 'Спрашиваю…' : 'Проверить накладную (XML)'}
               </button>
@@ -474,6 +495,21 @@ export default function IikoSettings() {
               )
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{sampleResult.message}</span>
+            )}
+          </div>
+        )}
+        {typesResult && (
+          <div className="mt-3">
+            {typesResult.ok ? (
+              typesResult.rows && typesResult.rows.length > 0 ? (
+                <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                  {JSON.stringify(typesResult.rows, null, 1)}
+                </pre>
+              ) : (
+                <span className="chip border-ink-600 bg-ink-800/60 text-slate-400">Ничего не нашлось за текущий период</span>
+              )
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{typesResult.message}</span>
             )}
           </div>
         )}

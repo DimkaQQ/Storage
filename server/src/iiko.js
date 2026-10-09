@@ -270,6 +270,43 @@ export async function fetchOlapColumns(settings, reportType = 'TRANSACTIONS') {
 }
 
 /**
+ * «Показать типы операций» — дешёвая альтернатива allTypes в
+ * iikoServerOlapSample (см. там): та версия без TransactionType-фильтра
+ * разбивает ВСЮ сеть за месяц по Store×Product×Counteragent×Comment —
+ * кросс-произведение по куче полей, и на реальном объёме данных упирается
+ * в таймаут прокси/CDN ещё до ответа iikoServer, даже если наш собственный
+ * таймаут увеличить. Здесь группировка только по одному полю
+ * (TransactionType) без разбивки по товарам/складам — агрегат на пару
+ * десятков значений типа, должен считаться быстро независимо от объёма
+ * накладных. Цель — увидеть, какие типы операций вообще существуют и
+ * сколько в них "веса", чтобы затем прицельно проверить конкретный тип
+ * через обычный (быстрый) iikoServerOlapSample с types=['...'].
+ */
+export async function iikoServerTransactionTypes(settings, period) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const { from, to } = periodRange(period)
+    const body = {
+      reportType: 'TRANSACTIONS',
+      buildSummary: false,
+      groupByRowFields: ['TransactionType'],
+      aggregateFields: ['Amount', 'Sum.Incoming'],
+      filters: {
+        'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
+      },
+    }
+    const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }, 60000)
+    if (!res.ok) throw new Error(`Отчёт недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const data = await res.json()
+    return data.data || []
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
+/**
  * Pulls the supply/purchase report via the OLAP endpoint.
  * NOTE: точный набор полей отчёта уточняется на реальном сервере —
  * маппинг колонок вынесен в один блок ниже.
@@ -717,16 +754,19 @@ export async function iikoServerAssortmentDebug(settings, period, productFilter)
  * синке (fetchFacts) — только через /api/iiko/olap-sample (кнопка в
  * Настройках iiko).
  */
-export async function iikoServerOlapSample(settings, period, { search = '', extraFields = [], allTypes = false } = {}) {
+export async function iikoServerOlapSample(settings, period, { search = '', extraFields = [], allTypes = false, types = [] } = {}) {
   const { base, token } = await iikoServerAuth(settings)
   try {
     const { from, to } = periodRange(period)
     // allTypes — диагностика "пропавшей накладной" (см. комментарий у
-    // iikoServerFacts про TransactionType=INVOICE): без этого фильтра не
-    // увидели бы приходы, проведённые как другой тип транзакции (например,
-    // внутреннее перемещение/акт вместо обычной накладной) — добавляем
-    // TransactionType в сами колонки, чтобы увидеть тип каждой строки глазами.
-    const fields = ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'Comment', ...(allTypes ? ['TransactionType'] : []), ...extraFields]
+    // iikoServerFacts про TransactionType=INVOICE), НО без фильтра вообще
+    // OLAP считает всю сеть по всем типам операций — слишком тяжело, упирается
+    // в таймаут прокси/CDN раньше, чем в наш собственный (см.
+    // iikoServerTransactionTypes выше — дешёвый способ сначала узнать, какие
+    // типы операций вообще есть). types — узкий прицельный список конкретных
+    // типов для проверки (быстро, как обычный INVOICE-запрос, просто с другим
+    // списком значений) — предпочтительнее allTypes, когда кандидаты уже известны.
+    const fields = ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'Comment', ...(allTypes || types.length ? ['TransactionType'] : []), ...extraFields]
     const body = {
       reportType: 'TRANSACTIONS',
       buildSummary: false,
@@ -734,7 +774,7 @@ export async function iikoServerOlapSample(settings, period, { search = '', extr
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
         'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
-        ...(allTypes ? {} : { TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] } }),
+        ...(allTypes ? {} : { TransactionType: { filterType: 'IncludeValues', values: types.length ? types : ['INVOICE'] } }),
       },
     }
     // Без TransactionType — OLAP считает вообще все типы операций по всей

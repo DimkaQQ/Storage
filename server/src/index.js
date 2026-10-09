@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -301,7 +301,23 @@ app.get('/api/iiko/olap-sample', requireAuth, requireAdmin, async (req, res) => 
     const extraFields = String(req.query.fields || 'Product.Num,Product.Tag.Name,Product.Tags.NamesCombo,Document,OrderNum')
       .split(',').map((f) => f.trim()).filter(Boolean)
     const allTypes = req.query.allTypes === '1'
-    res.json({ ok: true, rows: await iikoServerOlapSample(s, period, { search, extraFields, allTypes }) })
+    const types = String(req.query.types || '').split(',').map((t) => t.trim()).filter(Boolean)
+    res.json({ ok: true, rows: await iikoServerOlapSample(s, period, { search, extraFields, allTypes, types }) })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+/**
+ * «Показать типы операций» — дешёвая разведка перед allTypes (см.
+ * iikoServerTransactionTypes): агрегат по одному полю TransactionType без
+ * разбивки по товарам/складам, должен отвечать быстро даже на всю сеть.
+ */
+app.get('/api/iiko/olap-types', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    const period = String(req.query.period || resolveLivePeriod(s).period)
+    res.json({ ok: true, rows: await iikoServerTransactionTypes(s, period) })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
