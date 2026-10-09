@@ -96,13 +96,33 @@ function canonicalValues(matching: MatchingTable): string[] {
   return result
 }
 
+// Канонические строки — это "/"-разделённый список альтернативных имён
+// одного и того же поставщика (их же колонка C) — разбиваем на отдельные
+// содержательные куски (без ИП/ТОО/кавычек) один раз на matching, тот же
+// принцип кэша, что у canonicalValues выше.
+const canonicalPartsCache = new WeakMap<MatchingTable, Map<string, string[]>>()
+function canonicalParts(matching: MatchingTable): Map<string, string[]> {
+  const cached = canonicalPartsCache.get(matching)
+  if (cached) return cached
+  const result = new Map<string, string[]>()
+  for (const c of canonicalValues(matching)) {
+    result.set(c, c.split('/').map(coreSupplierText).filter((p) => p.length >= 3))
+  }
+  canonicalPartsCache.set(matching, result)
+  return result
+}
+
 /**
  * Обратный поиск — когда точного совпадения iiko-алиаса нет (см.
- * supplierAliasFor/anySupplierAlias выше): ищем содержательную часть
- * raw-названия (без ИП/ТОО/кавычек) ВНУТРИ самих канонических строк —
- * если закупка пришла от "Pelagia KZ", а в матрице для этого ресторана
- * записан только алиас "Семь морей", каноническое название всё равно
- * содержит оба имени, значит они и есть один и тот же поставщик.
+ * supplierAliasFor/anySupplierAlias выше). Сверяем содержательную часть
+ * raw-названия (без ИП/ТОО/кавычек) с каждым отдельным именем внутри
+ * канонической строки — не одной большой строкой целиком, а по кускам
+ * (см. canonicalParts), и в ОБЕ стороны:
+ *  - raw короче канона ("Pelagia KZ" у "...Семь морей... / ИП PELAGIA
+ *    KZ") — кусок канона содержит raw;
+ *  - raw длиннее канона ("Токуев Руслан" у "ИП Токуев / ИП Мит...") —
+ *    сам raw содержит кусок канона (имя+фамилия в закупке, в матрице
+ *    записана только фамилия).
  * Совпадение засчитывается только если оно ОДНОЗНАЧНО (ровно один канон
  * подошёл) — та же осторожность, что и везде в этом файле: лучше оставить
  * "не сопоставлено", чем угадать неверно.
@@ -110,8 +130,11 @@ function canonicalValues(matching: MatchingTable): string[] {
 function fuzzySupplierMatch(matching: MatchingTable, rawSupplier: string): string | null {
   const core = coreSupplierText(rawSupplier)
   if (core.length < 3) return null // слишком короткий кусок — риск случайных совпадений
-  const matches = canonicalValues(matching).filter((c) => norm(c).includes(core))
-  return matches.length === 1 ? matches[0] : null
+  const matches = new Set<string>()
+  for (const [canonical, parts] of canonicalParts(matching)) {
+    if (parts.some((p) => core.includes(p) || p.includes(core))) matches.add(canonical)
+  }
+  return matches.size === 1 ? [...matches][0] : null
 }
 
 export function supplierAliasFor(matching: MatchingTable, restaurant: string, rawSupplier: string): string | null {
