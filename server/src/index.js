@@ -111,7 +111,7 @@ async function runSync(orgId, trigger, explicitPeriod) {
       ? ' — ' + fetchStatsByPeriod.map((s) =>
           `${s.period}: iikoServer вернул ${s.rawCount} строк, отсеяно без товара/кол-ва ${s.droppedNoData}, по отделу/бренду ${s.droppedDept}, осталось ${s.kept}`
           + (s.assortmentFacts != null ? `, товаров-ассортиментов по накладным: ${s.assortmentFacts}` : '')
-          + (s.excludedProduce ? `, убрано овощей/фруктов: ${s.excludedProduce}` : '')
+          + (s.excludedProduce ? `, убрано (овощи/фрукты, расходники): ${s.excludedProduce}` : '')
           + (s.assortmentError ? ` [асс.: ${s.assortmentError}]` : ''),
         ).join('; ')
       : ''

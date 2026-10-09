@@ -600,7 +600,15 @@ async function streamExtractBlocks(res, openTag, closeTag, onBlock) {
 // номенклатуре, а не по жёсткому списку поставщиков (см.
 // EXCLUDED_PRODUCE_SUPPLIERS в src/lib/data.ts — тот список оставлен как
 // есть, просто этот фильтр шире и не требует ручного обновления).
-const PRODUCE_CATEGORIES = new Set(['Овощи/Зелень/Фрукты/Ягоды'].map(norm))
+//
+// "Расходные материалы (кухня,бар,кальян)" — тот же принцип, другая
+// причина: не еда вовсе (баллончики для сифона/сливок, газовые балончики и
+// т.п.), сравнивать с план-ценой матрицы бессмысленно. Живой тест на
+// "Балончики для сифона " подтвердил ровно это значение категории (не
+// угадано по слову в названии — настоящая опечатка "Баллончики" vs
+// "Балончики" в их же названии товара один раз уже сломала попытку
+// исключить его по тексту на клиенте, отсюда и переход на категорию).
+const EXCLUDED_CATEGORIES = new Set(['Овощи/Зелень/Фрукты/Ягоды', 'Расходные материалы (кухня,бар,кальян)'].map(norm))
 
 export async function fetchAssortmentIndex(settings) {
   const { base, token } = await iikoServerAuth(settings)
@@ -615,7 +623,7 @@ export async function fetchAssortmentIndex(settings) {
       if (!rawName) return
       const name = unescapeXml(rawName)
       const category = unescapeXml(/<productCategory>([^<]*)<\/productCategory>/.exec(seg)?.[1] || '')
-      if (PRODUCE_CATEGORIES.has(norm(category))) produceNames.add(norm(name))
+      if (EXCLUDED_CATEGORIES.has(norm(category))) produceNames.add(norm(name))
 
       const containers = new Map()
       const containerRe = /<container>([\s\S]*?)<\/container>/g
