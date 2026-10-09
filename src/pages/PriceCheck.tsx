@@ -7,22 +7,28 @@ import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'sum' | 'diff'
 
-// Что реально показываем в колонках План/Факт/Δ. Раньше там была цена за
-// единицу матрицы (кг и т.п.) — на мелких фасовках (банка 16г за 2000₸)
-// это давало пугающие "125 000₸/кг", хотя реально заплатили 2000₸. Теперь
-// показываем деньги как они есть: Факт — сколько реально заплатили за эту
-// закупку (qty*цена), План — сколько ожидали заплатить за ТО ЖЕ количество
-// (план-цена*qty). Если позицию вообще не покупали (r.unit === null, это
-// строка из матрицы "не закупали") — показываем план-цену за единицу как
-// есть, умножать её не на что.
-function factOf(r: Row): number | null { return r.unit != null ? r.qty * r.unit : null }
-function planOf(r: Row): number | null {
+// Что показываем в колонках План/Факт/Δ — два режима, переключатель
+// "Деньги / ₸ за кг" в тулбаре (временно, для показа заказчику обеих
+// версий сразу). "За кг" — старое поведение: цена за единицу матрицы, на
+// мелких фасовках (банка 16г за 2000₸) даёт пугающие "125 000₸/кг", хотя
+// реально заплатили 2000₸. "Деньги" — новое: Факт — сколько реально
+// заплатили за эту закупку (qty*цена), План — сколько ожидали заплатить за
+// ТО ЖЕ количество (план-цена*qty). Если позицию вообще не покупали
+// (r.unit === null, строка из матрицы "не закупали") — в обоих режимах
+// показываем план-цену за единицу как есть, умножать её не на что.
+function factMoneyOf(r: Row): number | null { return r.unit != null ? r.qty * r.unit : null }
+function planMoneyOf(r: Row): number | null {
   if (r.plan == null) return null
   return r.unit != null ? r.plan * r.qty : r.plan
 }
-function diffOf(r: Row): number | null {
-  const f = factOf(r), p = planOf(r)
+function diffMoneyOf(r: Row): number | null {
+  const f = factMoneyOf(r), p = planMoneyOf(r)
   return f != null && p != null ? f - p : null
+}
+function factUnitOf(r: Row): number | null { return r.unit }
+function planUnitOf(r: Row): number | null { return r.plan }
+function diffUnitOf(r: Row): number | null {
+  return r.unit != null && r.plan != null ? r.unit - r.plan : null
 }
 
 /**
@@ -104,6 +110,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // складывает повторы одного товара+поставщика в одну строку (см.
   // groupByProduct выше).
   const [grouped, setGrouped] = useState(false)
+  // Переключатель двух версий расчёта Плана/Факта/Δ (см. комментарий у
+  // factMoneyOf выше) — временно, чтобы показать заказчику обе сразу без
+  // пересборки/переключения веток. По умолчанию — новая (деньги).
+  const [moneyMode, setMoneyMode] = useState(true)
+  const factOf = moneyMode ? factMoneyOf : factUnitOf
+  const planOf = moneyMode ? planMoneyOf : planUnitOf
+  const diffOf = moneyMode ? diffMoneyOf : diffUnitOf
   // Открытый попап "заметка/цвет" — по rowKey строки, не по id (id меняется
   // между парсингами, а попап открыт как раз пока пользователь печатает).
   const [openNoteFor, setOpenNoteFor] = useState<string | null>(null)
@@ -132,7 +145,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       const av = a[key], bv = b[key]
       return av.localeCompare(bv) * dir
     })
-  }, [rows, q, active, sort, grouped])
+  }, [rows, q, active, sort, grouped, moneyMode])
 
   const s = useMemo(() => summarize(filtered), [filtered])
   // Раньше была ручная кнопка "Показать ещё" (убрана — не работала как
@@ -176,8 +189,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     // имя файла легко потерять/переименовать при скачивании нескольких
     // периодов подряд (ровно так один раз перепутали июнь/июль), а строка
     // внутри самой таблицы остаётся видна, даже если файл переименовали.
-    const title = [`Проверка цен — ${period}`]
-    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Количество', 'План', 'Факт', 'Δ', 'Статус', 'Должны у', 'Заметка']
+    const modeLabel = moneyMode ? 'деньги' : '₸ за кг'
+    const title = [`Проверка цен — ${period} (${modeLabel})`]
+    const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Количество', `План (${modeLabel})`, `Факт (${modeLabel})`, 'Δ', 'Статус', 'Должны у', 'Заметка']
     const lines = filtered.map((r) => [
       r.restaurant, r.supplier, r.product, r.pack, r.qty,
       planOf(r) ?? '', factOf(r) ?? '', diffOf(r) ?? '',
@@ -187,10 +201,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
-    // Период — и в имени файла, чтобы отличать скачивания разных месяцев
-    // друг от друга без открытия каждого.
+    // Период и режим — в имени файла, чтобы отличать скачивания разных
+    // месяцев и версий (деньги/₸ за кг) друг от друга без открытия каждого.
     const safePeriod = period.replace(/\s+/g, '_')
-    XLSX.writeFile(wb, `proverka-cen-${safePeriod}.xlsx`)
+    XLSX.writeFile(wb, `proverka-cen-${safePeriod}-${moneyMode ? 'money' : 'per-kg'}.xlsx`)
   }
 
   return (
@@ -222,6 +236,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           >
             <span className={`h-1.5 w-1.5 rounded-full ${grouped ? 'bg-brand-400' : 'bg-slate-600'}`} />
             Группировка
+          </button>
+          <button
+            onClick={() => setMoneyMode((m) => !m)}
+            title="Переключить, как считаются План/Факт/Δ: реальные деньги за закупку, или цена за единицу матрицы (кг и т.п.)"
+            className={`btn border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
+            {moneyMode ? 'Деньги' : '₸ за кг'}
           </button>
           <button onClick={exportExcel} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750">
             <IDownload width={16} height={16} /> Excel
