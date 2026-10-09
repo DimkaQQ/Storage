@@ -565,6 +565,7 @@ const EDIT_OPS = {
   setPlanOverride: (orgId, { key, value }) => editsDb.setPlanOverride(orgId, key, value),
   setRowComment: (orgId, { key, value }) => editsDb.setRowComment(orgId, key, value),
   setRowColor: (orgId, { key, value }) => editsDb.setRowColor(orgId, key, value),
+  setSupplierAliasOverride: (orgId, { key, value }) => editsDb.setSupplierAliasOverride(orgId, key, value),
   reset: (orgId) => editsDb.resetEdits(orgId),
 }
 

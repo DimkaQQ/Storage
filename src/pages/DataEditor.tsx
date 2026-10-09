@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { fmt, money, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, FasovkaOption, anySupplierAlias, supplierAliasFor } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { rankSimilar } from '../lib/fuzzy'
@@ -6,7 +6,7 @@ import { Section, InfoTip, Checkbox } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
-import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck } from '../components/icons'
+import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, IClose } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
 type SupplierFilter = 'all' | 'new'
@@ -15,7 +15,7 @@ export default function DataEditor() {
   const {
     edits, editCount, rows, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setPackAlias, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setPackAlias, setSupplierAliasOverride, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey,
     noMatrixTest, setNoMatrixTest,
   } = useEdits()
@@ -44,6 +44,15 @@ export default function DataEditor() {
   const [newBrand, setNewBrand] = useState('')
   const [newEntity, setNewEntity] = useState('')
   const [newCategory, setNewCategory] = useState('')
+  // "Привязать поставщика к ресторану" (Компании) — для случаев, когда у
+  // одного физического поставщика несколько разных iiko-названий компании
+  // по разным точкам (живой кейс: "Семь морей ... / ИП PELAGIA KZ" — то
+  // "ИП Pelagia KZ", то "ИП Семь морей"), и обычный supplierAlias из
+  // матрицы для конкретного ресторана не подтянулся. aliasOpenFor — raw
+  // iiko-имя поставщика (s.name), для которого открыта форма.
+  const [aliasOpenFor, setAliasOpenFor] = useState<string | null>(null)
+  const [aliasRestaurant, setAliasRestaurant] = useState('')
+  const [aliasTarget, setAliasTarget] = useState('')
 
   // Фильтр Товаров (значок слева от строки поиска). Название и Фасовка — оба
   // чек-лист с поиском внутри, как в Google Sheets (значений в каждом не
@@ -343,7 +352,7 @@ export default function DataEditor() {
     const groups = new Map<string, UnmatchedRow>()
     for (const r of rows) {
       if (r.unit == null || r.status !== 'nomatrix') continue
-      const supplierNorm = norm(supplierAliasFor(matching, r.restaurant, r.supplier) ?? r.supplier)
+      const supplierNorm = norm(supplierAliasFor(matching, r.restaurant, r.supplier, edits.supplierAliasOverrides) ?? r.supplier)
       const key = `${norm(r.restaurant)}::${supplierNorm}::${norm(r.productRaw)}::${r.pack ? normPack(r.pack) : ''}`
       let g = groups.get(key)
       // note — та же подсказка, что resolveRowPlan уже готовит (у поставщика
@@ -455,6 +464,29 @@ export default function DataEditor() {
     () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
     [needle, restaurants],
   )
+
+  // Уже заведённые привязки "ресторан -> канон" для конкретного raw iiko-
+  // имени (см. Edits.supplierAliasOverrides) — ключ "ресторан::iiko-имя"
+  // (норм.), восстанавливаем отображаемое название ресторана через список
+  // точек сети (restaurants), а не держим его отдельно в самой правке.
+  const aliasOverridesFor = (rawName: string) => {
+    const suffix = `::${norm(rawName)}`
+    const out: { restaurant: string; target: string; key: string }[] = []
+    for (const [key, v] of Object.entries(edits.supplierAliasOverrides)) {
+      if (!key.endsWith(suffix)) continue
+      const restaurantNorm = key.slice(0, -suffix.length)
+      const restaurant = restaurants.find((r) => norm(r.name) === restaurantNorm)?.name ?? restaurantNorm
+      out.push({ restaurant, target: v.targetSupplier, key })
+    }
+    return out
+  }
+  const commitAliasOverride = (rawName: string) => {
+    const restaurant = aliasRestaurant.trim()
+    const target = aliasTarget.trim()
+    if (!restaurant || !target) return
+    setSupplierAliasOverride(`${norm(restaurant)}::${norm(rawName)}`, { targetSupplier: target, rawSupplier: rawName })
+    setAliasRestaurant(''); setAliasTarget(''); setAliasOpenFor(null)
+  }
 
   const shown = tab === 'suppliers' ? suppliers.slice(0, limit)
     : tab === 'products' ? matrixRowsFiltered.slice(0, limit)
@@ -812,8 +844,10 @@ export default function DataEditor() {
                     const acknowledged = edits.acknowledgedSuppliers[s.name] === true
                     const supplierRename = edits.supplierRenames[s.name]
                     const duplicate = duplicateByName.get(s.name)
+                    const aliasOverrides = aliasOpenFor === s.name ? aliasOverridesFor(s.name) : []
                     return (
-                      <tr key={s.name} className="row-hover hover:bg-ink-800/40">
+                      <Fragment key={s.name}>
+                      <tr className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-slate-400">
                           <span className="flex min-w-0 items-center gap-2"><IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={s.name} /></span>
                         </td>
@@ -845,17 +879,69 @@ export default function DataEditor() {
                         </td>
                         <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
                         <td className="td text-center">
-                          {acknowledged ? (
-                            <button onClick={() => unacknowledgeSupplier(s.name)} className="btn mx-auto border border-bad/40 bg-bad/10 px-2 py-1 text-xs text-bad hover:bg-bad/20" title="Вернуть — снова считать нерешённым, показывать в «Нет в справочнике»">
-                              <IReset width={13} height={13} /> Вернуть
+                          <div className="flex flex-col items-center gap-1">
+                            {acknowledged ? (
+                              <button onClick={() => unacknowledgeSupplier(s.name)} className="btn mx-auto border border-bad/40 bg-bad/10 px-2 py-1 text-xs text-bad hover:bg-bad/20" title="Вернуть — снова считать нерешённым, показывать в «Нет в справочнике»">
+                                <IReset width={13} height={13} /> Вернуть
+                              </button>
+                            ) : !canon ? (
+                              <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:border-good/50 hover:text-good" title="Сохранить — это действительно новый поставщик">
+                                <ICheck width={12} height={12} /> Сохранить
+                              </button>
+                            ) : null}
+                            <button
+                              onClick={() => { setAliasOpenFor(aliasOpenFor === s.name ? null : s.name); setAliasRestaurant(''); setAliasTarget('') }}
+                              className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand-300 hover:underline"
+                              title="Для одного ресторана iiko может звать этого поставщика другим названием, чем в остальной матрице — привязать вручную"
+                            >
+                              по ресторанам{aliasOverridesFor(s.name).length > 0 ? ` (${aliasOverridesFor(s.name).length})` : ''}
                             </button>
-                          ) : !canon ? (
-                            <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:border-good/50 hover:text-good" title="Сохранить — это действительно новый поставщик">
-                              <ICheck width={12} height={12} /> Сохранить
-                            </button>
-                          ) : null}
+                          </div>
                         </td>
                       </tr>
+                      {aliasOpenFor === s.name && (
+                        <tr className="bg-ink-900/40">
+                          <td colSpan={4} className="td">
+                            {aliasOverrides.length > 0 && (
+                              <div className="mb-2 flex flex-wrap gap-1.5">
+                                {aliasOverrides.map((o) => (
+                                  <span key={o.key} className="chip border-brand-500/30 bg-brand-500/10 text-[11px] text-brand-300">
+                                    {o.restaurant}: {o.target}
+                                    <button onClick={() => setSupplierAliasOverride(o.key, null)} className="ml-1 text-slate-500 hover:text-bad" title="Убрать привязку">
+                                      <IClose width={11} height={11} />
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <select
+                                value={aliasRestaurant}
+                                onChange={(e) => setAliasRestaurant(e.target.value)}
+                                className="rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-xs text-slate-100 focus:border-brand-500 focus:outline-none"
+                              >
+                                <option value="">Ресторан…</option>
+                                {restaurants.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+                              </select>
+                              <div className="w-56">
+                                <ProductLabelSuggest
+                                  value={aliasTarget}
+                                  suggestions={supplierNameSuggestions}
+                                  onCommit={setAliasTarget}
+                                />
+                              </div>
+                              <button
+                                onClick={() => commitAliasOverride(s.name)}
+                                disabled={!aliasRestaurant.trim() || !aliasTarget.trim()}
+                                className="btn border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:border-good/50 hover:text-good disabled:opacity-40"
+                              >
+                                <ICheck width={12} height={12} /> Привязать
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     )
                   })
                 : tab === 'products'

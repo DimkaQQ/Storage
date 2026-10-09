@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, RowColor, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, RowColor, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierAliasOverride, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -21,6 +21,7 @@ function normalize(p: any): Edits {
     newVenues: p?.newVenues ?? {},
     rowComments: p?.rowComments ?? {},
     rowColors: p?.rowColors ?? {},
+    supplierAliasOverrides: p?.supplierAliasOverrides ?? {},
   }
 }
 
@@ -93,6 +94,8 @@ async function syncUndoToServer(current: Edits, target: Edits): Promise<boolean>
     results.push(applyEditOp('setRowComment', { key: k, value: target.rowComments[k] ?? null }))
   for (const k of diffKeys(current.rowColors, target.rowColors))
     results.push(applyEditOp('setRowColor', { key: k, value: target.rowColors[k] ?? null }))
+  for (const k of diffKeys(current.supplierAliasOverrides, target.supplierAliasOverrides))
+    results.push(applyEditOp('setSupplierAliasOverride', { key: k, value: target.supplierAliasOverrides[k] ?? null }))
   const oks = await Promise.all(results)
   return oks.every(Boolean)
 }
@@ -143,6 +146,7 @@ interface Ctx {
   setPlanOverride: (key: string, value: number | null) => void
   setRowComment: (key: string, value: string | null) => void
   setRowColor: (key: string, value: RowColor | null) => void
+  setSupplierAliasOverride: (key: string, value: SupplierAliasOverride | null) => void
   reset: () => void
   replaceAll: (e: Edits) => void
   undo: () => void
@@ -505,6 +509,19 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     applyEditOp('setProductLink', { key, value }).then(reportOpResult)
   }, [updateEdits, reportOpResult])
 
+  // "Для ЭТОГО ресторана iiko-алиас X на самом деле вот этот канонический
+  // поставщик" — key = "ресторан::iiko-алиас" (норм.), см.
+  // Edits.supplierAliasOverrides и supplierAliasFor. null — снять правку.
+  const setSupplierAliasOverride = useCallback((key: string, value: SupplierAliasOverride | null) => {
+    updateEdits((e) => {
+      const next = { ...e.supplierAliasOverrides }
+      if (value === null) delete next[key]
+      else next[key] = value
+      return { ...e, supplierAliasOverrides: next }
+    })
+    applyEditOp('setSupplierAliasOverride', { key, value }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
+
   // Ручная плановая цена (Справочники → Товары → «План») — key в той же
   // ключевой области, что и matching.planPairsByPack/planPairs (см.
   // resolveRowPlan). null — снять правку, вернуться к цене из матрицы.
@@ -556,6 +573,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       newVenues: e.newVenues ?? {},
       rowComments: e.rowComments ?? {},
       rowColors: e.rowColors ?? {},
+      supplierAliasOverrides: e.supplierAliasOverrides ?? {},
     }
     updateEdits(() => next)
     saveEdits(next).then(reportOpResult) // whole-blob PUT — Импорт is an explicit, deliberate replace-everything action
@@ -572,7 +590,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newVenues).length +
     Object.keys(edits.rowComments).length +
-    Object.keys(edits.rowColors).length
+    Object.keys(edits.rowColors).length +
+    Object.keys(edits.supplierAliasOverrides).length
 
   const restaurants = useMemo(
     () => withNewVenues(applyVenueOverrides(parsed.restaurants, edits.venueOverrides), edits),
@@ -587,7 +606,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride, setRowComment, setRowColor,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride, setRowComment, setRowColor, setSupplierAliasOverride,
     reset, replaceAll, undo, canUndo,
     noMatrixTest, setNoMatrixTest,
     saveError,

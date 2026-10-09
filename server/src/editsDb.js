@@ -46,13 +46,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS plan_overrides    (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS row_comments      (org_id TEXT NOT NULL, key TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS row_colors        (org_id TEXT NOT NULL, key TEXT NOT NULL, color TEXT NOT NULL, PRIMARY KEY (org_id, key));
+  CREATE TABLE IF NOT EXISTS supplier_alias_overrides (org_id TEXT NOT NULL, key TEXT NOT NULL, target_supplier TEXT NOT NULL, raw_supplier TEXT NOT NULL, PRIMARY KEY (org_id, key));
 `)
 // Миграция: product_links изначально была без pack (ключ привязки стал
 // учитывать фасовку позже) — на уже существующих базах столбца может не
 // быть; ALTER падает, если он уже есть, это и есть проверка "уже сделано".
 try { db.exec("ALTER TABLE product_links ADD COLUMN pack TEXT NOT NULL DEFAULT ''") } catch { /* столбец уже есть */ }
 
-const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides', 'row_comments', 'row_colors']
+const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides', 'row_comments', 'row_colors', 'supplier_alias_overrides']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -89,7 +90,10 @@ export function getEditsForOrg(orgId) {
     db.prepare('SELECT key, text FROM row_comments WHERE org_id=?').all(orgId).map((r) => [r.key, r.text]))
   const rowColors = Object.fromEntries(
     db.prepare('SELECT key, color FROM row_colors WHERE org_id=?').all(orgId).map((r) => [r.key, r.color]))
-  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides, rowComments, rowColors }
+  const supplierAliasOverrides = Object.fromEntries(
+    db.prepare('SELECT key, target_supplier, raw_supplier FROM supplier_alias_overrides WHERE org_id=?').all(orgId)
+      .map((r) => [r.key, { targetSupplier: r.target_supplier, rawSupplier: r.raw_supplier }]))
+  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides, rowComments, rowColors, supplierAliasOverrides }
 }
 
 function hasAnyRows(orgId) {
@@ -260,6 +264,20 @@ export function setRowColor(orgId, key, value) {
   db.prepare('INSERT INTO row_colors (org_id, key, color) VALUES (?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET color=excluded.color').run(orgId, k, value)
 }
 
+/** value: { targetSupplier, rawSupplier } — "для этого ресторана iiko-алиас на самом деле вот этот канонический поставщик"; null — снять правку. */
+export function setSupplierAliasOverride(orgId, key, value) {
+  const k = str(key)
+  if (!k) return
+  if (value === null || value === undefined) { db.prepare('DELETE FROM supplier_alias_overrides WHERE org_id=? AND key=?').run(orgId, k); return }
+  const v = value && typeof value === 'object' ? value : {}
+  const targetSupplier = String(v.targetSupplier || '').trim()
+  if (!targetSupplier) { db.prepare('DELETE FROM supplier_alias_overrides WHERE org_id=? AND key=?').run(orgId, k); return }
+  db.prepare(`
+    INSERT INTO supplier_alias_overrides (org_id, key, target_supplier, raw_supplier) VALUES (?,?,?,?)
+    ON CONFLICT(org_id, key) DO UPDATE SET target_supplier=excluded.target_supplier, raw_supplier=excluded.raw_supplier
+  `).run(orgId, k, targetSupplier, String(v.rawSupplier || ''))
+}
+
 // e's fields are whatever JSON the client sent ("Импорт" uploads a file
 // verbatim) — Object.entries()/keys() on a non-object (a string, an array)
 // silently iterates its indices/characters instead of throwing, which used
@@ -327,6 +345,13 @@ export function replaceAllEdits(orgId, e) {
     for (const [key, color] of Object.entries(plainObject(edits.rowColors))) {
       const k = str(key); if (!k || !VALID_ROW_COLORS.has(color)) continue
       db.prepare('INSERT INTO row_colors (org_id, key, color) VALUES (?,?,?)').run(orgId, k, color)
+    }
+    for (const [key, vRaw] of Object.entries(plainObject(edits.supplierAliasOverrides))) {
+      const k = str(key); if (!k) continue
+      const v = plainObject(vRaw)
+      const targetSupplier = String(v.targetSupplier || '').trim(); if (!targetSupplier) continue
+      db.prepare('INSERT INTO supplier_alias_overrides (org_id, key, target_supplier, raw_supplier) VALUES (?,?,?,?)')
+        .run(orgId, k, targetSupplier, String(v.rawSupplier || ''))
     }
   })
 }
