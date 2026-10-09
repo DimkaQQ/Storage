@@ -1,12 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, EMPTY_MATCHING, Edits, EMPTY_EDITS, Parsed, Row, RowColor, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
-// Локальный флаг устройства (не серверный) — «тестовый режим без матрицы».
-// Специально не в edits/на сервере: это не правка данных, а просто способ
-// временно посмотреть на интерфейс так, будто матрицу ещё не загружали.
-const NO_MATRIX_KEY = 'pricecheck-no-matrix-test'
 
 function normalize(p: any): Edits {
   return {
@@ -147,9 +143,6 @@ interface Ctx {
   replaceAll: (e: Edits) => void
   undo: () => void
   canUndo: boolean
-  // тестовый режим «без матрицы» — только на этом устройстве, не на сервере
-  noMatrixTest: boolean
-  setNoMatrixTest: (v: boolean) => void
   // не null — последняя правка не подтвердилась сервером (см. reportOpResult)
   saveError: string | null
 }
@@ -188,13 +181,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const reportOpResult = useCallback((ok: boolean) => {
     setSaveError(ok ? null : 'Не удалось сохранить изменение на сервере — проверьте соединение. Локально оно применилось, но может потеряться на другом устройстве.')
-  }, [])
-  const [noMatrixTest, setNoMatrixTestState] = useState<boolean>(() => {
-    try { return localStorage.getItem(NO_MATRIX_KEY) === '1' } catch { return false }
-  })
-  const setNoMatrixTest = useCallback((v: boolean) => {
-    setNoMatrixTestState(v)
-    try { localStorage.setItem(NO_MATRIX_KEY, v ? '1' : '0') } catch { /* ignore */ }
   }, [])
 
   // Every mutation goes through here instead of setEdits directly, so each
@@ -376,14 +362,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   // Матрица версионирована по периодам так же, как факты — цены реально
   // отличаются месяц к месяцу, так что план всегда должен браться из
-  // матрицы ТОГО ЖЕ периода, что и просматриваемые факты. В тестовом режиме
-  // (noMatrixTest) матрицу подменяем на пустую везде, где она используется —
-  // «Проверка цен», Справочники и т.д. видят её через этот же matching.
-  // backendMatching (синк с Google-таблицей) побеждает вшитую bundledMatching,
-  // когда для этого периода она реально есть.
+  // матрицы ТОГО ЖЕ периода, что и просматриваемые факты. backendMatching
+  // (синк с Google-таблицей) побеждает вшитую bundledMatching, когда для
+  // этого периода она реально есть.
   const matching = useMemo(
-    () => (noMatrixTest ? EMPTY_MATCHING : backendMatching ?? bundledMatching(periodKey)),
-    [periodKey, noMatrixTest, backendMatching],
+    () => backendMatching ?? bundledMatching(periodKey),
+    [periodKey, backendMatching],
   )
   // Матрица не привязана к периоду — реально синканная (backendMatching)
   // всегда в ходу, какой бы период ни смотрели. "Устарела" только в одном
@@ -589,7 +573,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride, setRowComment, setRowColor,
     reset, replaceAll, undo, canUndo,
-    noMatrixTest, setNoMatrixTest,
     saveError,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>

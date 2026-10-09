@@ -51,7 +51,7 @@ export default function App() {
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
   const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
-  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, noMatrixTest, matchingIsStale, saveError } = useEdits()
+  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
@@ -139,12 +139,7 @@ export default function App() {
             как и у самой шапки приложения — без вычисления отступов. */}
         <div className="flex h-full min-w-0 flex-1 flex-col ml-64">
           <header className="shrink-0 border-b border-ink-700/50 bg-ink-950">
-            {noMatrixTest && (
-              <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
-                Тестовый режим: матрица отключена — везде как будто только что загружен отчёт iiko, без сопоставления. Выключить — в Справочниках.
-              </div>
-            )}
-            {!noMatrixTest && matchingIsStale && (
+            {matchingIsStale && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
                 Матрица план-цен ещё не синхронизирована с Google-таблицей — показан встроенный демо-набор. Синхронизируйте в Настройки iiko → Матрица.
               </div>

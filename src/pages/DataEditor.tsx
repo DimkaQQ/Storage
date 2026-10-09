@@ -17,7 +17,6 @@ export default function DataEditor() {
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey,
-    noMatrixTest, setNoMatrixTest,
   } = useEdits()
   // Подсказки автопоиска (Компании/Товары) должны предлагать то, что уже
   // реально известно, даже когда включён тестовый режим "без матрицы" —
@@ -530,16 +529,6 @@ export default function DataEditor() {
         </div>
       </div>
 
-      {/* тестовый режим — матрицу подменяем на пустую, чтобы всё выглядело
-          как сразу после загрузки отчёта iiko, без единого сопоставления */}
-      <div className={`card flex flex-wrap items-center gap-3 p-3.5 transition-colors ${noMatrixTest ? 'border-warn/40 bg-warn/[0.06]' : ''}`}>
-        <ToggleSwitch checked={noMatrixTest} onChange={setNoMatrixTest} />
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span className={`text-sm font-medium ${noMatrixTest ? 'text-warn' : 'text-slate-300'}`}>Тестовый режим: без матрицы</span>
-          <InfoTip text="Показывает всё приложение так, будто только что загрузили отчёт из iiko, а матрицу (план-цены, товары) ещё не подключали — везде пусто, список Товаров пуст, все закупки — в «Нет в матрице». На реальные данные не влияет — переключатель хранится только в этом браузере, выключите его, чтобы вернуть матрицу как было." />
-        </div>
-      </div>
-
       <Section title={undefined} right={undefined}>
         {/* Точка — общий фильтр для Компаний и Товаров (в т.ч. «Нет в
             матрице»); выбор здесь не трогает тестовый режим "без матрицы"
@@ -548,14 +537,17 @@ export default function DataEditor() {
         {tab !== 'venues' && (
           <div className="mb-3 flex items-center gap-2">
             <IPin width={14} height={14} className="shrink-0 text-slate-500" />
-            <select
-              value={editorRestaurant}
-              onChange={(e) => { setEditorRestaurant(e.target.value); setQ(''); setLimit(60) }}
-              className="rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
-            >
-              <option value="">Все точки</option>
-              {restaurants.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
-            </select>
+            <div className="relative">
+              <select
+                value={editorRestaurant}
+                onChange={(e) => { setEditorRestaurant(e.target.value); setQ(''); setLimit(60) }}
+                className="appearance-none rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 pr-8 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+              >
+                <option value="">Все точки</option>
+                {restaurants.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+              </select>
+              <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-slate-500" />
+            </div>
             {editorRestaurant && tab === 'suppliers' && (
               <span className="text-xs text-slate-500">Клик по компании — её товары и «нет в матрице» именно для этой точки.</span>
             )}
@@ -662,33 +654,6 @@ export default function DataEditor() {
           </div>
         )}
 
-        {tab === 'venues' && (
-          <p className="mb-3 text-xs text-slate-500">
-            Если город, бренд, юрлицо или категория определились неверно — поправьте здесь. Изменение сразу применится
-            ко всем отчётам по этой точке.
-          </p>
-        )}
-
-        {tab === 'suppliers' && (
-          <p className="mb-3 text-xs text-slate-500">
-            Список формируется из закупок в iiko за выбранный период. «Нет в справочнике» — этой компании нет в вашей
-            матрице ни под каким известным написанием; «Сохранить» ничего не меняет в сопоставлении, просто убирает
-            позицию из списка новых, чтобы не проверять её повторно каждый раз. «Вернуть» отменяет эту отметку.
-          </p>
-        )}
-
-        {tab === 'products' && (
-          <p className="mb-3 text-xs text-slate-500">
-            Список строится из самой матрицы (лист «Сырьё F») — одна строка на ресторан+поставщика+товар (+фасовку,
-            если матрица прайсует её отдельно). «Название из матрицы» — как в самой матрице, здесь не редактируется:
-            поправить описание (и план-цену — её теперь тут вообще нет) можно только в самой Google-таблице.
-            «Название из iiko» — что реально подтягивается к этой строке (за оба периода, что есть в приложении,
-            не только просматриваемый сейчас) — можно вписать/поправить и сами (одна компания может привезти два
-            разных товара под одним и тем же названием в iiko — разносить их можно только явной привязкой, не
-            текстом). Значок «+N» — под этим же товаром матрицы встречаются и другие написания в iiko. Закупки,
-            для которых ничего не подтянулось само и привязки ещё нет — ниже, в «Нет в матрице».
-          </p>
-        )}
 
         {tab === 'products' && unmatchedRows.length > 0 && (
           <div className="mb-4 overflow-hidden rounded-xl border border-purple-400/30 bg-purple-400/[0.04]">
@@ -1054,17 +1019,3 @@ function ValueChecklist({ values, excluded, onChange }: {
   )
 }
 
-/** Переключатель-пилюля под общий стиль — для настроек уровня "вкл/выкл всё". */
-function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${checked ? 'bg-warn' : 'bg-ink-700'}`}
-    >
-      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${checked ? 'translate-x-[18px]' : 'translate-x-1'}`} />
-    </button>
-  )
-}
