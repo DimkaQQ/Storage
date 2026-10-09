@@ -452,10 +452,21 @@ async function iikoServerFacts(settings, period) {
     // раньше: голое "кг" без фасовки лучше, чем сломанный синк целиком.
     try {
       const assortment = await fetchAssortmentFacts(settings, period)
+      // Свежие овощи/фрукты/ягоды/зелень — убираем целиком по категории в
+      // номенклатуре (см. PRODUCE_CATEGORIES выше), до слияния с
+      // ассортиментом, чтобы не попали ни через OLAP, ни через накладные.
+      if (assortment.produceNames?.size) {
+        const before = facts.length
+        facts = facts.filter((f) => !assortment.produceNames.has(norm(f.product)))
+        stats.excludedProduce = before - facts.length
+      }
       if (assortment.facts.length) {
         facts = facts.filter((f) => !assortment.names.has(norm(f.product)))
-        facts.push(...assortment.facts)
-        stats.assortmentFacts = assortment.facts.length
+        const assortmentFacts = assortment.produceNames?.size
+          ? assortment.facts.filter((f) => !assortment.produceNames.has(norm(f.product)))
+          : assortment.facts
+        facts.push(...assortmentFacts)
+        stats.assortmentFacts = assortmentFacts.length
       }
     } catch (e) {
       stats.assortmentError = String(e.message || e)
@@ -579,6 +590,18 @@ async function streamExtractBlocks(res, openTag, closeTag, onBlock) {
  * доказанно работает (см. iikoServerProductByNum), и фильтруем сами,
  * потоково, без буферизации всего ответа целиком.
  */
+// Живой тест (справочник → api/products → <productCategory>): у реального
+// сырья "Картофель св" (не банкетного блюда с похожим названием — та же
+// категория встречается и у DISH-товаров "Фуршет"/"Кухня", разные
+// productCategory у разных productType) значение ровно такое. Клиент сам
+// убирает свежие овощи/фрукты из СВОЕГО отчёта перед сверкой (цена "то
+// взлетает, то падает" день в день — сверять с планом бессмысленно) —
+// делаем то же самое здесь, по объективному полю категории в самой
+// номенклатуре, а не по жёсткому списку поставщиков (см.
+// EXCLUDED_PRODUCE_SUPPLIERS в src/lib/data.ts — тот список оставлен как
+// есть, просто этот фильтр шире и не требует ручного обновления).
+const PRODUCE_CATEGORIES = new Set(['Овощи/Зелень/Фрукты/Ягоды'].map(norm))
+
 export async function fetchAssortmentIndex(settings) {
   const { base, token } = await iikoServerAuth(settings)
   try {
@@ -586,7 +609,14 @@ export async function fetchAssortmentIndex(settings) {
     if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
     const byId = new Map()
     const byName = new Map()
+    const produceNames = new Set()
     await streamExtractBlocks(res, '<productDto>', '</productDto>', (seg) => {
+      const rawName = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
+      if (!rawName) return
+      const name = unescapeXml(rawName)
+      const category = unescapeXml(/<productCategory>([^<]*)<\/productCategory>/.exec(seg)?.[1] || '')
+      if (PRODUCE_CATEGORIES.has(norm(category))) produceNames.add(norm(name))
+
       const containers = new Map()
       const containerRe = /<container>([\s\S]*?)<\/container>/g
       let cm
@@ -597,9 +627,6 @@ export async function fetchAssortmentIndex(settings) {
         if (cid && cname) containers.set(cid, unescapeXml(cname))
       }
       if (!containers.size) return // обычный товар без тар — не наш случай вовсе
-      const rawName = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
-      if (!rawName) return
-      const name = unescapeXml(rawName)
       const id = /<id>([^<]*)<\/id>/.exec(seg)?.[1]
       if (!id) return
       const mainUnit = unescapeXml(/<mainUnit>([^<]*)<\/mainUnit>/.exec(seg)?.[1] || '')
@@ -609,7 +636,7 @@ export async function fetchAssortmentIndex(settings) {
       arr.push(id)
       byName.set(key, arr)
     })
-    return { byId, byName }
+    return { byId, byName, produceNames }
   } finally {
     await iikoServerLogout(base, token)
   }
@@ -648,7 +675,7 @@ function extractAssortmentItems(docXml, assortmentIds) {
  */
 async function fetchAssortmentFacts(settings, period) {
   const index = await fetchAssortmentIndex(settings)
-  if (!index.byId.size) return { facts: [], names: new Set() }
+  if (!index.byId.size) return { facts: [], names: new Set(), produceNames: index.produceNames }
   const { base, token } = await iikoServerAuth(settings)
   try {
     const [suppliersXml, storesXml] = await Promise.all([
@@ -690,7 +717,7 @@ async function fetchAssortmentFacts(settings, period) {
         names.add(norm(info.name))
       }
     })
-    return { facts: [...byKey.values()], names }
+    return { facts: [...byKey.values()], names, produceNames: index.produceNames }
   } finally {
     await iikoServerLogout(base, token)
   }
