@@ -69,9 +69,55 @@ export const norm = (s: string) => String(s || '').replace(/\s+/g, ' ').trim().t
  * рабочим: у живых (синканных через sheets.js) данных плоского ключа
  * просто не существует, так что для них фолбэк — no-op.
  */
+/**
+ * Убирает форму юрлица (ИП/ТОО) и кавычки — остаётся только содержательная
+ * часть названия, по которой и имеет смысл искать совпадение (см.
+ * fuzzySupplierMatch). "ИП \" Pelagia KZ \"" -> "pelagia kz".
+ */
+function coreSupplierText(s: string): string {
+  return norm(s).replace(/["«»']/g, '').replace(/^(ип|тоо|ao|ip|too)\s+/, '').trim()
+}
+
+// matching.supplierAlias хранит каноническое "полное" название поставщика
+// (их же колонка C — "Название поставщика основного") — одно и то же
+// физическое юрлицо иногда ведёт закупки под НЕСКОЛЬКИМИ разными именами
+// (живой случай: "Семь морей ТОО Семь морей Алматы Своя коптильня / ИП
+// PELAGIA KZ" — для одних точек в матрице записан iiko-алиас "Семь морей",
+// для других — "Pelagia KZ", сама канонiческая строка содержит оба).
+// Кэш различных канонических значений — тот же принцип, что у
+// designatedIndexCache ниже: строится один раз на объект matching
+// (неизменяемый), а не на каждый вызов fuzzySupplierMatch.
+const canonicalValuesCache = new WeakMap<MatchingTable, string[]>()
+function canonicalValues(matching: MatchingTable): string[] {
+  const cached = canonicalValuesCache.get(matching)
+  if (cached) return cached
+  const result = [...new Set(Object.values(matching.supplierAlias))]
+  canonicalValuesCache.set(matching, result)
+  return result
+}
+
+/**
+ * Обратный поиск — когда точного совпадения iiko-алиаса нет (см.
+ * supplierAliasFor/anySupplierAlias выше): ищем содержательную часть
+ * raw-названия (без ИП/ТОО/кавычек) ВНУТРИ самих канонических строк —
+ * если закупка пришла от "Pelagia KZ", а в матрице для этого ресторана
+ * записан только алиас "Семь морей", каноническое название всё равно
+ * содержит оба имени, значит они и есть один и тот же поставщик.
+ * Совпадение засчитывается только если оно ОДНОЗНАЧНО (ровно один канон
+ * подошёл) — та же осторожность, что и везде в этом файле: лучше оставить
+ * "не сопоставлено", чем угадать неверно.
+ */
+function fuzzySupplierMatch(matching: MatchingTable, rawSupplier: string): string | null {
+  const core = coreSupplierText(rawSupplier)
+  if (core.length < 3) return null // слишком короткий кусок — риск случайных совпадений
+  const matches = canonicalValues(matching).filter((c) => norm(c).includes(core))
+  return matches.length === 1 ? matches[0] : null
+}
+
 export function supplierAliasFor(matching: MatchingTable, restaurant: string, rawSupplier: string): string | null {
   return matching.supplierAlias[`${norm(restaurant)}::${norm(rawSupplier)}`]
     ?? matching.supplierAlias[norm(rawSupplier)]
+    ?? fuzzySupplierMatch(matching, rawSupplier)
     ?? null
 }
 
@@ -90,7 +136,7 @@ export function anySupplierAlias(matching: MatchingTable, rawSupplier: string): 
   if (matching.supplierAlias[flat] != null) return matching.supplierAlias[flat]
   const suffix = `::${flat}`
   for (const k in matching.supplierAlias) if (k.endsWith(suffix)) return matching.supplierAlias[k]
-  return null
+  return fuzzySupplierMatch(matching, rawSupplier)
 }
 
 /**
