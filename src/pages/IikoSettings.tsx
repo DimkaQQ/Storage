@@ -70,6 +70,7 @@ export default function IikoSettings() {
   const [sampleResult, setSampleResult] = useState<{ ok: boolean; rows?: unknown[]; message?: string } | null>(null)
   const [sampleSearch, setSampleSearch] = useState('ягода')
   const [samplePeriod, setSamplePeriod] = useState('')
+  const [sampleAllTypes, setSampleAllTypes] = useState(false)
   const [productLoading, setProductLoading] = useState(false)
   const [productResult, setProductResult] = useState<{ ok: boolean; xml?: string; message?: string; errorName?: string; errorStack?: string[] } | null>(null)
   const [storesLoading, setStoresLoading] = useState(false)
@@ -133,7 +134,7 @@ export default function IikoSettings() {
   // и показываем сырой JSON — нужное поле видно глазами.
   const showSample = async () => {
     setSampleLoading(true); setSampleResult(null)
-    setSampleResult(await fetchOlapSample(sampleSearch, samplePeriod))
+    setSampleResult(await fetchOlapSample(sampleSearch, samplePeriod, sampleAllTypes))
     setSampleLoading(false)
   }
 
@@ -420,6 +421,10 @@ export default function IikoSettings() {
                 className="w-28 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
               <input value={samplePeriod} onChange={(e) => setSamplePeriod(e.target.value)} placeholder="2026-08" title="Период YYYY-MM — по умолчанию текущий/прошлый месяц из настроек"
                 className="w-24 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+              <label className="flex items-center gap-1.5 text-xs text-slate-400" title="Обычно смотрим только накладные (TransactionType=INVOICE) — включите, если накладная по отчёту iiko есть, а в обычной проверке не находится, чтобы увидеть, не проведена ли она другим типом операции">
+                <input type="checkbox" checked={sampleAllTypes} onChange={(e) => setSampleAllTypes(e.target.checked)} className="accent-brand-500" />
+                все типы операций
+              </label>
               <button onClick={showSample} disabled={sampleLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {sampleLoading ? 'Спрашиваю…' : 'Проверить сырые поля'}
               </button>

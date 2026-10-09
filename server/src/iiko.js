@@ -717,11 +717,16 @@ export async function iikoServerAssortmentDebug(settings, period, productFilter)
  * синке (fetchFacts) — только через /api/iiko/olap-sample (кнопка в
  * Настройках iiko).
  */
-export async function iikoServerOlapSample(settings, period, { search = '', extraFields = [] } = {}) {
+export async function iikoServerOlapSample(settings, period, { search = '', extraFields = [], allTypes = false } = {}) {
   const { base, token } = await iikoServerAuth(settings)
   try {
     const { from, to } = periodRange(period)
-    const fields = ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'Comment', ...extraFields]
+    // allTypes — диагностика "пропавшей накладной" (см. комментарий у
+    // iikoServerFacts про TransactionType=INVOICE): без этого фильтра не
+    // увидели бы приходы, проведённые как другой тип транзакции (например,
+    // внутреннее перемещение/акт вместо обычной накладной) — добавляем
+    // TransactionType в сами колонки, чтобы увидеть тип каждой строки глазами.
+    const fields = ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'Comment', ...(allTypes ? ['TransactionType'] : []), ...extraFields]
     const body = {
       reportType: 'TRANSACTIONS',
       buildSummary: false,
@@ -729,7 +734,7 @@ export async function iikoServerOlapSample(settings, period, { search = '', extr
       aggregateFields: ['Amount', 'Sum.Incoming'],
       filters: {
         'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
-        TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] },
+        ...(allTypes ? {} : { TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] } }),
       },
     }
     const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, {

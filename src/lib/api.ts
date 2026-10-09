@@ -99,9 +99,9 @@ export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ o
 }
 
 /** «Проверить сырые поля» — несколько строк отчёта с расширенным набором полей, похожих на `search`, для поиска того самого поля с фасовкой/вкусом глазами. period — "YYYY-MM", по умолчанию решает сервер (текущий/прошлый месяц из настроек). */
-export async function fetchOlapSample(search = 'ягода', period = ''): Promise<{ ok: boolean; rows?: unknown[]; message?: string }> {
+export async function fetchOlapSample(search = 'ягода', period = '', allTypes = false): Promise<{ ok: boolean; rows?: unknown[]; message?: string }> {
   try {
-    const q = new URLSearchParams({ search, ...(period ? { period } : {}) })
+    const q = new URLSearchParams({ search, ...(period ? { period } : {}), ...(allTypes ? { allTypes: '1' } : {}) })
     const r = await fetch(`/api/iiko/olap-sample?${q}`, { headers: authHeaders() })
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }

@@ -300,7 +300,8 @@ app.get('/api/iiko/olap-sample', requireAuth, requireAdmin, async (req, res) => 
     const search = String(req.query.search || 'ягода')
     const extraFields = String(req.query.fields || 'Product.Num,Product.Tag.Name,Product.Tags.NamesCombo,Document,OrderNum')
       .split(',').map((f) => f.trim()).filter(Boolean)
-    res.json({ ok: true, rows: await iikoServerOlapSample(s, period, { search, extraFields }) })
+    const allTypes = req.query.allTypes === '1'
+    res.json({ ok: true, rows: await iikoServerOlapSample(s, period, { search, extraFields, allTypes }) })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
