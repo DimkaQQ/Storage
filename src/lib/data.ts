@@ -1451,9 +1451,17 @@ export function byRestaurant(rows: Row[]) {
  *   этой точки): сравнивать не с чем — вся фактическая сумма вне плана,
  *   возвращаем её целиком.
  * — 'ok' / 'notPurchased': по матрице, разницы нет.
+ *
+ * isTotalRow ("ИП Коженков всего" и т.п., см. parseDataset) исключаем
+ * целиком — это вероятная строка-итог из исходного отчёта iiko, которая
+ * задваивает уже посчитанные отдельные закупки того же поставщика. В
+ * таблице её по-прежнему показываем (приглушённо, с пометкой — вдруг
+ * сумма всё же настоящая, решать человеку), но в АВТОМАТИЧЕСКУЮ денежную
+ * сумму на Обзоре её включать нельзя — иначе при наличии таких строк
+ * итог молча задваивается.
  */
 export function mismatchMoney(r: Row): number {
-  if (r.unit == null) return 0
+  if (r.unit == null || r.isTotalRow) return 0
   const fact = r.qty * r.unit
   if (r.status === 'nomatrix') return fact
   if (r.status === 'wrongSupplier') return r.designatedPlan != null ? fact - r.qty * r.designatedPlan : 0
