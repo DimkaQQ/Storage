@@ -21,8 +21,9 @@ export const C = {
 
 export const SERIES = ['#5b8bff', '#2fd2a5', '#ffb547', '#a889ff', '#ff5d73', '#38bdf8', '#f472b6', '#84cc16']
 
-export function ChartTip({ active, payload, label }: any) {
+export function ChartTip({ active, payload, label, valueFormatter }: any) {
   if (!active || !payload || !payload.length) return null
+  const fmtValue = valueFormatter ?? ((v: number) => v.toLocaleString('ru-RU'))
   return (
     <div className="rounded-lg border border-ink-600 bg-ink-850/95 px-3 py-2 shadow-xl backdrop-blur">
       {label != null && <div className="mb-1 text-xs font-semibold text-slate-200">{label}</div>}
@@ -30,7 +31,7 @@ export function ChartTip({ active, payload, label }: any) {
         <div key={i} className="flex items-center gap-2 text-xs">
           <span className="h-2 w-2 rounded-full" style={{ background: p.color || p.fill }} />
           <span className="text-slate-400">{p.name}</span>
-          <span className="ml-auto font-semibold tabnum text-slate-100">{p.value.toLocaleString('ru-RU')}</span>
+          <span className="ml-auto font-semibold tabnum text-slate-100">{fmtValue(p.value)}</span>
         </div>
       ))}
     </div>

@@ -238,6 +238,7 @@ export interface Row {
   diffPct: number | null   // (unit - plan)/plan — informational only, no overpay/saving concept
   status: Status
   designatedSuppliers: string[]  // only set for status === 'wrongSupplier' — who it should have been bought from
+  designatedPlan: number | null  // план-цена (за единицу) того самого назначенного поставщика из designatedSuppliers, когда она известна — только для status === 'wrongSupplier'; r.plan для таких строк всегда null (см. resolveRowPlan), а эта цена нужна отдельно для денежной разницы на Обзоре (см. mismatchMoney)
   note: string | null  // их комментарий к этой закупке в iiko, либо пояснение "нет плановой цены" для unpriced-совпадений
   availableFasovki: FasovkaOption[]  // прайсованные варианты фасовки у этого же поставщика, ни один не совпал с фактом — предложить выбрать вручную (см. packFixKey)
   packFixKey: string | null  // ключ для setPackAlias — есть, только когда availableFasovki непусто
@@ -1144,6 +1145,21 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // кандидатов, и для "заказ не по матрице" — сколько должны были
     // заплатить у назначенного поставщика, если цена известна. Не
     // взаимоисключающие — можно показать сразу несколько.
+    // designatedPlanPrice — цена (за единицу) первого же назначенного
+    // поставщика, для которого она известна — отдельно от текста подсказки
+    // ниже (та показывает ВСЕХ назначенных, этот — одно число для денежной
+    // разницы на Обзоре, см. mismatchMoney). Считаем независимо от b.comment
+    // (их же комментарий из iiko ниже может подменить текст note целиком, но
+    // это не должно скрывать само число для денежного KPI).
+    let designatedPlanPrice: number | null = null
+    if (status === 'wrongSupplier' && designatedNorm.length > 0) {
+      const restaurant = norm(b.restaurant), product0 = resolvedProduct, pack = resolvedPack
+      for (const s of designatedNorm) {
+        const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
+        const price = byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`]
+        if (price != null) { designatedPlanPrice = price; break }
+      }
+    }
     const parts: string[] = []
     if (b.isTotalRow) parts.push('Похоже на строку "Итого" из исходного отчёта, а не отдельную закупку — сумма может задваивать уже посчитанные строки, сверяйте с осторожностью.')
     if (b.comment) parts.push(b.comment)
@@ -1180,7 +1196,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, pack: b.pack, qty: b.qty, unit: b.unit, plan,
-      diffPct, status, designatedSuppliers, note, availableFasovki, packFixKey, matchedKey, isTotalRow: b.isTotalRow,
+      diffPct, status, designatedSuppliers, designatedPlan: designatedPlanPrice, note, availableFasovki, packFixKey, matchedKey, isTotalRow: b.isTotalRow,
       rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null,
     }
   })
@@ -1216,7 +1232,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       // настоящими совпадениями — "Позиций в срезе"/"100%" считали и то, и
       // то вместе. notPurchased — отдельный статус специально для этого,
       // summarize() их и так не учитывает (там отдельная отсечка по unit).
-      diffPct: null, status: 'notPurchased', designatedSuppliers: [], note: null, availableFasovki: [], packFixKey: null, matchedKey: key, isTotalRow: false,
+      diffPct: null, status: 'notPurchased', designatedSuppliers: [], designatedPlan: null, note: null, availableFasovki: [], packFixKey: null, matchedKey: key, isTotalRow: false,
       // Не настоящая закупка (просто "вот что прайсовано, но не купили в
       // этом периоде") — комментарий/цвет тут не про что вешать, оставляем
       // null. rowKey всё равно даём (по ключу матрицы) — на случай если
@@ -1420,6 +1436,28 @@ export function summarize(rows: Row[]): Summary {
 
 export function byRestaurant(rows: Row[]) {
   return groupBy(rows, (r) => r.restaurant)
+}
+
+/**
+ * Денежная разница между тем, сколько реально заплатили за позицию,
+ * купленную не по матрице, и сколько заплатили бы по матрице за то же
+ * количество (п. 2.2 Приложения №1 к Договору — "Доработка дашборда").
+ *
+ * — 'wrongSupplier' (купили у поставщика, который не назначен матрицей):
+ *   разница = факт минус план назначенного поставщика, если его цена
+ *   известна (designatedPlan); если неизвестна — считать разницу не из
+ *   чего, возвращаем 0 (не превращаем "нет цены" в фиктивную переплату).
+ * — 'nomatrix' (товара нет в матрице вовсе ни у одного поставщика для
+ *   этой точки): сравнивать не с чем — вся фактическая сумма вне плана,
+ *   возвращаем её целиком.
+ * — 'ok' / 'notPurchased': по матрице, разницы нет.
+ */
+export function mismatchMoney(r: Row): number {
+  if (r.unit == null) return 0
+  const fact = r.qty * r.unit
+  if (r.status === 'nomatrix') return fact
+  if (r.status === 'wrongSupplier') return r.designatedPlan != null ? fact - r.qty * r.designatedPlan : 0
+  return 0
 }
 
 /** Groups rows by an arbitrary key and summarizes each group. */

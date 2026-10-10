@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell,
   PieChart, Pie,
 } from 'recharts'
-import { Row, summarize, byRestaurant, fmt, pct, STATUS_META, Status } from '../lib/data'
+import { Row, summarize, byRestaurant, fmt, money, pct, mismatchMoney, STATUS_META, Status } from '../lib/data'
 import StatCard from '../components/StatCard'
 import { Section } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
@@ -12,12 +12,16 @@ import { IScale, ICheck, IStore } from '../components/icons'
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
   const s = useMemo(() => summarize(rows), [rows])
 
+  // П. 2.2 Приложения №1 — разница в ₸ по каждому ресторану между фактом
+  // закупок не по матрице и тем, сколько заплатили бы по матрице за то же
+  // количество (mismatchMoney, см. lib/data.ts), а не количество позиций.
   const perRest = useMemo(
-    () => byRestaurant(rows).map((r) => ({ name: r.name, issues: r.summary.wrongSupplierCount + r.summary.noMatrixCount }))
-      .sort((a, b) => b.issues - a.issues)
-      .filter((r) => r.issues > 0),
+    () => byRestaurant(rows).map((r) => ({ name: r.name, mismatch: r.rows.reduce((sum, row) => sum + mismatchMoney(row), 0) }))
+      .sort((a, b) => b.mismatch - a.mismatch)
+      .filter((r) => r.mismatch > 0),
     [rows],
   )
+  const totalMismatch = useMemo(() => perRest.reduce((sum, r) => sum + r.mismatch, 0), [perRest])
 
   const statusData = useMemo(() => {
     const order: Status[] = ['ok', 'wrongSupplier', 'nomatrix']
@@ -45,7 +49,13 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
 
       {/* Charts */}
       <div className="grid grid-cols-3 gap-4">
-        <Section delay={240} title="Несостыковки по ресторанам" subtitle="Заказ не по матрице + нет в матрице, количество позиций" className="col-span-2">
+        <Section
+          delay={240}
+          title="Несостыковки по ресторанам"
+          subtitle="Переплата из-за закупок не по матрице, в ₸"
+          right={totalMismatch > 0 ? <span className="whitespace-nowrap rounded-lg bg-warn/10 px-3 py-1.5 text-sm font-semibold text-warn">Итого: {money(totalMismatch)}</span> : undefined}
+          className="col-span-2"
+        >
           {perRest.length === 0 ? (
             <div className="py-10 text-center text-sm text-slate-500">Несостыковок в выбранном срезе не найдено 🎉</div>
           ) : (
@@ -53,10 +63,10 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={perRest} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
                   <CartesianGrid horizontal={false} stroke={C.grid} />
-                  <XAxis type="number" allowDecimals={false} tick={{ fill: C.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <XAxis type="number" tick={{ fill: C.axis, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => fmt(v)} />
                   <YAxis type="category" dataKey="name" width={150} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} content={<ChartTip />} />
-                  <Bar dataKey="issues" name="Несостыковок" radius={[0, 4, 4, 0]} barSize={16} fill={C.warn} />
+                  <Tooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} content={<ChartTip valueFormatter={money} />} />
+                  <Bar dataKey="mismatch" name="Переплата" radius={[0, 4, 4, 0]} barSize={16} fill={C.warn} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
