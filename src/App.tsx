@@ -72,7 +72,13 @@ export default function App() {
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
   const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
-  const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
+  // Обзор — специально НЕ использует общий фильтр по городу/точкам (ниже
+  // передаём туда allRows, а не отфильтрованный rows): иначе переключение
+  // точки/города ради Обзора молча ломало то, что уже было выбрано на
+  // Проверке цен (общее состояние — одна и та же точка там и тут), и
+  // наоборот. Обзор всегда про всю сеть целиком, Проверка цен — про
+  // текущий выбор сверху.
+  const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users' && page !== 'dashboard'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
 
   return (
@@ -149,8 +155,11 @@ export default function App() {
               <div className="min-w-0">
                 <h1 className="text-lg font-bold text-white">{nav.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-slate-500">
-                  Период: <span className="text-slate-300">{period}</span> · Город:{' '}
-                  <span className="text-slate-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span>
+                  Период: <span className="text-slate-300">{period}</span>
+                  {page !== 'dashboard' && (
+                    <> · Город: <span className="text-slate-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span></>
+                  )}
+                  {page === 'dashboard' && <> · <span className="text-slate-300">вся сеть</span></>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -181,7 +190,7 @@ export default function App() {
             {visited.map((id) => (
               <div key={id} style={{ display: page === id ? 'block' : 'none' }} className={page === id ? 'animate-fade-in' : undefined}>
                 <Suspense fallback={<PageLoading />}>
-                  {id === 'dashboard' && <Dashboard rows={rows} onNav={(p) => goTo(p as PageId)} />}
+                  {id === 'dashboard' && <Dashboard rows={allRows} onNav={(p) => goTo(p as PageId)} />}
                   {id === 'pricecheck' && <PriceCheck rows={rows} />}
                   {id === 'data' && <DataEditor />}
                   {id === 'iiko' && <IikoSettings />}

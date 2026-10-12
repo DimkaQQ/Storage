@@ -1,42 +1,32 @@
 import { useMemo, useState } from 'react'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Cell,
-  PieChart, Pie,
-} from 'recharts'
-import { Row, summarize, byRestaurant, fmt, money, pct, mismatchMoney, STATUS_META, Status } from '../lib/data'
+import { PieChart, Pie, ResponsiveContainer, Tooltip, Cell } from 'recharts'
+import { Row, summarize, byRestaurant, fmt, money, pct, wrongSupplierFactPlan, STATUS_META, Status } from '../lib/data'
 import StatCard from '../components/StatCard'
 import { Section } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
-import { IScale, ICheck, IStore } from '../components/icons'
-
-type MoneyKind = 'all' | 'wrongSupplier' | 'nomatrix'
-const MONEY_KINDS: { id: MoneyKind; label: string; subtitle: string; color: string }[] = [
-  { id: 'all', label: 'Всё', subtitle: 'Переплата + незапланированные закупки, в ₸', color: C.warn },
-  { id: 'wrongSupplier', label: 'Не по матрице', subtitle: 'Переплата из-за закупок не у назначенного поставщика, в ₸', color: C.warn },
-  { id: 'nomatrix', label: 'Нет в матрице', subtitle: 'Незапланированные закупки — товара нет в матрице вовсе, в ₸', color: C.purple },
-]
+import { IScale, ICheck, IStore, IChevron } from '../components/icons'
 
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
   const s = useMemo(() => summarize(rows), [rows])
-  const [moneyKind, setMoneyKind] = useState<MoneyKind>('all')
-  const moneyKindMeta = MONEY_KINDS.find((k) => k.id === moneyKind)!
+  const [expanded, setExpanded] = useState<string | null>(null)
 
-  // П. 2.2 Приложения №1 — разница в ₸ по каждому ресторану. Два разных по
-  // смыслу источника (см. mismatchMoney в lib/data.ts): "не по матрице" —
-  // настоящая переплата сверх цены у верного поставщика; "нет в матрице" —
-  // просто незапланированный расход, сравнивать не с чем. Переключатель
-  // ниже даёт смотреть их отдельно или вместе (по умолчанию — вместе, как
-  // было раньше).
+  // П. 2.2 Приложения №1 — факт и план по каждому ресторану, только для
+  // "заказ не по матрице" (wrongSupplierFactPlan в lib/data.ts — "нет в
+  // матрице" сюда специально не идёт, там сравнивать не с чем, попросили
+  // не смешивать с настоящей переплатой).
   const perRest = useMemo(
-    () => byRestaurant(rows).map((r) => ({
-      name: r.name,
-      mismatch: r.rows.reduce((sum, row) => sum + mismatchMoney(row, moneyKind === 'all' ? undefined : moneyKind), 0),
-    }))
-      .sort((a, b) => b.mismatch - a.mismatch)
-      .filter((r) => r.mismatch > 0),
-    [rows, moneyKind],
+    () => byRestaurant(rows).map((r) => {
+      const { fact, plan } = wrongSupplierFactPlan(r.rows)
+      return { name: r.name, fact, plan, delta: fact - plan }
+    })
+      .filter((r) => r.fact > 0)
+      .sort((a, b) => b.delta - a.delta),
+    [rows],
   )
-  const totalMismatch = useMemo(() => perRest.reduce((sum, r) => sum + r.mismatch, 0), [perRest])
+  const totals = useMemo(
+    () => perRest.reduce((acc, r) => ({ fact: acc.fact + r.fact, plan: acc.plan + r.plan, delta: acc.delta + r.delta }), { fact: 0, plan: 0, delta: 0 }),
+    [perRest],
+  )
 
   const statusData = useMemo(() => {
     const order: Status[] = ['ok', 'wrongSupplier', 'nomatrix']
@@ -66,35 +56,53 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
       <div className="grid grid-cols-3 gap-4">
         <Section
           delay={240}
-          title="Несостыковки по ресторанам"
-          subtitle={moneyKindMeta.subtitle}
-          right={totalMismatch > 0 ? <span className="whitespace-nowrap rounded-lg bg-warn/10 px-3 py-1.5 text-sm font-semibold text-warn">Итого: {money(totalMismatch)}</span> : undefined}
+          title="Переплата не по матрице"
+          subtitle="Закупки у поставщика, которого не назначила матрица — сколько вышло и сколько должно было выйти"
           className="col-span-2"
         >
-          <div className="mb-3 flex flex-wrap gap-2">
-            {MONEY_KINDS.map((k) => (
-              <button
-                key={k.id}
-                onClick={() => setMoneyKind(k.id)}
-                className={`chip ${moneyKind === k.id ? 'border-brand-500 bg-brand-500/10 text-brand-300' : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}
-              >
-                {k.label}
-              </button>
-            ))}
+          <div className="mb-4 grid grid-cols-3 gap-3">
+            <div className="rounded-lg bg-ink-900/50 px-3 py-2.5">
+              <div className="text-[11px] text-slate-500">Вышло</div>
+              <div className="text-lg font-semibold text-slate-100 tabnum">{money(totals.fact)}</div>
+            </div>
+            <div className="rounded-lg bg-ink-900/50 px-3 py-2.5">
+              <div className="text-[11px] text-slate-500">Должно было выйти</div>
+              <div className="text-lg font-semibold text-slate-100 tabnum">{money(totals.plan)}</div>
+            </div>
+            <div className="rounded-lg bg-warn/10 px-3 py-2.5">
+              <div className="text-[11px] text-slate-500">Разница</div>
+              <div className="text-lg font-semibold text-warn tabnum">{money(totals.delta)}</div>
+            </div>
           </div>
+
           {perRest.length === 0 ? (
-            <div className="py-10 text-center text-sm text-slate-500">Несостыковок в выбранном срезе не найдено 🎉</div>
+            <div className="py-10 text-center text-sm text-slate-500">Переплат не найдено 🎉</div>
           ) : (
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={perRest} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
-                  <CartesianGrid horizontal={false} stroke={C.grid} />
-                  <XAxis type="number" tick={{ fill: C.axis, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => fmt(v)} />
-                  <YAxis type="category" dataKey="name" width={150} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} content={<ChartTip valueFormatter={money} />} />
-                  <Bar dataKey="mismatch" name={moneyKindMeta.label} radius={[0, 4, 4, 0]} barSize={16} fill={moneyKindMeta.color} />
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+              {perRest.map((r) => {
+                const isOpen = expanded === r.name
+                return (
+                  <div key={r.name} className="rounded-lg border border-ink-700/60">
+                    <button
+                      onClick={() => setExpanded((e) => (e === r.name ? null : r.name))}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-ink-800/40"
+                    >
+                      <span className="flex items-center gap-2 text-sm text-slate-200">
+                        <IChevron width={12} height={12} className={`text-slate-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                        {r.name}
+                      </span>
+                      <span className="text-sm font-semibold text-warn tabnum">{money(r.delta)}</span>
+                    </button>
+                    {isOpen && (
+                      <div className="grid grid-cols-3 gap-3 border-t border-ink-700/60 px-3 py-2.5 text-xs">
+                        <div><div className="text-slate-500">Вышло</div><div className="font-medium text-slate-200 tabnum">{money(r.fact)}</div></div>
+                        <div><div className="text-slate-500">Должно было выйти</div><div className="font-medium text-slate-200 tabnum">{money(r.plan)}</div></div>
+                        <div><div className="text-slate-500">Разница</div><div className="font-medium text-warn tabnum">{money(r.delta)}</div></div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </Section>

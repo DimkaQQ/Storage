@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmt, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor } from '../lib/data'
 import { useEdits } from '../lib/edits'
+import { syncMatrix } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
-import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck } from '../components/icons'
+import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, ISync } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
 type SupplierFilter = 'all' | 'new'
@@ -16,8 +17,23 @@ export default function DataEditor() {
     edits, editCount, rows, renameSupplier, setVenue,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, undo, canUndo,
-    suppliers: suppliersBase, restaurants, matching, periodKey,
+    suppliers: suppliersBase, restaurants, matching, periodKey, refreshMatrix,
   } = useEdits()
+  // "Обновить" — перечитать матрицу прямо из Google-таблицы (например,
+  // если там только что поправили название компании/товара), без захода в
+  // Настройки iiko. Дёргаем оба региона сразу — Астана может быть ещё не
+  // настроена (googleSheetId пуст), тогда её sync просто вернёт ok:false
+  // с понятным сообщением, это не ошибка, которую нужно показывать, если
+  // Алматы при этом обновилась нормально.
+  const [matrixSyncing, setMatrixSyncing] = useState(false)
+  const [matrixSyncMsg, setMatrixSyncMsg] = useState<string | null>(null)
+  const refreshFromMatrix = async () => {
+    setMatrixSyncing(true); setMatrixSyncMsg(null)
+    const [almaty, astana] = await Promise.all([syncMatrix('almaty'), syncMatrix('astana')])
+    await refreshMatrix()
+    setMatrixSyncing(false)
+    setMatrixSyncMsg(almaty.ok || astana.ok ? 'Обновлено' : (almaty.message || astana.message || 'Не удалось обновить'))
+  }
   // Подсказки автопоиска (Компании/Товары) должны предлагать то, что уже
   // реально известно, даже когда включён тестовый режим "без матрицы" —
   // там `matching` подменяется на пустую специально, чтобы показать
@@ -519,6 +535,15 @@ export default function DataEditor() {
         </div>
         <div className="flex items-center gap-2">
           {editCount > 0 && <span className="chip border-brand-500/40 bg-brand-500/10 text-brand-300">{fmt(editCount)} {plural(editCount, 'правка', 'правки', 'правок')}</span>}
+          {matrixSyncMsg && (
+            <span className={`chip ${matrixSyncMsg === 'Обновлено' ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>{matrixSyncMsg}</span>
+          )}
+          <button
+            onClick={refreshFromMatrix}
+            disabled={matrixSyncing}
+            title="Перечитать названия и цены прямо из Google-таблицы матрицы — если там только что что-то поправили"
+            className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750 disabled:opacity-60"
+          ><ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Обновляю…' : 'Обновить'}</button>
           <button
             onClick={undo}
             disabled={!canUndo}
