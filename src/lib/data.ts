@@ -1459,9 +1459,17 @@ export function byRestaurant(rows: Row[]) {
  * сумма всё же настоящая, решать человеку), но в АВТОМАТИЧЕСКУЮ денежную
  * сумму на Обзоре её включать нельзя — иначе при наличии таких строк
  * итог молча задваивается.
+ *
+ * kind — необязательный фильтр по одной из двух причин несостыковки, для
+ * переключателя на Обзоре (это разные по смыслу вещи: "не по матрице" —
+ * настоящая переплата сверх того, что заплатили бы у верного поставщика;
+ * "нет в матрице" — просто незапланированный расход, сравнивать не с
+ * чем, и это не обязательно переплата). Без kind — сумма обеих причин
+ * вместе, как было изначально.
  */
-export function mismatchMoney(r: Row): number {
+export function mismatchMoney(r: Row, kind?: 'wrongSupplier' | 'nomatrix'): number {
   if (r.unit == null || r.isTotalRow) return 0
+  if (kind && r.status !== kind) return 0
   const fact = r.qty * r.unit
   if (r.status === 'nomatrix') return fact
   if (r.status === 'wrongSupplier') return r.designatedPlan != null ? fact - r.qty * r.designatedPlan : 0
