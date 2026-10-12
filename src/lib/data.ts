@@ -403,6 +403,28 @@ interface Resolved {
 const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
 
 /**
+ * Назначенные цены, про которые ДОКАЗАНО (вручную, по описанию товара в
+ * самой матрице), что они на самом деле за кг, а не за «шт», хотя фасовка
+ * в матрице записана как «шт» — сравнивать их напрямую с фактической
+ * ценой за штуку нельзя, получается в разы завышенная "переплата".
+ *
+ * Конкретный случай (проверено 2026-10, матрица "Сырьё F"): "Колбаски в
+ * асс ШТ" у поставщика "Арбуз Фуд Сервис Групп" — в описании прямо
+ * написано "пачка 600гр 4233/пачка 8шт в пачке", то есть 4233/0.6=7055 —
+ * ровно та цена, что стоит в ячейке. Это цена за кг, которую кто-то
+ * случайно вписал в колонку для цены за штуку. Одна и та же ошибка,
+ * скопированная в матрицу сразу двух точек (Рене и Акку).
+ *
+ * Ключ — поставщик+товар (без ресторана/фасовки, см. места использования
+ * ниже) — пока это не поправят в самой Google-таблице, не даём этой цене
+ * искажать Вышло/Должно было выйти на Обзоре; сама строка в "Проверка
+ * цен" и её статус это не затрагивает, только денежный расчёт.
+ */
+const UNRELIABLE_DESIGNATED_PRICES = new Set(
+  ['арбуз фуд сервис групп разделка на филе есть::колбаски в асс шт'].map(norm),
+)
+
+/**
  * Resolves plan + status for one purchased line, entirely client-side:
  *   1. supplier resolution: a manual "тот же поставщик, что и..." merge
  *      wins over the bundled справочник alias, which wins over the raw name
@@ -1165,6 +1187,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       const restaurant = norm(b.restaurant), product0 = resolvedProduct, pack = resolvedPack
       const foundPrices = new Set<number>()
       for (const s of designatedNorm) {
+        if (UNRELIABLE_DESIGNATED_PRICES.has(`${s}::${product0}`)) continue
         const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
         const price = byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`]
         if (price != null) foundPrices.add(price)
