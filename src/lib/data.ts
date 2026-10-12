@@ -238,7 +238,7 @@ export interface Row {
   diffPct: number | null   // (unit - plan)/plan — informational only, no overpay/saving concept
   status: Status
   designatedSuppliers: string[]  // only set for status === 'wrongSupplier' — who it should have been bought from
-  designatedPlan: number | null  // план-цена (за единицу) того самого назначенного поставщика из designatedSuppliers, когда она известна — только для status === 'wrongSupplier'; r.plan для таких строк всегда null (см. resolveRowPlan), а эта цена нужна отдельно для денежной разницы на Обзоре (см. mismatchMoney)
+  designatedPlan: number | null  // план-цена (за единицу) назначенного поставщика из designatedSuppliers, когда она известна — средняя, если назначено несколько с разными ценами; только для status === 'wrongSupplier'; r.plan для таких строк всегда null (см. resolveRowPlan), а эта цена нужна отдельно для денежной разницы на Обзоре (см. wrongSupplierFactPlan)
   note: string | null  // их комментарий к этой закупке в iiko, либо пояснение "нет плановой цены" для unpriced-совпадений
   availableFasovki: FasovkaOption[]  // прайсованные варианты фасовки у этого же поставщика, ни один не совпал с фактом — предложить выбрать вручную (см. packFixKey)
   packFixKey: string | null  // ключ для setPackAlias — есть, только когда availableFasovki непусто
@@ -1155,15 +1155,11 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // двух-трёх как "верных" для одного товара) — и у них бывают РАЗНЫЕ
     // цены (живой случай: "Масло сливочное (Президент)" у трёх поставщиков
     // Рене прайсовано по 4200 / 8825 / 8700 ₸/кг — похоже на задвоенные
-    // позиции, но гадать, какая из них настоящая, нельзя). Раньше тут
-    // бралась ПЕРВАЯ попавшаяся цена — и в зависимости от случайного
-    // порядка перебора "должны были заплатить" получалось то в районе
-    // факта, то вдвое больше него, превращая реальную небольшую переплату
-    // в фиктивную огромную "недоплату" на Обзоре. Теперь: если у всех
-    // найденных кандидатов ОДНА и та же цена — используем её уверенно;
-    // если цены расходятся — не знаем, какая верная, оставляем null (та же
-    // строка просто не попадает в Вышло/Должно было выйти на Обзоре, как и
-    // при полностью неизвестной цене).
+    // позиции). Раньше тут бралась ПЕРВАЯ попавшаяся цена — и в зависимости
+    // от случайного порядка перебора "должны были заплатить" получалось то
+    // в районе факта, то вдвое больше него. Теперь берём среднюю по всем
+    // найденным ценам (без повторов одного и того же числа) — не идеально
+    // точно, зато не зависит от порядка перебора и не улетает в разы.
     let designatedPlanPrice: number | null = null
     if (status === 'wrongSupplier' && designatedNorm.length > 0) {
       const restaurant = norm(b.restaurant), product0 = resolvedProduct, pack = resolvedPack
@@ -1173,7 +1169,10 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
         const price = byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`]
         if (price != null) foundPrices.add(price)
       }
-      if (foundPrices.size === 1) designatedPlanPrice = [...foundPrices][0]
+      if (foundPrices.size > 0) {
+        const prices = [...foundPrices]
+        designatedPlanPrice = prices.reduce((sum, p) => sum + p, 0) / prices.length
+      }
     }
     const parts: string[] = []
     if (b.isTotalRow) parts.push('Похоже на строку "Итого" из исходного отчёта, а не отдельную закупку — сумма может задваивать уже посчитанные строки, сверяйте с осторожностью.')
@@ -1462,10 +1461,10 @@ export function byRestaurant(rows: Row[]) {
  * а значит и "план" там не план, а просто 0 — смешивать с настоящей
  * переплатой не нужно, попросили убрать такое смешение.
  *
- * Строка считается только когда designatedPlan известен (цена назначенного
- * поставщика есть в матрице) — иначе её вообще не с чем сравнивать, и она
- * не попадает ни в факт, ни в план здесь (не превращаем "нет цены" в
- * фиктивную переплату — то же решение, что было у старой mismatchMoney).
+ * Строка считается только когда designatedPlan известен (хотя бы у одного
+ * назначенного поставщика есть цена в матрице; если их несколько и цены
+ * разные — там уже средняя, см. computeRows) — иначе её вообще не с чем
+ * сравнивать, и она не попадает ни в факт, ни в план здесь.
  *
  * isTotalRow ("ИП Коженков всего" и т.п., см. parseDataset) исключаем —
  * вероятная строка-итог из исходного отчёта iiko, которая задваивает уже
