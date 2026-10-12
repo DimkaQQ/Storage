@@ -282,11 +282,11 @@ export default function IikoSettings() {
           <div className="flex items-center gap-3">
             <span className="grid h-11 w-11 place-items-center rounded-xl bg-warn/10 text-warn"><IPlug width={20} height={20} /></span>
             <div>
-              <h3 className="text-base font-semibold text-white">Бэкенд не подключён — демо-режим</h3>
-              <p className="text-sm text-slate-400">Приложение работает на встроенных данных (май 2026). Чтобы тянуть свежие данные из iiko, разверните сервис-бэкенд рядом с приложением.</p>
+              <h3 className="text-base font-semibold text-fg-50">Бэкенд не подключён — демо-режим</h3>
+              <p className="text-sm text-fg-400">Приложение работает на встроенных данных (май 2026). Чтобы тянуть свежие данные из iiko, разверните сервис-бэкенд рядом с приложением.</p>
             </div>
           </div>
-          <div className="mt-4 rounded-xl border border-ink-700/60 bg-ink-900/40 p-4 text-sm text-slate-400">
+          <div className="mt-4 rounded-xl border border-ink-700/60 bg-ink-900/40 p-4 text-sm text-fg-400">
             После развёртывания бэкенда здесь появятся: подключение к iiko, кнопка «Обновить сейчас» и настройка автообновления.
           </div>
         </div>
@@ -301,9 +301,9 @@ export default function IikoSettings() {
         <div className="flex items-center gap-3">
           <span className={`grid h-11 w-11 place-items-center rounded-xl ${status?.lastResult === 'error' ? 'bg-bad/10 text-bad' : 'bg-good/10 text-good'}`}><ISync width={20} height={20} /></span>
           <div>
-            <div className="text-sm font-semibold text-white">Данные из iiko</div>
-            <div className="text-xs text-slate-500">
-              Обновлено: <span className="text-slate-300">{ago(status?.lastSync ?? null)}</span>
+            <div className="text-sm font-semibold text-fg-50">Данные из iiko</div>
+            <div className="text-xs text-fg-500">
+              Обновлено: <span className="text-fg-300">{ago(status?.lastSync ?? null)}</span>
               {status?.positions ? <> · {status.positions} позиций</> : null}
               {status?.lastResult === 'error' && <span className="text-bad"> · ошибка: {status.message}</span>}
             </div>
@@ -311,7 +311,7 @@ export default function IikoSettings() {
                 отчёт и сколько отсеялось и почему) — видна и на успехе, не
                 только на ошибке, чтобы не гадать, где теряются данные. */}
             {status?.lastResult === 'ok' && status.message && status.message.includes('iikoServer вернул') && (
-              <div className="mt-1 text-[11px] text-slate-600">{status.message}</div>
+              <div className="mt-1 text-[11px] text-fg-600">{status.message}</div>
             )}
           </div>
         </div>
@@ -337,21 +337,21 @@ export default function IikoSettings() {
       {form?.provider !== 'mock' && (
         <div className="card flex flex-wrap items-center gap-3 p-5">
           <div>
-            <div className="text-sm font-semibold text-white">Загрузить другой период</div>
-            <div className="text-xs text-slate-500">«Обновить сейчас» всегда берёт текущий/предыдущий месяц из настроек — здесь можно разово подтянуть любой прошлый месяц: сами закупки (сумма/кол-во), даже если план-цены за него ещё не синканы.</div>
+            <div className="text-sm font-semibold text-fg-50">Загрузить другой период</div>
+            <div className="text-xs text-fg-500">«Обновить сейчас» всегда берёт текущий/предыдущий месяц из настроек — здесь можно разово подтянуть любой прошлый месяц: сами закупки (сумма/кол-во), даже если план-цены за него ещё не синканы.</div>
           </div>
           <div className="relative">
             <select
               value={historicalMonthNum ?? ''}
               onChange={(e) => { setHistoricalMonthNum(e.target.value ? Number(e.target.value) : null); setHistoricalResult(null) }}
-              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 pr-8 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
             >
               <option value="">Месяц…</option>
               {RU_MONTHS.map((label, i) => (
                 <option key={label} value={i + 1} disabled={i + 1 > maxHistoricalMonth}>{label}</option>
               ))}
             </select>
-            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-slate-500" />
+            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
           </div>
           <div className="relative">
             <select
@@ -363,18 +363,18 @@ export default function IikoSettings() {
                 if (historicalMonthNum && historicalMonthNum > max) setHistoricalMonthNum(null)
                 setHistoricalResult(null)
               }}
-              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 pr-8 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
             >
               {[nowDate.getFullYear(), nowDate.getFullYear() - 1, nowDate.getFullYear() - 2].map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
-            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-slate-500" />
+            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
           </div>
           <button
             onClick={async () => { if (!historicalMonth) return; setHistoricalResult(null); setHistoricalResult(await syncHistoricalPeriod(historicalMonth)) }}
             disabled={syncing || !historicalMonth}
-            className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60"
+            className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60"
           >
             <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Загружаю…' : 'Загрузить этот период'}
           </button>
@@ -396,8 +396,8 @@ export default function IikoSettings() {
               onClick={() => set({ provider: p.id })}
               className={`rounded-xl border p-3 text-left transition-colors ${form.provider === p.id ? 'border-brand-500 bg-brand-500/10' : 'border-ink-600 bg-ink-900/40 hover:border-ink-600/80'}`}
             >
-              <div className="text-sm font-semibold text-slate-100">{p.label}</div>
-              <div className="mt-0.5 text-[11px] leading-snug text-slate-500">{p.note}</div>
+              <div className="text-sm font-semibold text-fg-100">{p.label}</div>
+              <div className="mt-0.5 text-[11px] leading-snug text-fg-500">{p.note}</div>
             </button>
           ))}
         </div>
@@ -410,46 +410,46 @@ export default function IikoSettings() {
           </div>
         )}
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button onClick={test} disabled={testing} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+          <button onClick={test} disabled={testing} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
             <IPlug width={16} height={16} /> {testing ? 'Сохраняю и проверяю…' : 'Сохранить и проверить подключение'}
           </button>
           {form.provider === 'iikoserver' && (
-            <button onClick={showColumns} disabled={columnsLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+            <button onClick={showColumns} disabled={columnsLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
               <IInfo width={16} height={16} /> {columnsLoading ? 'Спрашиваю…' : 'Показать доступные поля отчёта'}
             </button>
           )}
           {form.provider === 'iikoserver' && (
             <>
               <input value={sampleSearch} onChange={(e) => setSampleSearch(e.target.value)} placeholder="ягода"
-                className="w-28 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                className="w-28 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
               <input value={samplePeriod} onChange={(e) => setSamplePeriod(e.target.value)} placeholder="2026-08" title="Период YYYY-MM — по умолчанию текущий/прошлый месяц из настроек"
-                className="w-24 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                className="w-24 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
               <input value={sampleTypes} onChange={(e) => setSampleTypes(e.target.value)} placeholder="типы (напр. WRITEOFF)"
                 title="Конкретные типы операций через запятую вместо INVOICE — быстро, в отличие от «все типы». Сначала узнайте список типов кнопкой «Показать типы операций»"
-                className="w-40 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
-              <button onClick={showSample} disabled={sampleLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+                className="w-40 rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+              <button onClick={showSample} disabled={sampleLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {sampleLoading ? 'Спрашиваю…' : 'Проверить сырые поля'}
               </button>
-              <button onClick={showTypes} disabled={typesLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+              <button onClick={showTypes} disabled={typesLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {typesLoading ? 'Спрашиваю…' : 'Показать типы операций'}
               </button>
-              <label className="flex items-center gap-1.5 text-xs text-slate-400" title="Без фильтра по типу вообще — считает всю сеть за месяц, медленно и может не успеть за таймаут прокси. Сначала попробуйте «Показать типы операций» + конкретный тип в поле выше">
+              <label className="flex items-center gap-1.5 text-xs text-fg-400" title="Без фильтра по типу вообще — считает всю сеть за месяц, медленно и может не успеть за таймаут прокси. Сначала попробуйте «Показать типы операций» + конкретный тип в поле выше">
                 <input type="checkbox" checked={sampleAllTypes} onChange={(e) => setSampleAllTypes(e.target.checked)} className="accent-brand-500" />
                 все типы (медленно)
               </label>
-              <button onClick={showInvoice} disabled={invoiceLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+              <button onClick={showInvoice} disabled={invoiceLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {invoiceLoading ? 'Спрашиваю…' : 'Проверить накладную (XML)'}
               </button>
-              <button onClick={showProduct} disabled={productLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+              <button onClick={showProduct} disabled={productLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {productLoading ? 'Спрашиваю…' : 'Проверить товар (артикул)'}
               </button>
-              <button onClick={showStores} disabled={storesLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+              <button onClick={showStores} disabled={storesLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {storesLoading ? 'Спрашиваю…' : 'Проверить склад (GUID)'}
               </button>
-              <button onClick={showAssortmentDebug} disabled={assortmentLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+              <button onClick={showAssortmentDebug} disabled={assortmentLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {assortmentLoading ? 'Спрашиваю…' : 'Проверить разброс по ресторанам'}
               </button>
-              <button onClick={showDatasetDebug} disabled={datasetLoading} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+              <button onClick={showDatasetDebug} disabled={datasetLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {datasetLoading ? 'Спрашиваю…' : 'Проверить сохранённый датасет'}
               </button>
             </>
@@ -463,7 +463,7 @@ export default function IikoSettings() {
         {columnsResult && (
           <div className="mt-3">
             {columnsResult.ok ? (
-              <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+              <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-300">
                 {JSON.stringify(columnsResult.columns, null, 1)}
               </pre>
             ) : (
@@ -475,11 +475,11 @@ export default function IikoSettings() {
           <div className="mt-3">
             {sampleResult.ok ? (
               sampleResult.rows && sampleResult.rows.length > 0 ? (
-                <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-300">
                   {JSON.stringify(sampleResult.rows, null, 1)}
                 </pre>
               ) : (
-                <span className="chip border-ink-600 bg-ink-800/60 text-slate-400">Ничего не нашлось по «{sampleSearch}» за текущий период</span>
+                <span className="chip border-ink-600 bg-ink-800/60 text-fg-400">Ничего не нашлось по «{sampleSearch}» за текущий период</span>
               )
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{sampleResult.message}</span>
@@ -490,11 +490,11 @@ export default function IikoSettings() {
           <div className="mt-3">
             {typesResult.ok ? (
               typesResult.rows && typesResult.rows.length > 0 ? (
-                <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                <pre className="max-h-64 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-300">
                   {JSON.stringify(typesResult.rows, null, 1)}
                 </pre>
               ) : (
-                <span className="chip border-ink-600 bg-ink-800/60 text-slate-400">Ничего не нашлось за текущий период</span>
+                <span className="chip border-ink-600 bg-ink-800/60 text-fg-400">Ничего не нашлось за текущий период</span>
               )
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{typesResult.message}</span>
@@ -504,7 +504,7 @@ export default function IikoSettings() {
         {invoiceResult && (
           <div className="mt-3">
             {invoiceResult.ok ? (
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-300">
                 {invoiceResult.xml}
               </pre>
             ) : (
@@ -515,14 +515,14 @@ export default function IikoSettings() {
         {productResult && (
           <div className="mt-3">
             {productResult.ok ? (
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-300">
                 {productResult.xml}
               </pre>
             ) : (
               <>
                 <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{productResult.errorName ? `${productResult.errorName}: ` : ''}{productResult.message}</span>
                 {productResult.errorStack && (
-                  <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-400">
+                  <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-400">
                     {productResult.errorStack.join('\n')}
                   </pre>
                 )}
@@ -533,7 +533,7 @@ export default function IikoSettings() {
         {storesResult && (
           <div className="mt-3">
             {storesResult.ok ? (
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-300">
                 {storesResult.xml}
               </pre>
             ) : (
@@ -546,7 +546,7 @@ export default function IikoSettings() {
             {assortmentResult.ok ? (
               assortmentResult.items && assortmentResult.items.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="text-xs text-slate-500">Товары: {assortmentResult.matchedProducts?.join(', ')} — всего строк: {assortmentResult.items.length}</div>
+                  <div className="text-xs text-fg-500">Товары: {assortmentResult.matchedProducts?.join(', ')} — всего строк: {assortmentResult.items.length}</div>
                   {Object.entries(
                     assortmentResult.items.reduce<Record<string, { items: AssortmentDebugItem[]; sum: number }>>((acc, it) => {
                       const key = it.restaurant ?? `(не определён: ${it.storeName})`
@@ -556,15 +556,15 @@ export default function IikoSettings() {
                     }, {}),
                   ).sort((a, b) => b[1].sum - a[1].sum).map(([restaurant, g]) => (
                     <div key={restaurant} className="rounded-lg border border-ink-600 bg-ink-900/60 p-3">
-                      <div className="mb-2 text-sm font-medium text-slate-200">{restaurant} — {g.sum.toLocaleString('ru-RU')} ₸ ({g.items.length} стр.)</div>
-                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-slate-400">
+                      <div className="mb-2 text-sm font-medium text-fg-200">{restaurant} — {g.sum.toLocaleString('ru-RU')} ₸ ({g.items.length} стр.)</div>
+                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-fg-400">
                         {g.items.map((it) => `${it.storeName} (${it.storeId}) · ${it.supplier} · ${it.pack || it.product} · qty=${it.qty} · sum=${it.sum}`).join('\n')}
                       </pre>
                     </div>
                   ))}
                 </div>
               ) : (
-                <span className="chip border-ink-600 bg-ink-800/60 text-slate-400">Совпадающих товаров не нашлось</span>
+                <span className="chip border-ink-600 bg-ink-800/60 text-fg-400">Совпадающих товаров не нашлось</span>
               )
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{assortmentResult.message}</span>
@@ -575,11 +575,11 @@ export default function IikoSettings() {
           <div className="mt-3">
             {datasetResult.ok ? (
               datasetResult.items && datasetResult.items.length > 0 ? (
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-slate-300">
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-300">
                   {datasetResult.items.map((it) => `${it.restaurant} · ${it.supplier} · ${it.product} · ${it.pack} · qty=${it.qty} · sum=${it.sum}`).join('\n')}
                 </pre>
               ) : (
-                <span className="chip border-ink-600 bg-ink-800/60 text-slate-400">Ничего не нашлось в сохранённом датасете</span>
+                <span className="chip border-ink-600 bg-ink-800/60 text-fg-400">Ничего не нашлось в сохранённом датасете</span>
               )
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{datasetResult.message}</span>
@@ -590,16 +590,16 @@ export default function IikoSettings() {
 
       {/* venues */}
       <Section title="Точки сети" subtitle="Список показывается на бэкенде, не в коде — новую точку можно включить прямо тут, без правки кода и редеплоя.">
-        <div className="text-sm text-slate-400">Сейчас включено: <span className="text-slate-200">{venues.enabled.length}</span> точек</div>
+        <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
         <div className="mt-3 flex flex-wrap gap-2">
           {venues.enabled.map((name) => (
-            <span key={name} className="chip border-ink-600 bg-ink-800/60 text-slate-300">
+            <span key={name} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
               <IStore width={13} height={13} />{name}
               <button
                 disabled={removingVenue === name}
                 onClick={async () => { setRemovingVenue(name); await disableVenueByName(name); setRemovingVenue(null) }}
                 title="Убрать точку (закрыта/не нужна вообще)"
-                className="ml-1 text-slate-500 hover:text-bad disabled:opacity-60"
+                className="ml-1 text-fg-500 hover:text-bad disabled:opacity-60"
               >
                 <ITrash width={12} height={12} />
               </button>
@@ -608,7 +608,7 @@ export default function IikoSettings() {
         </div>
         {venues.discovered.length > 0 ? (
           <div className="mt-3">
-            <div className="mb-2 text-xs font-medium text-slate-400">Обнаружены в закупках, но пока не показаны:</div>
+            <div className="mb-2 text-xs font-medium text-fg-400">Обнаружены в закупках, но пока не показаны:</div>
             <div className="flex flex-wrap gap-2">
               {venues.discovered.map((name) => (
                 <button
@@ -625,7 +625,7 @@ export default function IikoSettings() {
             </div>
           </div>
         ) : (
-          <p className="mt-3 text-sm text-slate-500">Новых точек, которых ещё нет в списке, не найдено.</p>
+          <p className="mt-3 text-sm text-fg-500">Новых точек, которых ещё нет в списке, не найдено.</p>
         )}
       </Section>
 
@@ -641,7 +641,7 @@ export default function IikoSettings() {
             full
           />
           <div className="col-span-2">
-            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-400">
+            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-fg-400">
               Ключ сервисного аккаунта (JSON)
               <InfoTip text="Весь файл, который скачали в Google Cloud Console → Service Accounts → Keys → Add Key → JSON. Хранится только на сервере." />
             </label>
@@ -650,13 +650,13 @@ export default function IikoSettings() {
               value={form.googleServiceAccountKey}
               onChange={(e) => set({ googleServiceAccountKey: e.target.value })}
               placeholder='{"type": "service_account", …} (не менять — оставьте пустым, если ключ уже сохранён)'
-              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 font-mono text-xs text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 font-mono text-xs text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button onClick={testMatrix} disabled={matrixTesting} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+          <button onClick={testMatrix} disabled={matrixTesting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
             <IPlug width={16} height={16} /> {matrixTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
           </button>
           <button onClick={doSyncMatrix} disabled={matrixSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
@@ -687,7 +687,7 @@ export default function IikoSettings() {
           full
         />
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button onClick={testAstana} disabled={astanaTesting} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+          <button onClick={testAstana} disabled={astanaTesting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
             <IPlug width={16} height={16} /> {astanaTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
           </button>
           <button onClick={doSyncAstana} disabled={astanaSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
@@ -711,13 +711,13 @@ export default function IikoSettings() {
       <Section title="Автообновление" subtitle="Приложение будет само подтягивать данные из iiko по расписанию.">
         <label className="flex cursor-pointer items-center gap-3">
           <Checkbox checked={form.autoEnabled} onChange={() => set({ autoEnabled: !form.autoEnabled })} />
-          <span className="text-sm text-slate-200">Обновлять автоматически</span>
+          <span className="text-sm text-fg-200">Обновлять автоматически</span>
           <InfoTip text="Сервис на сервере запускает обновление по расписанию, даже когда приложение закрыто." />
         </label>
         <div className={`mt-3 flex flex-wrap gap-2 ${form.autoEnabled ? '' : 'pointer-events-none opacity-40'}`}>
           {INTERVALS.map((i) => (
             <button key={i.id} onClick={() => set({ interval: i.id })}
-              className={`chip ${form.interval === i.id ? 'border-brand-500 bg-brand-500/10 text-brand-300' : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}>
+              className={`chip ${form.interval === i.id ? 'border-brand-500 bg-brand-500/10 text-brand-300' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}>
               {i.label}
             </button>
           ))}
@@ -732,7 +732,7 @@ export default function IikoSettings() {
       {/* danger zone — бэкап/полный сброс данных (не настроек подключения) */}
       <Section title="Опасная зона" subtitle="Факты закупок, матрицы план-цен и все ручные правки — настройки подключения к iiko/Google не трогаются.">
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={downloadBackup} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-slate-200 hover:bg-ink-750 disabled:opacity-60">
+          <button onClick={downloadBackup} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
             <ISync width={16} height={16} className={exporting ? 'animate-spin' : ''} /> {exporting ? 'Готовлю файл…' : 'Скачать бэкап'}
           </button>
           {exportResult && (
@@ -749,7 +749,7 @@ export default function IikoSettings() {
             <IClose width={16} height={16} /> {resetting ? 'Сбрасываю…' : resetArmed ? 'Точно сбросить всё? Нажмите ещё раз' : 'Сбросить все данные'}
           </button>
           {resetArmed && !resetting && (
-            <button onClick={() => setResetArmed(false)} className="text-xs text-slate-500 hover:text-slate-300">отмена</button>
+            <button onClick={() => setResetArmed(false)} className="text-xs text-fg-500 hover:text-fg-300">отмена</button>
           )}
           {resetResult && (
             <span className={`chip ${resetResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
@@ -758,7 +758,7 @@ export default function IikoSettings() {
             </span>
           )}
         </div>
-        <p className="mt-3 text-xs text-slate-500">Сначала скачайте бэкап — сброс необратим. После сброса список включённых точек вернётся к стартовому, периоды и матрицу нужно будет синкать заново.</p>
+        <p className="mt-3 text-xs text-fg-500">Сначала скачайте бэкап — сброс необратим. После сброса список включённых точек вернётся к стартовому, периоды и матрицу нужно будет синкать заново.</p>
       </Section>
     </div>
   )
@@ -769,13 +769,13 @@ function Field({ label, hint, value, onChange, type = 'text', placeholder, full 
 }) {
   return (
     <div className={full ? 'col-span-2' : ''}>
-      <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-400">{label}{hint && <InfoTip text={hint} />}</label>
+      <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-fg-400">{label}{hint && <InfoTip text={hint} />}</label>
       <input
         type={type}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+        className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
       />
     </div>
   )

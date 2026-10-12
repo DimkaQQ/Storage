@@ -26,12 +26,12 @@ export function ChartTip({ active, payload, label, valueFormatter }: any) {
   const fmtValue = valueFormatter ?? ((v: number) => v.toLocaleString('ru-RU'))
   return (
     <div className="rounded-lg border border-ink-600 bg-ink-850/95 px-3 py-2 shadow-xl backdrop-blur">
-      {label != null && <div className="mb-1 text-xs font-semibold text-slate-200">{label}</div>}
+      {label != null && <div className="mb-1 text-xs font-semibold text-fg-200">{label}</div>}
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center gap-2 text-xs">
           <span className="h-2 w-2 rounded-full" style={{ background: p.color || p.fill }} />
-          <span className="text-slate-400">{p.name}</span>
-          <span className="ml-auto font-semibold tabnum text-slate-100">{fmtValue(p.value)}</span>
+          <span className="text-fg-400">{p.name}</span>
+          <span className="ml-auto font-semibold tabnum text-fg-100">{fmtValue(p.value)}</span>
         </div>
       ))}
     </div>
@@ -44,8 +44,8 @@ export function Legend({ items }: { items: { label: string; color: string; value
       {items.map((it) => (
         <div key={it.label} className="flex items-center gap-2 text-xs">
           <span className="h-2.5 w-2.5 rounded-sm" style={{ background: it.color }} />
-          <span className="text-slate-400">{it.label}</span>
-          {it.value != null && <span className="font-semibold tabnum text-slate-200">{it.value}</span>}
+          <span className="text-fg-400">{it.label}</span>
+          {it.value != null && <span className="font-semibold tabnum text-fg-200">{it.value}</span>}
         </div>
       ))}
     </div>

@@ -27,26 +27,26 @@ export default function LoginPage() {
             <ISpark className="text-white" />
           </div>
           <div>
-            <div className="text-lg font-bold text-white">Проверка цен</div>
-            <div className="text-xs text-slate-500">Мониторинг закупок</div>
+            <div className="text-lg font-bold text-fg-50">Проверка цен</div>
+            <div className="text-xs text-fg-500">Мониторинг закупок</div>
           </div>
         </div>
 
         <form onSubmit={submit} className="card space-y-4 p-6">
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-400">Почта</label>
+            <label className="mb-1.5 block text-xs font-medium text-fg-400">Почта</label>
             <input
               type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.kz"
-              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2.5 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-400">Пароль</label>
+            <label className="mb-1.5 block text-xs font-medium text-fg-400">Пароль</label>
             <input
               type="password" value={password} onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2.5 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
           {error && <p className="text-xs text-bad">{error}</p>}

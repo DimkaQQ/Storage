@@ -524,11 +524,11 @@ export default function DataEditor() {
         <div className="flex items-start gap-3">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-500/10 text-brand-300"><IDatabase width={18} height={18} /></span>
           <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <div className="flex items-center gap-2 text-sm font-semibold text-fg-50">
               Справочники
               <InfoTip text="Здесь сверяем названия компаний, товаров и точек: как они записаны в iiko — и как в матрице план-цен." />
             </div>
-            <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
+            <p className="mt-0.5 max-w-2xl text-xs text-fg-500">
               Правки сохраняются сами. Кнопка «Сохранить» нужна только для новых компаний, которых ещё нет в матрице.
             </p>
           </div>
@@ -542,13 +542,13 @@ export default function DataEditor() {
             onClick={refreshFromMatrix}
             disabled={matrixSyncing}
             title="Перечитать названия и цены прямо из Google-таблицы матрицы — если там только что что-то поправили"
-            className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750 disabled:opacity-60"
+            className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-60"
           ><ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Обновляю…' : 'Обновить'}</button>
           <button
             onClick={undo}
             disabled={!canUndo}
             title="Отменить последнее изменение"
-            className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
+            className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
           ><IUndo width={16} height={16} /> Отменить</button>
         </div>
       </div>
@@ -560,29 +560,29 @@ export default function DataEditor() {
             оба применяются вместе. */}
         {tab !== 'venues' && (
           <div className="mb-3 flex items-center gap-2">
-            <IPin width={14} height={14} className="shrink-0 text-slate-500" />
+            <IPin width={14} height={14} className="shrink-0 text-fg-500" />
             <div className="relative">
               <select
                 value={editorRestaurant}
                 onChange={(e) => { setEditorRestaurant(e.target.value); setQ(''); setLimit(60) }}
-                className="appearance-none rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 pr-8 text-sm text-slate-100 focus:border-brand-500 focus:outline-none"
+                className="appearance-none rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
               >
                 <option value="">Все точки</option>
                 {restaurants.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
               </select>
-              <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-slate-500" />
+              <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
             </div>
             {editorRestaurant && tab === 'suppliers' && (
-              <span className="text-xs text-slate-500">Клик по компании — её товары и «нет в матрице» именно для этой точки.</span>
+              <span className="text-xs text-fg-500">Клик по компании — её товары и «нет в матрице» именно для этой точки.</span>
             )}
           </div>
         )}
         {/* tabs + search */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
-            <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Компании ({fmt(suppliersBaseEffective.length)})</button>
-            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Товары ({fmt(matrixRows.length)})</button>
-            <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-white' : 'text-slate-400'}`}>Точки ({fmt(restaurants.length)})</button>
+            <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Компании ({fmt(suppliersBaseEffective.length)})</button>
+            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Товары ({fmt(matrixRows.length)})</button>
+            <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Точки ({fmt(restaurants.length)})</button>
           </div>
           {/* Поиск — на любой вкладке в одном и том же месте этой группы; на
               Товарах перед ним появляется значок фильтра, слева от поиска. */}
@@ -592,7 +592,7 @@ export default function DataEditor() {
                 <button
                   onClick={() => setFilterOpen((v) => !v)}
                   title="Фильтр по ресторану, названиям и фасовке (как в Google Sheets)"
-                  className={`btn border px-3 py-2 text-xs ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+                  className={`btn border px-3 py-2 text-xs ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
                 >
                   <IFilter width={14} height={14} /> Фильтр{activeFilterDims > 0 ? ` (${activeFilterDims})` : ''}
                 </button>
@@ -617,7 +617,7 @@ export default function DataEditor() {
                       <ValueChecklist values={packValues} excluded={excludedPack} onChange={(next) => { setLimit(60); setExcludedPack(next) }} />
                     </FilterSection>
                     <div className="mt-1 flex items-center justify-between px-1 pt-2">
-                      <button onClick={resetAllFilters} className="text-xs text-slate-500 hover:text-bad">Сбросить всё</button>
+                      <button onClick={resetAllFilters} className="text-xs text-fg-500 hover:text-bad">Сбросить всё</button>
                       <button onClick={() => setFilterOpen(false)} className="text-xs text-brand-300 hover:text-brand-200">Готово</button>
                     </div>
                   </div>
@@ -625,18 +625,18 @@ export default function DataEditor() {
               </div>
             )}
             <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
-              <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
+              <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
               <input
                 value={q}
                 onChange={(e) => { setQ(e.target.value); setLimit(60) }}
                 placeholder={tab === 'products' ? 'Поиск товара, поставщика, ресторана или фасовки…' : tab === 'suppliers' ? 'Поиск компании…' : 'Поиск точки или города…'}
-                className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+                className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
               />
             </div>
             {tab === 'venues' && (
               <button
                 onClick={() => setAddOpen((v) => !v)}
-                className={`btn border px-3 py-2 text-xs ${addOpen ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+                className={`btn border px-3 py-2 text-xs ${addOpen ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
               >
                 <IPlus width={14} height={14} /> Добавить точку
               </button>
@@ -647,48 +647,48 @@ export default function DataEditor() {
         {addOpen && tab === 'venues' && (
           <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
             <div className="min-w-[200px] flex-1">
-              <label className="mb-1 block text-[11px] text-slate-500">Название точки</label>
+              <label className="mb-1 block text-[11px] text-fg-500">Название точки</label>
               <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
             </div>
             <div className="w-36">
-              <label className="mb-1 block text-[11px] text-slate-500">Город</label>
+              <label className="mb-1 block text-[11px] text-fg-500">Город</label>
               <input value={newCity} onChange={(e) => setNewCity(e.target.value)}
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
             </div>
             <div className="w-40">
-              <label className="mb-1 block text-[11px] text-slate-500">Бренд</label>
+              <label className="mb-1 block text-[11px] text-fg-500">Бренд</label>
               <input value={newBrand} onChange={(e) => setNewBrand(e.target.value)}
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
             </div>
             <div className="w-44">
-              <label className="mb-1 block text-[11px] text-slate-500">Юрлицо</label>
+              <label className="mb-1 block text-[11px] text-fg-500">Юрлицо</label>
               <input value={newEntity} onChange={(e) => setNewEntity(e.target.value)}
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
             </div>
             <div className="w-40">
-              <label className="mb-1 block text-[11px] text-slate-500">Категория</label>
+              <label className="mb-1 block text-[11px] text-fg-500">Категория</label>
               <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="например, Кухня"
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 focus:border-brand-500 focus:outline-none" />
+                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
             </div>
             <button onClick={submitAddVenue} disabled={!newName.trim()} className="btn border border-brand-500/50 bg-brand-500/15 px-3 py-1.5 text-xs text-brand-200 hover:bg-brand-500/25 disabled:opacity-40">
               <ICheck width={14} height={14} /> Добавить
             </button>
-            <button onClick={resetAddForm} className="btn px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300">Отмена</button>
+            <button onClick={resetAddForm} className="btn px-3 py-1.5 text-xs text-fg-500 hover:text-fg-300">Отмена</button>
           </div>
         )}
 
 
         {tab === 'products' && unmatchedRows.length > 0 && (
-          <div className="mb-4 overflow-hidden rounded-xl border border-purple-400/30 bg-purple-400/[0.04]">
+          <div className="mb-4 overflow-hidden rounded-xl border border-purple/30 bg-purple/[0.04]">
             <button
               onClick={() => setUnmatchedOpen((v) => !v)}
-              className="flex w-full items-center gap-1.5 border-b border-purple-400/20 px-3 py-2 text-left"
+              className="flex w-full items-center gap-1.5 border-b border-purple/20 px-3 py-2 text-left"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-purple-400" />
-              <span className="text-xs font-medium text-purple-300">Нет в матрице ({fmt(unmatchedRows.length)})</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-purple" />
+              <span className="text-xs font-medium text-purple">Нет в матрице ({fmt(unmatchedRows.length)})</span>
               <InfoTip text="Закупки этого периода, для которых нет строки в матрице ни по прямому совпадению названия, ни по привязке. Либо это реально новый товар — его предстоит завести в самой Google-таблице («Сырьё F»); либо просто у iiko другое написание того же товара — тогда привяжите его прямо здесь, выбрав нужный товар из матрицы." align="left" />
-              <IChevron width={13} height={13} className={`ml-auto shrink-0 text-purple-300/70 transition-transform duration-150 ${unmatchedOpen ? 'rotate-90' : ''}`} />
+              <IChevron width={13} height={13} className={`ml-auto shrink-0 text-purple/70 transition-transform duration-150 ${unmatchedOpen ? 'rotate-90' : ''}`} />
             </button>
             {unmatchedOpen && (
             <div className="max-h-[50vh] overflow-auto">
@@ -727,11 +727,11 @@ export default function DataEditor() {
                     const notPricedHere = currentLink && !pricedFor?.has(u.restaurant)
                     return (
                       <tr key={i} className="row-hover hover:bg-ink-800/40">
-                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={u.restaurant} /></td>
-                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={u.supplier} /></td>
-                        <td className="td overflow-hidden text-slate-100"><HoverName text={u.product} /></td>
-                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={u.pack || '—'} /></td>
-                        <td className="td text-right tabnum text-slate-500">{fmt(u.count)}</td>
+                        <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={u.restaurant} /></td>
+                        <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={u.supplier} /></td>
+                        <td className="td overflow-hidden text-fg-100"><HoverName text={u.product} /></td>
+                        <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={u.pack || '—'} /></td>
+                        <td className="td text-right tabnum text-fg-500">{fmt(u.count)}</td>
                         <td className="td">
                           <ProductLabelSuggest
                             value={currentLabel}
@@ -750,12 +750,12 @@ export default function DataEditor() {
                             }}
                           />
                           {notPricedHere && (
-                            <div className="mt-1 text-[11px] text-slate-500">
+                            <div className="mt-1 text-[11px] text-fg-500">
                               В матрице есть у: {[...(pricedFor ?? [])].join(', ') || '—'} — но не у «{u.restaurant}».
                             </div>
                           )}
                           {!currentLink && u.note && (
-                            <div className="mt-1 text-[11px] text-slate-500">{u.note}</div>
+                            <div className="mt-1 text-[11px] text-fg-500">{u.note}</div>
                           )}
                         </td>
                       </tr>
@@ -777,7 +777,7 @@ export default function DataEditor() {
               <button
                 key={id}
                 onClick={() => { setSFilter(id); setLimit(60) }}
-                className={`chip transition-colors ${sFilter === id ? 'border-brand-400 bg-brand-500/10 text-brand-300' : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}
+                className={`chip transition-colors ${sFilter === id ? 'border-brand-400 bg-brand-500/10 text-brand-300' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
               >
                 {label}
               </button>
@@ -828,9 +828,9 @@ export default function DataEditor() {
                     const duplicate = duplicateByName.get(s.name)
                     return (
                       <tr key={s.name} className="row-hover hover:bg-ink-800/40">
-                        <td className="td overflow-hidden text-slate-400">
+                        <td className="td overflow-hidden text-fg-400">
                           <span className="flex min-w-0 items-center gap-2">
-                            <IStore width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={s.name} />
+                            <IStore width={14} height={14} className="shrink-0 text-fg-600" /><HoverName text={s.name} />
                             {editorRestaurant && (
                               <button
                                 onClick={() => { setTab('products'); setQ(supplierAliasFor(matching, editorRestaurant, s.name) ?? s.name); setLimit(60); setUnmatchedOpen(true) }}
@@ -854,12 +854,12 @@ export default function DataEditor() {
                           </div>
                           {!canon && (
                             acknowledged ? (
-                              <span className="chip mt-1 w-fit border-transparent bg-ink-700 text-[11px] text-slate-400">новый поставщик</span>
+                              <span className="chip mt-1 w-fit border-transparent bg-ink-700 text-[11px] text-fg-400">новый поставщик</span>
                             ) : (
                               <div className="mt-1 flex min-w-0 flex-col gap-0.5">
                                 <span className="chip w-fit border-transparent bg-warn/10 text-[11px] text-warn">нет в справочнике</span>
                                 {duplicate && (
-                                  <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                                  <span className="flex items-center gap-1 text-[11px] text-fg-500">
                                     похоже на «{duplicate}»?
                                     <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Сохранить» стоит свериться с матрицей." align="left" />
                                   </span>
@@ -868,14 +868,14 @@ export default function DataEditor() {
                             )
                           )}
                         </td>
-                        <td className="td text-right tabnum text-slate-400">{fmt(s.count)}</td>
+                        <td className="td text-right tabnum text-fg-400">{fmt(s.count)}</td>
                         <td className="td text-center">
                           {acknowledged ? (
                             <button onClick={() => unacknowledgeSupplier(s.name)} className="btn mx-auto border border-bad/40 bg-bad/10 px-2 py-1 text-xs text-bad hover:bg-bad/20" title="Вернуть — снова считать нерешённым, показывать в «Нет в справочнике»">
                               <IReset width={13} height={13} /> Вернуть
                             </button>
                           ) : !canon ? (
-                            <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-slate-300 hover:border-good/50 hover:text-good" title="Сохранить — это действительно новый поставщик">
+                            <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-fg-300 hover:border-good/50 hover:text-good" title="Сохранить — это действительно новый поставщик">
                               <ICheck width={12} height={12} /> Сохранить
                             </button>
                           ) : null}
@@ -907,12 +907,12 @@ export default function DataEditor() {
                     const extra = matchedNames.filter((n) => n !== primary)
                     return (
                       <tr key={row.key} className="row-hover hover:bg-ink-800/40">
-                        <td className="td overflow-hidden text-xs text-slate-400">
-                          <span className="flex min-w-0 items-center gap-1.5"><IPin width={12} height={12} className="shrink-0 text-slate-600" /><HoverName text={row.restaurant} /></span>
+                        <td className="td overflow-hidden text-xs text-fg-400">
+                          <span className="flex min-w-0 items-center gap-1.5"><IPin width={12} height={12} className="shrink-0 text-fg-600" /><HoverName text={row.restaurant} /></span>
                         </td>
-                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={row.supplier} /></td>
-                        <td className="td overflow-hidden"><HoverName text={row.matrixLabel} className="font-medium text-slate-100" /></td>
-                        <td className="td overflow-hidden text-xs text-slate-400"><HoverName text={row.pack || '—'} /></td>
+                        <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={row.supplier} /></td>
+                        <td className="td overflow-hidden"><HoverName text={row.matrixLabel} className="font-medium text-fg-100" /></td>
+                        <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={row.pack || '—'} /></td>
                         <td className="td">
                           <div className="flex items-center gap-1.5">
                             <ProductLabelSuggest
@@ -922,7 +922,7 @@ export default function DataEditor() {
                             />
                             {extra.length > 0 && (
                               <span
-                                className="chip shrink-0 border-transparent bg-ink-700 text-[10px] text-slate-400"
+                                className="chip shrink-0 border-transparent bg-ink-700 text-[10px] text-fg-400"
                                 title={`Ещё встречается под другим написанием: ${extra.join(', ')}`}
                               >
                                 +{extra.length}
@@ -937,9 +937,9 @@ export default function DataEditor() {
                     const manual = edits.newVenues[r.name] === true
                     return (
                       <tr key={r.name} className="row-hover hover:bg-ink-800/40">
-                        <td className="td overflow-hidden text-slate-100">
+                        <td className="td overflow-hidden text-fg-100">
                           <span className="flex min-w-0 items-center gap-2">
-                            <IPin width={14} height={14} className="shrink-0 text-slate-600" /><HoverName text={r.name} className="min-w-0 flex-1" />
+                            <IPin width={14} height={14} className="shrink-0 text-fg-600" /><HoverName text={r.name} className="min-w-0 flex-1" />
                             {manual && <span className="chip shrink-0 border-transparent bg-brand-500/10 text-[10px] text-brand-300">вручную</span>}
                           </span>
                         </td>
@@ -949,7 +949,7 @@ export default function DataEditor() {
                         <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[140px]" /></td>
                         <td className="td text-center">
                           {manual && (
-                            <button onClick={() => removeVenue(r.name)} className="btn mx-auto px-2 py-1 text-xs text-slate-500 hover:text-bad" title="Удалить добавленную вручную точку">
+                            <button onClick={() => removeVenue(r.name)} className="btn mx-auto px-2 py-1 text-xs text-fg-500 hover:text-bad" title="Удалить добавленную вручную точку">
                               <ITrash width={13} height={13} />
                             </button>
                           )}
@@ -959,7 +959,7 @@ export default function DataEditor() {
                   })}
             </tbody>
           </table>
-          {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено.</div>}
+          {shown.length === 0 && <div className="py-12 text-center text-sm text-fg-500">Ничего не найдено.</div>}
         </div>
 
         {total > shown.length && (
@@ -984,12 +984,12 @@ function FilterSection({ label, active, open, onToggle, children }: {
 }) {
   return (
     <div className="border-b border-ink-700/50 last:border-b-0">
-      <button onClick={onToggle} className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-2 text-left text-xs font-medium text-slate-300 transition-colors hover:text-white">
+      <button onClick={onToggle} className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-2 text-left text-xs font-medium text-fg-300 transition-colors hover:text-fg-50">
         <span className="flex items-center gap-1.5">
           {label}
           {active && <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />}
         </span>
-        <IChevron width={13} height={13} className={`text-slate-500 transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
+        <IChevron width={13} height={13} className={`text-fg-500 transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && <div className="px-1.5 pb-2.5">{children}</div>}
     </div>
@@ -1024,16 +1024,16 @@ function ValueChecklist({ values, excluded, onChange }: {
         onChange={(e) => setSearch(e.target.value)}
         autoFocus
         placeholder="Поиск значений…"
-        className="mb-1.5 w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+        className="mb-1.5 w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
       />
       <div className="mb-1.5 flex gap-3 text-[11px]">
         <button onClick={selectAll} className="text-brand-300 hover:text-brand-200">Выбрать все</button>
-        <button onClick={clearAll} className="text-slate-500 hover:text-slate-300">Очистить</button>
+        <button onClick={clearAll} className="text-fg-500 hover:text-fg-300">Очистить</button>
       </div>
       <div className="max-h-56 space-y-0.5 overflow-y-auto pr-1">
-        {filtered.length === 0 && <div className="py-4 text-center text-xs text-slate-600">Ничего не найдено</div>}
+        {filtered.length === 0 && <div className="py-4 text-center text-xs text-fg-600">Ничего не найдено</div>}
         {filtered.map((v) => (
-          <label key={v} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm text-slate-200 hover:bg-ink-800">
+          <label key={v} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm text-fg-200 hover:bg-ink-800">
             <Checkbox checked={!excluded.has(v)} onChange={() => toggle(v)} />
             <span className="truncate">{v || '—'}</span>
           </label>

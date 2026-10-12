@@ -161,23 +161,23 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       <div className="card p-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[240px]">
-            <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" width={16} height={16} />
+            <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Поиск: товар, поставщик, ресторан…"
-              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
           <button
             onClick={() => setMoneyMode((m) => !m)}
             title="Переключить, как считаются План/Факт/Δ: реальные деньги за закупку, или цена за единицу матрицы (кг и т.п.)"
-            className={`btn border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750'}`}
+            className={`btn border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
             {moneyMode ? 'Деньги' : '₸ за кг'}
           </button>
-          <button onClick={exportExcel} className="btn border border-ink-600 bg-ink-800/70 text-slate-300 hover:bg-ink-750">
+          <button onClick={exportExcel} className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
             <IDownload width={16} height={16} /> Excel
           </button>
         </div>
@@ -189,7 +189,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               <button
                 key={f.id}
                 onClick={() => toggle(f.id)}
-                className={`chip transition-colors ${on ? `${m.color} border-current bg-ink-750` : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}
+                className={`chip transition-colors ${on ? `${m.color} border-current bg-ink-750` : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
                 {f.label}
@@ -199,13 +199,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           <button
             onClick={() => setOnlyNoted((v) => !v)}
             title="Только строки, где уже есть свой комментарий или цветовая метка"
-            className={`chip transition-colors ${onlyNoted ? 'border-brand-400 bg-ink-750 text-brand-300' : 'border-ink-600 text-slate-400 hover:text-slate-200'}`}
+            className={`chip transition-colors ${onlyNoted ? 'border-brand-400 bg-ink-750 text-brand-300' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
           >
             <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
             С заметкой
           </button>
           {(active.size > 0 || onlyNoted) && (
-            <button onClick={() => { setActive(new Set()); setOnlyNoted(false) }} className="chip border-ink-600 text-slate-500 hover:text-slate-300">
+            <button onClick={() => { setActive(new Set()); setOnlyNoted(false) }} className="chip border-ink-600 text-fg-500 hover:text-fg-300">
               сбросить
             </button>
           )}
@@ -236,21 +236,21 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 const planVal = planOf(r), factVal = factOf(r), diffVal = diffOf(r)
                 return (
                 <tr key={r.id} className={`row-hover hover:bg-ink-800/40 ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''} ${r.rowColor ? ROW_COLORS.find((c) => c.id === r.rowColor)?.rowBg ?? '' : ''}`}>
-                  <td className="td overflow-hidden px-2 text-slate-400"><HoverName text={r.restaurant} /></td>
-                  <td className="td overflow-hidden px-2 font-medium text-slate-100">
+                  <td className="td overflow-hidden px-2 text-fg-400"><HoverName text={r.restaurant} /></td>
+                  <td className="td overflow-hidden px-2 font-medium text-fg-100">
                     {/* Крупным — название из матрицы (если есть), мелким под ним —
                         как называется в iiko. Тот же порядок, что и у товара ниже. */}
                     <HoverName text={r.supplierLabel ?? r.supplier} />
-                    {r.supplierLabel && <HoverName text={r.supplier} className="block text-[11px] font-normal text-slate-500" />}
+                    {r.supplierLabel && <HoverName text={r.supplier} className="block text-[11px] font-normal text-fg-500" />}
                   </td>
-                  <td className="td overflow-hidden px-2 font-medium text-slate-100">
+                  <td className="td overflow-hidden px-2 font-medium text-fg-100">
                     {r.unit == null ? (
                       // Позиция из матрицы, ещё не купленная в этом периоде — тут
                       // r.product уже и есть их название, отдельного iiko-имени
                       // нет вовсе (не покупали), под ним просто фасовка.
                       <>
                         <HoverName text={r.product} />
-                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-fg-500" />}
                       </>
                     ) : r.productLabel || r.product !== r.productRaw ? (
                       // Крупным — название из матрицы, если товар с ней совпал,
@@ -267,7 +267,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         <HoverName text={r.productLabel ?? r.product} />
                         <HoverName
                           text={(isPrecisePack(r.pack) || r.isAssortment) && r.pack ? `${r.productRaw} - ${r.pack}` : r.productRaw}
-                          className="block text-[11px] font-normal text-slate-500"
+                          className="block text-[11px] font-normal text-fg-500"
                         />
                       </>
                     ) : (
@@ -281,19 +281,19 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // такую фасовку, чем молча скрыть саму неопределённость.
                       <>
                         <HoverName text={r.product} />
-                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-slate-500" />}
+                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-fg-500" />}
                       </>
                     )}
                   </td>
-                  <td className="td text-right tabnum text-slate-400">{planVal != null ? money(planVal) : '—'}</td>
-                  <td className="td text-right tabnum text-slate-200">{factVal != null ? money(factVal) : <span className="text-slate-600">—</span>}</td>
-                  <td className="td text-right tabnum font-semibold text-slate-300">
-                    {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-slate-600">—</span>}
+                  <td className="td text-right tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
+                  <td className="td text-right tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
+                  <td className="td text-right tabnum font-semibold text-fg-300">
+                    {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
                   <td className="td overflow-hidden">
                     <StatusBadge status={r.status} />
                     {r.note && (
-                      <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
+                      <div className="mt-0.5 flex items-center gap-1 text-[11px] text-fg-500">
                         <InfoTip text={r.note} align="left" />
                         <span>комментарий</span>
                       </div>
@@ -302,7 +302,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   <td className="td relative overflow-visible px-2 text-center">
                     <button
                       onClick={() => { setOpenNoteFor(openNoteFor === r.rowKey ? null : r.rowKey); setDraft(r.userComment ?? '') }}
-                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-slate-500'}`}
+                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-fg-500'}`}
                       title={r.userComment ?? 'Добавить заметку'}
                     >
                       {r.rowColor && <span className={`h-2 w-2 rounded-full ${ROW_COLORS.find((c) => c.id === r.rowColor)?.dot}`} />}
@@ -311,8 +311,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     {openNoteFor === r.rowKey && (
                       <div className="absolute right-2 top-full z-20 mt-1 w-64 rounded-xl border border-ink-600 bg-ink-800 p-3 text-left shadow-card">
                         <div className="mb-2 flex items-center justify-between">
-                          <span className="text-xs font-medium text-slate-300">Заметка к строке</span>
-                          <button onClick={() => setOpenNoteFor(null)} className="text-slate-500 hover:text-slate-300"><IClose width={14} height={14} /></button>
+                          <span className="text-xs font-medium text-fg-300">Заметка к строке</span>
+                          <button onClick={() => setOpenNoteFor(null)} className="text-fg-500 hover:text-fg-300"><IClose width={14} height={14} /></button>
                         </div>
                         <textarea
                           autoFocus
@@ -320,7 +320,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                           value={draft}
                           onChange={(e) => setDraft(e.target.value)}
                           placeholder="Свой комментарий к этой закупке…"
-                          className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:border-brand-500 focus:outline-none"
+                          className="w-full rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-xs text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
                         />
                         <div className="mt-2 flex items-center gap-1.5">
                           {ROW_COLORS.map((c) => (
@@ -332,7 +332,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                             />
                           ))}
                           {r.rowColor && (
-                            <button onClick={() => setRowColor(r.rowKey, null)} className="ml-1 text-[11px] text-slate-500 hover:text-slate-300">убрать</button>
+                            <button onClick={() => setRowColor(r.rowKey, null)} className="ml-1 text-[11px] text-fg-500 hover:text-fg-300">убрать</button>
                           )}
                         </div>
                         <div className="mt-2.5 flex justify-end gap-2">
@@ -350,7 +350,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               )})}
             </tbody>
           </table>
-          {shown.length === 0 && <div className="py-12 text-center text-sm text-slate-500">Ничего не найдено по заданным фильтрам.</div>}
+          {shown.length === 0 && <div className="py-12 text-center text-sm text-fg-500">Ничего не найдено по заданным фильтрам.</div>}
           {/* Невидимый сентинел для автоподгрузки по скроллу — рендерится, только
               пока есть что ещё подгружать, иначе IntersectionObserver продолжал
               бы наблюдать несуществующий "низ списка" без всякой нужды. */}
@@ -362,10 +362,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
 }
 
 function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: string; tone: 'slate' | 'bad' | 'good'; delay?: number }) {
-  const cls = tone === 'bad' ? 'text-bad' : tone === 'good' ? 'text-good' : 'text-white'
+  const cls = tone === 'bad' ? 'text-bad' : tone === 'good' ? 'text-good' : 'text-fg-50'
   return (
     <div className="card card-hover animate-fade-up px-4 py-3" style={{ animationDelay: `${delay}ms` }}>
-      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className="text-[11px] text-fg-500">{label}</div>
       <div className={`mt-1 text-lg font-bold tabnum ${cls}`}>{value}</div>
     </div>
   )
@@ -374,10 +374,10 @@ function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: str
 function Th({ children, onClick, sort, k, right, width, tight }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; width?: string; tight?: boolean }) {
   const on = sort.key === k
   return (
-    <th className={`th hover:text-slate-300 ${right ? 'text-right' : ''} ${tight ? 'px-2' : ''} ${width ?? ''}`}>
+    <th className={`th hover:text-fg-300 ${right ? 'text-right' : ''} ${tight ? 'px-2' : ''} ${width ?? ''}`}>
       <span className={`inline-flex cursor-pointer items-center gap-1 ${right ? 'flex-row-reverse' : ''}`} onClick={onClick}>
         {children}
-        {on ? (sort.dir === 1 ? <IArrowUp width={12} height={12} className="text-brand-300" /> : <IArrowDown width={12} height={12} className="text-brand-300" />) : <ISort width={12} height={12} className="text-slate-600" />}
+        {on ? (sort.dir === 1 ? <IArrowUp width={12} height={12} className="text-brand-300" /> : <IArrowDown width={12} height={12} className="text-brand-300" />) : <ISort width={12} height={12} className="text-fg-600" />}
       </span>
     </th>
   )

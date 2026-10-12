@@ -27,23 +27,23 @@ export default function FilterDropdown({ label, icon: Icon, value, options, onCh
       <button
         onClick={() => setOpen((o) => !o)}
         className={`btn w-[126px] justify-between border px-2.5 py-2 text-xs ${
-          value ? 'border-brand-500/50 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-800/80 text-slate-300 hover:border-brand-500/50 hover:text-white'
+          value ? 'border-brand-500/50 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-800/80 text-fg-300 hover:border-brand-500/50 hover:text-fg-50'
         }`}
         title={label}
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <Icon width={14} height={14} className="shrink-0 text-slate-500" />
+          <Icon width={14} height={14} className="shrink-0 text-fg-500" />
           <span className="truncate">{value ?? 'Все'}</span>
         </span>
-        <IChevron className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} width={13} height={13} />
+        <IChevron className={`shrink-0 text-fg-500 transition-transform ${open ? 'rotate-90' : ''}`} width={13} height={13} />
       </button>
 
       {open && (
         <div className="animate-scale-in absolute left-0 z-30 mt-2 max-h-72 w-52 origin-top-left overflow-y-auto rounded-xl border border-ink-700 bg-ink-850 shadow-card">
-          <div className="border-b border-ink-700/60 px-3 py-2 text-xs font-semibold text-slate-400">{label}</div>
+          <div className="border-b border-ink-700/60 px-3 py-2 text-xs font-semibold text-fg-400">{label}</div>
           <button
             onClick={() => pick(null)}
-            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-800 ${value === null ? 'text-white' : 'text-slate-300'}`}
+            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-800 ${value === null ? 'text-fg-50' : 'text-fg-300'}`}
           >
             <span className="flex-1">Все</span>
             {value === null && <ICheck width={14} height={14} className="text-brand-300" />}
@@ -52,7 +52,7 @@ export default function FilterDropdown({ label, icon: Icon, value, options, onCh
             <button
               key={o}
               onClick={() => pick(o)}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-800 ${value === o ? 'text-white' : 'text-slate-300'}`}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-800 ${value === o ? 'text-fg-50' : 'text-fg-300'}`}
             >
               <span className="min-w-0 flex-1 truncate">{o}</span>
               {value === o && <ICheck width={14} height={14} className="shrink-0 text-brand-300" />}

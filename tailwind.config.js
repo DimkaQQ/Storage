@@ -22,10 +22,27 @@ export default {
           500: 'rgb(var(--brand-500) / <alpha-value>)',
           600: 'rgb(var(--brand-600) / <alpha-value>)',
         },
-        // Semantic colors stay fixed across themes (meaning must not change).
-        good: '#2fd2a5',
-        bad: '#ff5d73',
-        warn: '#ffb547',
+        // Foreground/text — mirrors the old static slate-*/white scale, but
+        // themeable: identical values to Tailwind's own slate/white for every
+        // dark theme (zero visual change there), inverted (dark-on-light)
+        // for the light theme. 50 = was "white" (most prominent), 600 = was
+        // "slate-600" (most muted).
+        fg: {
+          50: 'rgb(var(--fg-50) / <alpha-value>)',
+          100: 'rgb(var(--fg-100) / <alpha-value>)',
+          200: 'rgb(var(--fg-200) / <alpha-value>)',
+          300: 'rgb(var(--fg-300) / <alpha-value>)',
+          400: 'rgb(var(--fg-400) / <alpha-value>)',
+          500: 'rgb(var(--fg-500) / <alpha-value>)',
+          600: 'rgb(var(--fg-600) / <alpha-value>)',
+        },
+        // Semantic colors — same hue across themes (meaning must not change),
+        // but CSS-var-driven so the light theme can darken them just enough
+        // to stay readable as text on a white background (see index.css).
+        good: 'rgb(var(--good) / <alpha-value>)',
+        bad: 'rgb(var(--bad) / <alpha-value>)',
+        warn: 'rgb(var(--warn) / <alpha-value>)',
+        purple: 'rgb(var(--purple) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],

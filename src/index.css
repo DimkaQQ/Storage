@@ -2,37 +2,68 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---- Colour themes (accent + neutral tint). Semantic colours stay fixed. ---- */
+/* ---- Colour themes (accent + neutral tint). Semantic colours stay the
+   same HUE across themes (meaning must not change) — only the light theme
+   darkens them a bit, purely so they stay readable as text on white; as
+   dots/fills their exact shade never mattered. ---- */
 :root, :root[data-theme="indigo"] {
   --ink-950: 8 11 20;   --ink-900: 11 16 28;  --ink-850: 15 21 36;
   --ink-800: 20 27 46;  --ink-750: 26 35 56;  --ink-700: 35 47 74;  --ink-600: 51 65 95;
   --brand-50: 238 244 255; --brand-300: 126 168 255; --brand-400: 91 139 255;
   --brand-500: 61 107 255; --brand-600: 43 82 230;
+  --fg-50: 255 255 255; --fg-100: 241 245 249; --fg-200: 226 232 240; --fg-300: 203 213 225;
+  --fg-400: 148 163 184; --fg-500: 100 116 139; --fg-600: 71 85 105;
+  --good: 47 210 165; --bad: 255 93 115; --warn: 255 181 71; --purple: 168 137 255;
 }
 :root[data-theme="amethyst"] {
   --ink-950: 11 9 18;   --ink-900: 15 12 26;  --ink-850: 19 15 30;
   --ink-800: 25 20 38;  --ink-750: 32 26 50;  --ink-700: 44 36 72;  --ink-600: 64 54 96;
   --brand-50: 243 236 255; --brand-300: 201 169 251; --brand-400: 168 85 247;
   --brand-500: 139 92 246; --brand-600: 124 58 237;
+  --fg-50: 255 255 255; --fg-100: 241 245 249; --fg-200: 226 232 240; --fg-300: 203 213 225;
+  --fg-400: 148 163 184; --fg-500: 100 116 139; --fg-600: 71 85 105;
+  --good: 47 210 165; --bad: 255 93 115; --warn: 255 181 71; --purple: 168 137 255;
 }
 :root[data-theme="cyan"] {
   --ink-950: 6 9 12;    --ink-900: 10 15 19;  --ink-850: 12 18 22;
   --ink-800: 16 26 32;  --ink-750: 21 36 44;  --ink-700: 30 49 56;  --ink-600: 44 69 79;
   --brand-50: 224 247 250; --brand-300: 103 232 249; --brand-400: 34 211 238;
   --brand-500: 6 182 212; --brand-600: 8 145 178;
+  --fg-50: 255 255 255; --fg-100: 241 245 249; --fg-200: 226 232 240; --fg-300: 203 213 225;
+  --fg-400: 148 163 184; --fg-500: 100 116 139; --fg-600: 71 85 105;
+  --good: 47 210 165; --bad: 255 93 115; --warn: 255 181 71; --purple: 168 137 255;
 }
 :root[data-theme="fuchsia"] {
   --ink-950: 13 8 16;   --ink-900: 18 11 22;  --ink-850: 21 12 24;
   --ink-800: 29 18 32;  --ink-750: 39 24 48;  --ink-700: 58 33 64;  --ink-600: 82 48 90;
   --brand-50: 253 231 245; --brand-300: 249 168 212; --brand-400: 236 72 153;
   --brand-500: 219 39 119; --brand-600: 190 24 93;
+  --fg-50: 255 255 255; --fg-100: 241 245 249; --fg-200: 226 232 240; --fg-300: 203 213 225;
+  --fg-400: 148 163 184; --fg-500: 100 116 139; --fg-600: 71 85 105;
+  --good: 47 210 165; --bad: 255 93 115; --warn: 255 181 71; --purple: 168 137 255;
+}
+/* Light theme — the only one with a bright background. Ink scale inverts
+   (950 = main page background, now the LIGHTEST, through 600 = border,
+   the most contrasty) and fg/good/bad/warn/purple get darkened so text
+   stays readable on white; ink/brand/good/bad/warn/purple are consumed via
+   the same classes everywhere (text-fg-*, bg-ink-*, text-good, ...), so no
+   component needed touching for THIS part — only the one-time text-slate-*
+   → text-fg-* rename across components did (see git history). */
+:root[data-theme="light"] {
+  --ink-950: 255 255 255; --ink-900: 248 250 252; --ink-850: 255 255 255;
+  --ink-800: 241 245 249; --ink-750: 236 241 246; --ink-700: 226 232 240; --ink-600: 203 213 225;
+  --brand-50: 238 244 255; --brand-300: 37 99 235; --brand-400: 29 78 216;
+  --brand-500: 61 107 255; --brand-600: 43 82 230;
+  --fg-50: 15 23 42; --fg-100: 30 41 59; --fg-200: 51 65 85; --fg-300: 71 85 105;
+  --fg-400: 100 116 139; --fg-500: 100 116 139; --fg-600: 148 163 184;
+  --good: 13 148 136; --bad: 225 29 72; --warn: 217 119 6; --purple: 124 58 237;
 }
 
 @layer base {
   html, body, #root { height: 100%; }
   html { scroll-behavior: smooth; }
   body {
-    @apply bg-ink-950 text-slate-200 font-sans antialiased;
+    @apply bg-ink-950 text-fg-200 font-sans antialiased;
     /* Static gradient (no fixed attachment → no per-scroll repaint). */
     background-image:
       radial-gradient(1200px 600px at 100% -10%, rgb(var(--brand-500) / 0.12), transparent 60%),
@@ -40,12 +71,12 @@
     background-repeat: no-repeat;
     text-rendering: optimizeLegibility;
   }
-  ::selection { background: rgb(var(--brand-500) / 0.4); color: #fff; }
+  ::selection { background: rgb(var(--brand-500) / 0.4); color: rgb(var(--fg-50)); }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #232f4a; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
-  ::-webkit-scrollbar-thumb:hover { background: #33415f; background-clip: padding-box; }
-  * { scrollbar-color: #232f4a transparent; }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--ink-700)); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-600)); background-clip: padding-box; }
+  * { scrollbar-color: rgb(var(--ink-700)) transparent; }
 }
 
 @layer components {
@@ -68,7 +99,7 @@
     transition: color .18s ease, background-color .18s ease, border-color .18s ease;
   }
   .th {
-    @apply text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-2.5 select-none;
+    @apply text-left text-[11px] font-semibold uppercase tracking-wider text-fg-500 px-3 py-2.5 select-none;
   }
   .td {
     @apply px-3 py-2.5 text-sm border-t border-ink-700/40;

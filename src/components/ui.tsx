@@ -39,7 +39,7 @@ export function InfoTip({ text, className = '' }: {
       onBlur={close}
       tabIndex={0}
     >
-      <IInfo width={14} height={14} className="text-slate-500 transition-colors hover:text-slate-300" />
+      <IInfo width={14} height={14} className="text-fg-500 transition-colors hover:text-fg-300" />
       {tip && createPortal(
         <div
           role="tooltip"
@@ -50,7 +50,7 @@ export function InfoTip({ text, className = '' }: {
             width: TIP_WIDTH,
             transform: `translateX(-50%) ${tip.below ? '' : 'translateY(-100%)'}`,
           }}
-          className="pointer-events-none z-[100] rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-xs font-normal normal-case leading-relaxed tracking-normal text-slate-200 shadow-xl"
+          className="pointer-events-none z-[100] rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-xs font-normal normal-case leading-relaxed tracking-normal text-fg-200 shadow-xl"
         >
           {text}
         </div>,
@@ -100,8 +100,8 @@ export function Section({ title, subtitle, right, children, className = '', dela
       {(title || right) && (
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
-            {title && <h3 className="text-sm font-semibold text-slate-100">{title}</h3>}
-            {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+            {title && <h3 className="text-sm font-semibold text-fg-100">{title}</h3>}
+            {subtitle && <p className="mt-0.5 text-xs text-fg-500">{subtitle}</p>}
           </div>
           {right}
         </div>
@@ -112,7 +112,7 @@ export function Section({ title, subtitle, right, children, className = '', dela
 }
 
 export function EmptyHint({ children }: { children: ReactNode }) {
-  return <div className="py-10 text-center text-sm text-slate-500">{children}</div>
+  return <div className="py-10 text-center text-sm text-fg-500">{children}</div>
 }
 
 /** Чекбокс под общий стиль (тема/цвет акцента) — вместо базового браузерного, везде одинаковый. */

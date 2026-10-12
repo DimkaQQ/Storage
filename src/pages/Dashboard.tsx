@@ -62,21 +62,21 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
         >
           <div className="mb-4 grid grid-cols-3 gap-3">
             <div className="rounded-lg bg-ink-900/50 px-3 py-2.5">
-              <div className="text-[11px] text-slate-500">Вышло</div>
-              <div className="text-lg font-semibold text-slate-100 tabnum">{money(totals.fact)}</div>
+              <div className="text-[11px] text-fg-500">Вышло</div>
+              <div className="text-lg font-semibold text-fg-100 tabnum">{money(totals.fact)}</div>
             </div>
             <div className="rounded-lg bg-ink-900/50 px-3 py-2.5">
-              <div className="text-[11px] text-slate-500">Должно было выйти</div>
-              <div className="text-lg font-semibold text-slate-100 tabnum">{money(totals.plan)}</div>
+              <div className="text-[11px] text-fg-500">Должно было выйти</div>
+              <div className="text-lg font-semibold text-fg-100 tabnum">{money(totals.plan)}</div>
             </div>
             <div className="rounded-lg bg-warn/10 px-3 py-2.5">
-              <div className="text-[11px] text-slate-500">Разница</div>
+              <div className="text-[11px] text-fg-500">Разница</div>
               <div className="text-lg font-semibold text-warn tabnum">{money(totals.delta)}</div>
             </div>
           </div>
 
           {perRest.length === 0 ? (
-            <div className="py-10 text-center text-sm text-slate-500">Переплат не найдено 🎉</div>
+            <div className="py-10 text-center text-sm text-fg-500">Переплат не найдено 🎉</div>
           ) : (
             <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
               {perRest.map((r) => {
@@ -87,17 +87,17 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                       onClick={() => setExpanded((e) => (e === r.name ? null : r.name))}
                       className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-ink-800/40"
                     >
-                      <span className="flex items-center gap-2 text-sm text-slate-200">
-                        <IChevron width={12} height={12} className={`text-slate-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                      <span className="flex items-center gap-2 text-sm text-fg-200">
+                        <IChevron width={12} height={12} className={`text-fg-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                         {r.name}
                       </span>
                       <span className="text-sm font-semibold text-warn tabnum">{money(r.delta)}</span>
                     </button>
                     {isOpen && (
                       <div className="grid grid-cols-3 gap-3 border-t border-ink-700/60 px-3 py-2.5 text-xs">
-                        <div><div className="text-slate-500">Вышло</div><div className="font-medium text-slate-200 tabnum">{money(r.fact)}</div></div>
-                        <div><div className="text-slate-500">Должно было выйти</div><div className="font-medium text-slate-200 tabnum">{money(r.plan)}</div></div>
-                        <div><div className="text-slate-500">Разница</div><div className="font-medium text-warn tabnum">{money(r.delta)}</div></div>
+                        <div><div className="text-fg-500">Вышло</div><div className="font-medium text-fg-200 tabnum">{money(r.fact)}</div></div>
+                        <div><div className="text-fg-500">Должно было выйти</div><div className="font-medium text-fg-200 tabnum">{money(r.plan)}</div></div>
+                        <div><div className="text-fg-500">Разница</div><div className="font-medium text-warn tabnum">{money(r.delta)}</div></div>
                       </div>
                     )}
                   </div>
@@ -118,8 +118,8 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold text-white tabnum">{fmt(s.positions)}</span>
-              <span className="text-[11px] text-slate-500">позиций</span>
+              <span className="text-2xl font-bold text-fg-50 tabnum">{fmt(s.positions)}</span>
+              <span className="text-[11px] text-fg-500">позиций</span>
             </div>
           </div>
           <div className="mt-2">

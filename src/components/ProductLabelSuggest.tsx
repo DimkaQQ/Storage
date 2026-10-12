@@ -155,7 +155,7 @@ export default function ProductLabelSuggest({
         // "замораживает" текущую подсказку как ручное переименование.
         onBlur={() => { if (v !== value) onCommit(v) }}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-        className={`w-full max-w-md rounded-md border border-ink-700/50 bg-ink-900/40 px-2 py-1 text-sm text-slate-100 transition-colors hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70 focus:outline-none ${className}`}
+        className={`w-full max-w-md rounded-md border border-ink-700/50 bg-ink-900/40 px-2 py-1 text-sm text-fg-100 transition-colors hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70 focus:outline-none ${className}`}
       />
       {open && pos && createPortal(
         <div
@@ -171,7 +171,7 @@ export default function ProductLabelSuggest({
               onMouseDown={(e) => { e.preventDefault(); commit(s.label) }}
               onMouseEnter={(e) => { if (s.supplier) openTip(e.currentTarget, s.supplier) }}
               onMouseLeave={closeTip}
-              className="block w-full truncate px-3 py-2 text-left text-sm text-slate-200 hover:bg-ink-800"
+              className="block w-full truncate px-3 py-2 text-left text-sm text-fg-200 hover:bg-ink-800"
             >
               {s.label}
             </button>
@@ -182,7 +182,7 @@ export default function ProductLabelSuggest({
             // поставщику — если печатаете что-то от другой компании,
             // подсказок закономерно не будет; но поле всё равно рабочее,
             // можно вписать текст свободно, просто без автоподбора.
-            <div className="px-3 py-2.5 text-xs text-slate-500">
+            <div className="px-3 py-2.5 text-xs text-fg-500">
               Ничего не найдено среди уже известного — можно вписать своим текстом.
             </div>
           )}
@@ -193,7 +193,7 @@ export default function ProductLabelSuggest({
         <div
           role="tooltip"
           style={{ position: 'fixed', left: tip.left, top: tip.top, width: TIP_WIDTH }}
-          className="pointer-events-none z-[110] rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-xs leading-snug text-slate-300 shadow-xl"
+          className="pointer-events-none z-[110] rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-xs leading-snug text-fg-300 shadow-xl"
         >
           {tip.text}
         </div>,

@@ -1397,8 +1397,8 @@ export function applyVenueOverrides(restaurants: VenueMeta[], overrides: Record<
 export const STATUS_META: Record<Status, { label: string; color: string; dot: string }> = {
   ok: { label: 'По матрице', color: 'text-good', dot: 'bg-good' },
   wrongSupplier: { label: 'Заказ не по матрице', color: 'text-warn', dot: 'bg-warn' },
-  nomatrix: { label: 'Нет в матрице', color: 'text-purple-300', dot: 'bg-purple-400' },
-  notPurchased: { label: 'Не закупали', color: 'text-slate-400', dot: 'bg-slate-500' },
+  nomatrix: { label: 'Нет в матрице', color: 'text-purple', dot: 'bg-purple' },
+  notPurchased: { label: 'Не закупали', color: 'text-fg-400', dot: 'bg-slate-500' },
 }
 
 /* ---------- aggregation helpers ---------- */
