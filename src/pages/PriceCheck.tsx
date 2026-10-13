@@ -175,7 +175,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             className={`btn border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
-            {moneyMode ? 'Деньги' : '₸ за кг'}
+            {moneyMode ? 'Сумма' : '₸ за кг'}
           </button>
           <button onClick={exportExcel} className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
             <IDownload width={16} height={16} /> Excel
