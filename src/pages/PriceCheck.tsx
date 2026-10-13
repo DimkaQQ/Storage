@@ -141,10 +141,16 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Проверка цен')
-    // Период и режим — в имени файла, чтобы отличать скачивания разных
-    // месяцев и версий (деньги/₸ за кг) друг от друга без открытия каждого.
-    const safePeriod = period.replace(/\s+/g, '_')
-    XLSX.writeFile(wb, `proverka-cen-${safePeriod}-${moneyMode ? 'money' : 'per-kg'}.xlsx`)
+    // Период, режим, точка (если выбрана ровно одна — см. rows, уже
+    // отфильтрованные по ScopePicker выше) и дата самой выгрузки — всё в
+    // имени файла, чтобы отличать скачивания друг от друга без открытия
+    // каждого (разные месяцы, деньги/₸ за кг, разные точки, повторные
+    // выгрузки в один день).
+    const safe = (s: string) => s.replace(/\s+/g, '_').replace(/[\\/:*?"<>|]/g, '')
+    const restaurantNames = [...new Set(rows.map((r) => r.restaurant))]
+    const restaurantPart = restaurantNames.length === 1 ? `-${safe(restaurantNames[0])}` : ''
+    const todayStr = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `proverka-cen-${safe(period)}-${moneyMode ? 'money' : 'per-kg'}${restaurantPart}-${todayStr}.xlsx`)
   }
 
   return (
@@ -175,10 +181,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             className={`btn border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
-            {moneyMode ? 'Сумма' : '₸ за кг'}
+            {moneyMode ? 'Общ. сумма закупки' : '₸ за кг'}
           </button>
-          <button onClick={exportExcel} className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
-            <IDownload width={16} height={16} /> Excel
+          <button onClick={exportExcel} title="Скачать в Excel" className="btn !px-2.5 border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
+            <IDownload width={16} height={16} />
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
