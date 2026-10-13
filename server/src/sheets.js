@@ -1,0 +1,284 @@
+import jwt from 'jsonwebtoken'
+
+/**
+ * Читает план-цены (матрица "Сырьё Ф") прямо из Google-таблицы через
+ * сервисный аккаунт — только чтение (scope spreadsheets.readonly). iiko
+ * сюда не имеет отношения вообще: это отдельный источник, договорные цены
+ * с поставщиками, которые ведёт человек в самой таблице.
+ *
+ * Структура листа (разобрана вручную по реальному файлу клиента, см.
+ * переписку): одна вкладка на ресторан, шапка на 2-й строке, данные с 3-й.
+ *   C — Название поставщика основного (канонiчeское имя — то, что видит
+ *       resolveRowPlan как supplierCanon)
+ *   D — Названия компаний как в iiko (алиас, supplierAlias[D] = C)
+ *   E — Наименования как в iiko (товар)
+ *   F — Фасовка как в iiko (пусто = "плоская" цена без фасовки)
+ *   H — Цена за 1кг (план)
+ *   I — Наименование товара (их собственное описание)
+ * Пустая цена (H) при заполненных остальных = noPriceExact (связь есть,
+ * цены просто нет — см. resolveRowPlan в lib/data.ts).
+ */
+
+const withTimeout = async (url, opts = {}, ms = 20000) => {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  try { return await fetch(url, { ...opts, signal: ctrl.signal }) }
+  finally { clearTimeout(t) }
+}
+
+export const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+export const normPack = (s) => {
+  let p = norm(s)
+  p = p.replace(/(?<=\d),(?=\d)/g, '.')
+  p = p.replace(/\.$/, '')
+  return p
+}
+
+/**
+ * Название вкладки в таблице -> название точки, как оно используется в
+ * приложении (RESTAURANT_SCOPE/dataset). Ровно как у RESTAURANT_SCOPE в
+ * lib/data.ts — соответствие "вкладка -> точка" пришлось сверять руками по
+ * реальному файлу (сокращения на вкладках не однозначны, напр. "Pasta 1/2/3"
+ * сами по себе не говорят, какой это адрес Pasta la vista). Новая точка —
+ * новая строка здесь, руками.
+ */
+export const SHEET_TO_RESTAURANT = {
+  'Сирена': 'Сирена',
+  'Olovo1': 'Олово 1 (Сатпаева)',
+  'Olovo2': 'Олово 2 (Достык)',
+  'Renee ': 'Рене',
+  'Pasta 1': 'Pasta la vista (Богенбай)',
+  'Pasta 2': 'Pasta la vista (Гагарина)',
+  'Pasta 3': 'Pasta la vista (Толе би)',
+  'Six 1': 'Six coffee&wine 1',
+  'Le Dome': 'Ле Дом',
+  'Акку': 'Акку',
+  'Six 2': 'Six coffee&wine 2',
+  'Tangirs': 'Tangirs',
+  'ЦФК': 'ЦФК',
+  // Камчатка и French bar — закрыты/не нужны вообще (подтверждено
+  // человеком), сюда их вкладки больше не читаем: их план-цены просто не
+  // нужны, раз сами точки никогда не попадут в датасет (см.
+  // IGNORED_BRAND_CODES в iiko.js).
+}
+
+/**
+ * Отдельная таблица (свой googleSheetId, тот же сервисный аккаунт) для
+ * точек Астаны — новый город, открылся под теми же брендами, что в Алматы
+ * (Tangirs/Six coffee&wine/Pasta la vista), но под другими юрлицами и по
+ * другим адресам, так что это отдельные точки, не то же самое, что
+ * алматинские рестораны с этими же именами. Названия вкладок — внутренние
+ * кодовые обозначения самой таблицы, не бренды; реальный бренд/адрес
+ * подтверждён с человеком, а Танж1=Есиль/Танж2=Сарыарка — ещё раз
+ * подтверждено реальными кодами складов из отчёта iiko (TNGEC2-Astana у
+ * Танж1, TNGAT3-Astana у Танж2, см. resolveStoreRestaurant в iiko.js).
+ * Вкладки один раз уже переименовали (были "ТанжEC"/"ТанжS") — если
+ * таблица снова переименует вкладки, тут просто правится ключ, значение
+ * (название ресторана) остаётся тем же.
+ */
+export const SHEET_TO_RESTAURANT_ASTANA = {
+  'Танж1': 'Tangirs (Есиль, Астана)',
+  'Танж2': 'Tangirs (Сарыарка, Астана)',
+  'Сикс': 'Six coffee&wine (Астана)',
+  'Паста': 'Pasta la vista (Астана)',
+}
+
+function parseKey(raw) {
+  const key = typeof raw === 'string' ? JSON.parse(raw) : raw
+  if (!key?.private_key || !key?.client_email) throw new Error('Ключ сервисного аккаунта неполный (нет private_key/client_email)')
+  return key
+}
+
+async function getAccessToken(serviceAccountKey) {
+  const key = parseKey(serviceAccountKey)
+  const now = Math.floor(Date.now() / 1000)
+  const assertion = jwt.sign(
+    { iss: key.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets.readonly', aud: key.token_uri, iat: now, exp: now + 3600 },
+    key.private_key,
+    { algorithm: 'RS256' },
+  )
+  const res = await withTimeout(key.token_uri, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }),
+  })
+  const data = await res.json()
+  if (!res.ok || !data.access_token) throw new Error(`Google не выдал токен: ${data.error_description || data.error || res.status}`)
+  return data.access_token
+}
+
+async function fetchSheetTitles(token, spreadsheetId) {
+  const res = await withTimeout(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties.title`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    if (res.status === 404) throw new Error('Таблица не найдена (проверьте ID) или сервисный аккаунт не приглашён в неё')
+    if (res.status === 403) throw new Error('Нет доступа к таблице — приглашён ли сервисный аккаунт как читатель? Включён ли Google Sheets API в проекте?')
+    throw new Error(`Google Sheets вернул ошибку (HTTP ${res.status}): ${body.slice(0, 300)}`)
+  }
+  const data = await res.json()
+  return (data.sheets || []).map((s) => s.properties.title)
+}
+
+async function batchGetValues(token, spreadsheetId, ranges) {
+  const params = new URLSearchParams()
+  for (const r of ranges) params.append('ranges', r)
+  params.append('valueRenderOption', 'UNFORMATTED_VALUE')
+  const res = await withTimeout(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchGet?${params}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  if (!res.ok) throw new Error(`Не удалось прочитать диапазоны (HTTP ${res.status})`)
+  const data = await res.json()
+  return data.valueRanges || []
+}
+
+export async function testConnection({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT) {
+  try {
+    if (!googleSheetId) return { ok: false, message: 'Не указан ID таблицы' }
+    if (!googleServiceAccountKey) return { ok: false, message: 'Не указан ключ сервисного аккаунта' }
+    const token = await getAccessToken(googleServiceAccountKey)
+    const titles = await fetchSheetTitles(token, googleSheetId)
+    const known = titles.filter((t) => sheetToRestaurant[t])
+    return { ok: true, message: `Подключение есть. Вкладок в таблице: ${titles.length}, из них узнано точек: ${known.length}.` }
+  } catch (e) {
+    return { ok: false, message: String(e.message || e) }
+  }
+}
+
+/**
+ * Читает всю матрицу целиком (без привязки к периоду — таблица клиента
+ * живая, отражает текущие договорные цены на момент чтения, а не цены "за
+ * такой-то месяц") и возвращает объект в формате MatchingTable
+ * (см. src/lib/data.ts): supplierAlias/planPairs/planPairsByPack/
+ * productLabels/noPriceExact.
+ *
+ * sheetToRestaurant — какую книгу читаем: по умолчанию основная (Алматы,
+ * "Сырьё Ф"), либо SHEET_TO_RESTAURANT_ASTANA для отдельной таблицы Астаны
+ * (свой googleSheetId, тот же сервисный аккаунт) — вызывающая сторона
+ * (index.js) сама решает, какой googleSheetId и какой маппинг сюда подать.
+ */
+export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT) {
+  const token = await getAccessToken(googleServiceAccountKey)
+  const titles = await fetchSheetTitles(token, googleSheetId)
+  const sheets = titles.filter((t) => sheetToRestaurant[t])
+  if (!sheets.length) throw new Error('Ни одна вкладка таблицы не узнана — проверьте названия вкладок (см. SHEET_TO_RESTAURANT в sheets.js)')
+
+  // Без верхней границы по строке (не C3:I5000) — Sheets API читает до
+  // конца реальных данных листа. Фиксированный потолок в 5000 строк рос бы
+  // молча: превысила бы таблица его — часть строк матрицы тихо пропала бы
+  // из синка без единой ошибки.
+  const ranges = sheets.flatMap((t) => [`'${t}'!C3:I`])
+  const valueRanges = await batchGetValues(token, googleSheetId, ranges)
+
+  const supplierAlias = {}
+  const planPairs = {}
+  const planPairsByPack = {}
+  const productLabels = {}
+  const noPriceExact = {}
+  let rowsSeen = 0
+
+  sheets.forEach((title, i) => {
+    const restaurant = norm(sheetToRestaurant[title])
+    const rows = valueRanges[i]?.values || []
+    for (const row of rows) {
+      const [supplierCanonRaw, iikoCompanyRaw, iikoNameRaw, packRaw, , priceRaw, labelRaw] = row
+      if (!iikoNameRaw || !supplierCanonRaw) continue
+      rowsSeen++
+      const supplierCanon = norm(supplierCanonRaw)
+      // Значение — текст С КАК ОН НАПИСАН в колонке C (пробелы схлопнуты,
+      // регистр не трогаем), а не supplierCanon (уже lowercase) — иначе
+      // любой код, который показывает это значение человеку как "красивое"
+      // каноническое имя поставщика (supplierDisplayByNorm в data.ts и
+      // DataEditor.tsx, и прямой показ matching.supplierAlias[...] на
+      // вкладке «Компании» в Справочниках), всегда получал бы голый нижний
+      // регистр — сопоставлению (resolveRowPlan) это всё равно, там
+      // результат ещё раз оборачивается в norm().
+      const supplierDisplay = String(supplierCanonRaw).replace(/\s+/g, ' ').trim()
+      // Ключ — С ИМЕНЕМ РЕСТОРАНА, как у planPairs и остальных карт: та же
+      // D-колонка (iiko-алиас) реально писалась по-разному в разных
+      // вкладках для одного и того же поставщика (живой кейс: "Berry
+      // Company" — "Berry Company ТОО Берри" на одной вкладке, другое
+      // написание на другой) — раньше supplierAlias был ОДНИМ общим
+      // словарём на всю сеть, и застрявшая строка вкладки, обработанной
+      // позже, тихо подменяла канон для ДРУГОГО ресторана: supplierCanon
+      // внутри resolveRowPlan (lib/data.ts) не совпадал с тем, что
+      // реально прайсовано в planPairsByPack ЭТОГО ресторана — закупка у
+      // правильного поставщика выглядела как "заказ не по матрице" со
+      // ссылкой на самого себя.
+      if (iikoCompanyRaw) supplierAlias[`${restaurant}::${norm(iikoCompanyRaw)}`] = supplierDisplay
+      // Канонических поставщиков, у которых в ЭТОЙ строке D (алиас) пуст —
+      // например название в iiko совпадает с каноническим один в один —
+      // supplierAlias раньше вообще не узнавал об их "красивом" написании
+      // (ключ supplierCanon туда никогда не попадал). Добавляем самоссылку,
+      // если её ещё нет — тот же эффект, не перетирает уже заданную.
+      if (!supplierAlias[`${restaurant}::${supplierCanon}`]) supplierAlias[`${restaurant}::${supplierCanon}`] = supplierDisplay
+      const product = norm(iikoNameRaw)
+      const pack = packRaw ? normPack(packRaw) : ''
+      const flatKey = `${restaurant}::${supplierCanon}::${product}`
+      const key = pack ? `${flatKey}::${pack}` : flatKey
+      const hasPrice = priceRaw !== undefined && priceRaw !== null && priceRaw !== ''
+      if (hasPrice) {
+        const price = Number(priceRaw)
+        if (Number.isFinite(price)) {
+          if (pack) planPairsByPack[key] = price
+          else planPairs[key] = price
+          if (labelRaw) productLabels[key] = String(labelRaw)
+        }
+      } else {
+        noPriceExact[key] = true
+      }
+    }
+  })
+
+  return {
+    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact },
+    summary: { sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
+  }
+}
+
+/**
+ * Алматы и Астана — два отдельных googleSheetId, синкаются отдельными
+ * кнопками/запросами, но хранятся в ОДНОМ файле единой матрицы (см.
+ * getMatrix/saveMatrix в store.js) — иначе пришлось бы менять формат
+ * хранения и /api/matching. Ключи внутри каждой карты уже включают имя
+ * ресторана (restaurant::supplier::product[::pack]), а рестораны Алматы и
+ * Астаны не пересекаются по имени, так что синк одного города не должен
+ * задевать уже сохранённые данные другого.
+ *
+ * restaurantNames — рестораны ИМЕННО ТОГО города, что только что синканули
+ * (b — его свежий, полный результат). Раньше merge был чисто аддитивным
+ * ({...a, ...b}) — если строку/цену УДАЛИЛИ из Google-таблицы, в b её
+ * просто не было, а в a она оставалась навсегда: удалённая в таблице
+ * позиция продолжала бы считаться актуальной сколько угодно синков подряд.
+ * Теперь из a сначала убираются ВСЕ ключи ресторанов этого города (b —
+ * его полная замена), а ключи другого города (restaurantNames не
+ * покрывает) остаются нетронутыми как раньше.
+ *
+ * supplierAlias — теперь ключи там ТОЖЕ начинаются с имени ресторана (см.
+ * syncMatrix выше), так что отфильтровать по ресторанам можно точно так
+ * же, как остальные карты — раньше это было явное исключение (плоский
+ * словарь на весь файл), из-за которого алиас, одинаково записанный в
+ * двух разных вкладках на разных поставщиков/с разным написанием,
+ * молча побеждал тот, что обработан позже, независимо от ресторана.
+ */
+export function mergeMatching(a, b, restaurantNames) {
+  if (!a) return b
+  if (!b) return a
+  const scope = restaurantNames ? new Set(restaurantNames.map(norm)) : null
+  const replaceScoped = (prevMap, freshMap) => {
+    if (!scope) return { ...prevMap, ...freshMap }
+    const out = {}
+    for (const [k, v] of Object.entries(prevMap)) if (!scope.has(k.split('::')[0])) out[k] = v
+    return { ...out, ...freshMap }
+  }
+  return {
+    supplierAlias: replaceScoped(a.supplierAlias, b.supplierAlias),
+    planPairs: replaceScoped(a.planPairs, b.planPairs),
+    planPairsByPack: replaceScoped(a.planPairsByPack, b.planPairsByPack),
+    productLabels: replaceScoped(a.productLabels, b.productLabels),
+    noPriceExact: replaceScoped(a.noPriceExact, b.noPriceExact),
+  }
+}
