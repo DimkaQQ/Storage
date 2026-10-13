@@ -48,7 +48,11 @@ export default {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
       },
       boxShadow: {
-        card: '0 1px 0 0 rgba(255,255,255,0.04) inset, 0 12px 32px -12px rgba(0,0,0,0.6)',
+        // CSS-var-driven (see --shadow-card per theme in index.css) so the
+        // light theme can use a much softer shadow — a 60%-opacity black
+        // blur (tuned for dark backgrounds) reads as too heavy/harsh on a
+        // white card.
+        card: 'var(--shadow-card)',
       },
     },
   },

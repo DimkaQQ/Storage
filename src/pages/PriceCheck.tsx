@@ -240,8 +240,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <tbody>
               {shown.map((r) => {
                 const planVal = planOf(r), factVal = factOf(r), diffVal = diffOf(r)
+                const colorMeta = r.rowColor ? ROW_COLORS.find((c) => c.id === r.rowColor) : null
+                // Цветная строка не должна терять свой цвет при наведении —
+                // раньше общий hover:bg-ink-800/40 перебивал любую цветовую
+                // метку (оба правила бьют в один и тот же background-color,
+                // и hover почти всегда побеждал). У цветных строк на ховере
+                // усиливаем тот же цвет (rowBgHover), а не нейтральный.
                 return (
-                <tr key={r.id} className={`row-hover hover:bg-ink-800/40 ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''} ${r.rowColor ? ROW_COLORS.find((c) => c.id === r.rowColor)?.rowBg ?? '' : ''}`}>
+                <tr key={r.id} className={`row-hover ${colorMeta ? `${colorMeta.rowBg} ${colorMeta.rowBgHover}` : 'hover:bg-ink-800/40'} ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''}`}>
                   <td className="td overflow-hidden px-2 text-fg-400"><HoverName text={r.restaurant} /></td>
                   <td className="td overflow-hidden px-2 font-medium text-fg-100">
                     {/* Крупным — название из матрицы (если есть), мелким под ним —
@@ -311,7 +317,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-fg-500'}`}
                       title={r.userComment ?? 'Добавить заметку'}
                     >
-                      {r.rowColor && <span className={`h-2 w-2 rounded-full ${ROW_COLORS.find((c) => c.id === r.rowColor)?.dot}`} />}
+                      {colorMeta && <span className={`h-2 w-2 rounded-full ${colorMeta.dot}`} />}
                       <IEdit width={13} height={13} />
                     </button>
                     {openNoteFor === r.rowKey && (
@@ -334,7 +340,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                               key={c.id}
                               onClick={() => setRowColor(r.rowKey, r.rowColor === c.id ? null : c.id)}
                               title={c.label}
-                              className={`h-5 w-5 rounded-full ${c.dot} ${r.rowColor === c.id ? 'ring-2 ring-white/70' : 'opacity-70 hover:opacity-100'}`}
+                              className={`h-5 w-5 rounded-full ${c.dot} ${r.rowColor === c.id ? 'ring-2 ring-offset-2 ring-offset-ink-800 ring-fg-50' : 'opacity-70 hover:opacity-100'}`}
                             />
                           ))}
                           {r.rowColor && (

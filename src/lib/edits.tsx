@@ -129,6 +129,39 @@ async function pushCatalogDiff(baseline: CatalogFields, current: CatalogFields):
   return oks.every(Boolean)
 }
 
+const VENUE_FIELD_LABELS: Record<keyof VenuePatch, string> = { city: 'город', brand: 'бренд', entity: 'юрлицо', category: 'категория' }
+
+/**
+ * Человекочитаемый список того, что именно изменилось с baseline — чтобы
+ * счётчик "N правок" не был просто числом без объяснений (спросили прямо:
+ * "почему 6 правок, покажи какая строка поменялась"). Один элемент на
+ * ключ, в порядке категорий; то, что реально показывается на экране
+ * "Справочники" — название компании как её видит iiko, название точки,
+ * само iiko-название товара — а не внутренние нормализованные ключи.
+ */
+function describeCatalogChanges(baseline: CatalogFields, current: CatalogFields): string[] {
+  const out: string[] = []
+  for (const k of diffKeys(baseline.supplierRenames, current.supplierRenames)) {
+    const next = current.supplierRenames[k]
+    out.push(next ? `Компания «${k}»: название из матрицы → «${next}»` : `Компания «${k}»: переименование снято`)
+  }
+  for (const k of diffKeys(baseline.venueOverrides, current.venueOverrides)) {
+    const next = current.venueOverrides[k]
+    if (!next) { out.push(`Точка «${k}»: правки сброшены`); continue }
+    const fields = (Object.keys(next) as (keyof VenuePatch)[]).map((f) => VENUE_FIELD_LABELS[f]).join(', ')
+    out.push(`Точка «${k}»: изменено (${fields || '—'})`)
+  }
+  for (const k of diffKeys(baseline.newVenues, current.newVenues))
+    out.push(current.newVenues[k] ? `Добавлена новая точка «${k}»` : `Удалена добавленная точка «${k}»`)
+  for (const k of diffKeys(baseline.acknowledgedSuppliers, current.acknowledgedSuppliers))
+    out.push(current.acknowledgedSuppliers[k] ? `Компания «${k}»: подтверждена как новый поставщик` : `Компания «${k}»: возвращена в «Нет в справочнике»`)
+  for (const k of diffKeys(baseline.productLinks, current.productLinks)) {
+    const next = current.productLinks[k]
+    out.push(next ? `Товар «${next.rawProduct}» (${next.restaurant}): привязан к «${next.targetProduct}»` : `Товар: привязка снята`)
+  }
+  return out
+}
+
 interface Ctx {
   edits: Edits
   rows: Row[]
@@ -186,6 +219,7 @@ interface Ctx {
   // сервер. saveCatalog шлёт их все разом и возвращает, подтвердил ли
   // сервер все операции.
   catalogDirty: boolean
+  catalogChanges: string[]
   savingCatalog: boolean
   saveCatalog: () => Promise<boolean>
 }
@@ -261,6 +295,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   }, [edits])
 
   const catalogDirty = useMemo(() => catalogIsDirty(catalogBaseline, pickCatalog(edits)), [catalogBaseline, edits])
+  const catalogChanges = useMemo(() => describeCatalogChanges(catalogBaseline, pickCatalog(edits)), [catalogBaseline, edits])
 
   // Ручное сохранение — раз эти правки больше не улетают на сервер сами
   // по себе, случайно закрытая вкладка/обновление страницы молча теряла
@@ -655,7 +690,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride, setRowComment, setRowColor,
     reset, replaceAll, undo, canUndo,
     saveError,
-    catalogDirty, savingCatalog, saveCatalog,
+    catalogDirty, catalogChanges, savingCatalog, saveCatalog,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }

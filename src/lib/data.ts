@@ -249,15 +249,24 @@ export interface Row {
   rowColor: RowColor | null  // цветовая метка строки, если поставили вручную
 }
 
-/** Небольшая фиксированная палитра — проще ссылаться по имени, чем хранить произвольный hex. */
+/**
+ * Небольшая фиксированная палитра — проще ссылаться по имени, чем хранить
+ * произвольный hex. rowBg было /10 (10% непрозрачности) — на практике
+ * почти не видно, особенно в светлой теме (светлый тон на светлом фоне),
+ * да и в тёмной тоже едва заметно; подняли до /20, и добавили отдельный
+ * rowBgHover — ЗАМЕНЯТЬ общий hover:bg-ink-800/40 у цветных строк нельзя
+ * (именно так цвет раньше пропадал при наведении, см. PriceCheck.tsx),
+ * вместо этого при наведении усиливаем ТОТ ЖЕ цвет, а не перебиваем его
+ * нейтральным оттенком.
+ */
 export type RowColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple'
-export const ROW_COLORS: { id: RowColor; label: string; dot: string; rowBg: string }[] = [
-  { id: 'red', label: 'Красный', dot: 'bg-red-500', rowBg: 'bg-red-500/10' },
-  { id: 'orange', label: 'Оранжевый', dot: 'bg-orange-500', rowBg: 'bg-orange-500/10' },
-  { id: 'yellow', label: 'Жёлтый', dot: 'bg-yellow-400', rowBg: 'bg-yellow-400/10' },
-  { id: 'green', label: 'Зелёный', dot: 'bg-green-500', rowBg: 'bg-green-500/10' },
-  { id: 'blue', label: 'Синий', dot: 'bg-blue-500', rowBg: 'bg-blue-500/10' },
-  { id: 'purple', label: 'Фиолетовый', dot: 'bg-purple-500', rowBg: 'bg-purple-500/10' },
+export const ROW_COLORS: { id: RowColor; label: string; dot: string; rowBg: string; rowBgHover: string }[] = [
+  { id: 'red', label: 'Красный', dot: 'bg-red-500', rowBg: 'bg-red-500/20', rowBgHover: 'hover:bg-red-500/30' },
+  { id: 'orange', label: 'Оранжевый', dot: 'bg-orange-500', rowBg: 'bg-orange-500/20', rowBgHover: 'hover:bg-orange-500/30' },
+  { id: 'yellow', label: 'Жёлтый', dot: 'bg-yellow-400', rowBg: 'bg-yellow-400/20', rowBgHover: 'hover:bg-yellow-400/30' },
+  { id: 'green', label: 'Зелёный', dot: 'bg-green-500', rowBg: 'bg-green-500/20', rowBgHover: 'hover:bg-green-500/30' },
+  { id: 'blue', label: 'Синий', dot: 'bg-blue-500', rowBg: 'bg-blue-500/20', rowBgHover: 'hover:bg-blue-500/30' },
+  { id: 'purple', label: 'Фиолетовый', dot: 'bg-purple-500', rowBg: 'bg-purple-500/20', rowBgHover: 'hover:bg-purple-500/30' },
 ]
 
 /** Ключ для edits.rowComments/rowColors — по содержимому исходной закупки, не по Row.id (тот меняется от парсинга к парсингу). */

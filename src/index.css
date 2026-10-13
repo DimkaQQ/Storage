@@ -14,6 +14,8 @@
   --fg-50: 255 255 255; --fg-100: 241 245 249; --fg-200: 226 232 240; --fg-300: 203 213 225;
   --fg-400: 148 163 184; --fg-500: 100 116 139; --fg-600: 71 85 105;
   --good: 47 210 165; --bad: 255 93 115; --warn: 255 181 71; --purple: 168 137 255;
+  --shadow-card: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 12px 32px -12px rgba(0,0,0,0.6);
+  --shadow-card-hover: 0 1px 0 0 rgba(255,255,255,0.05) inset, 0 22px 44px -18px rgba(0,0,0,0.75), 0 0 0 1px rgb(var(--brand-500) / 0.16);
 }
 :root[data-theme="amethyst"] {
   --ink-950: 11 9 18;   --ink-900: 15 12 26;  --ink-850: 19 15 30;
@@ -23,6 +25,8 @@
   --fg-50: 255 255 255; --fg-100: 241 245 249; --fg-200: 226 232 240; --fg-300: 203 213 225;
   --fg-400: 148 163 184; --fg-500: 100 116 139; --fg-600: 71 85 105;
   --good: 47 210 165; --bad: 255 93 115; --warn: 255 181 71; --purple: 168 137 255;
+  --shadow-card: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 12px 32px -12px rgba(0,0,0,0.6);
+  --shadow-card-hover: 0 1px 0 0 rgba(255,255,255,0.05) inset, 0 22px 44px -18px rgba(0,0,0,0.75), 0 0 0 1px rgb(var(--brand-500) / 0.16);
 }
 :root[data-theme="cyan"] {
   --ink-950: 6 9 12;    --ink-900: 10 15 19;  --ink-850: 12 18 22;
@@ -32,6 +36,8 @@
   --fg-50: 255 255 255; --fg-100: 241 245 249; --fg-200: 226 232 240; --fg-300: 203 213 225;
   --fg-400: 148 163 184; --fg-500: 100 116 139; --fg-600: 71 85 105;
   --good: 47 210 165; --bad: 255 93 115; --warn: 255 181 71; --purple: 168 137 255;
+  --shadow-card: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 12px 32px -12px rgba(0,0,0,0.6);
+  --shadow-card-hover: 0 1px 0 0 rgba(255,255,255,0.05) inset, 0 22px 44px -18px rgba(0,0,0,0.75), 0 0 0 1px rgb(var(--brand-500) / 0.16);
 }
 :root[data-theme="fuchsia"] {
   --ink-950: 13 8 16;   --ink-900: 18 11 22;  --ink-850: 21 12 24;
@@ -41,6 +47,8 @@
   --fg-50: 255 255 255; --fg-100: 241 245 249; --fg-200: 226 232 240; --fg-300: 203 213 225;
   --fg-400: 148 163 184; --fg-500: 100 116 139; --fg-600: 71 85 105;
   --good: 47 210 165; --bad: 255 93 115; --warn: 255 181 71; --purple: 168 137 255;
+  --shadow-card: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 12px 32px -12px rgba(0,0,0,0.6);
+  --shadow-card-hover: 0 1px 0 0 rgba(255,255,255,0.05) inset, 0 22px 44px -18px rgba(0,0,0,0.75), 0 0 0 1px rgb(var(--brand-500) / 0.16);
 }
 /* Light theme — the only one with a bright background. Ink scale inverts
    (950 = main page background, now the LIGHTEST, through 600 = border,
@@ -66,6 +74,12 @@
   --fg-50: 15 23 42; --fg-100: 30 41 59; --fg-200: 51 65 85; --fg-300: 71 85 105;
   --fg-400: 100 116 139; --fg-500: 100 116 139; --fg-600: 148 163 184;
   --good: 13 148 136; --bad: 225 29 72; --warn: 217 119 6; --purple: 124 58 237;
+  /* Тёмная тень (60%-опрозрачности чёрный, настроенная под тёмный фон) на
+     белой карточке выглядит слишком тяжёлой, "грязной" — втрое слабее и
+     тонированная в цвет текста (не чистый чёрный), мягкий подъём вместо
+     жирного пятна. */
+  --shadow-card: 0 1px 0 0 rgba(255,255,255,0.7) inset, 0 10px 24px -12px rgba(15,23,42,0.14);
+  --shadow-card-hover: 0 1px 0 0 rgba(255,255,255,0.8) inset, 0 16px 32px -16px rgba(15,23,42,0.18), 0 0 0 1px rgb(var(--brand-500) / 0.12);
 }
 
 @layer base {
@@ -96,7 +110,7 @@
   .card-hover:hover {
     @apply border-ink-600;
     transform: translateY(-3px);
-    box-shadow: 0 1px 0 0 rgba(255,255,255,0.05) inset, 0 22px 44px -18px rgba(0,0,0,0.75), 0 0 0 1px rgb(var(--brand-500) / 0.16);
+    box-shadow: var(--shadow-card-hover);
   }
   .btn {
     @apply inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium;

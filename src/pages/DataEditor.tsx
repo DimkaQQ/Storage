@@ -14,12 +14,23 @@ type SupplierFilter = 'all' | 'new'
 
 export default function DataEditor() {
   const {
-    edits, editCount, rows, renameSupplier, setVenue,
+    edits, rows, renameSupplier, setVenue,
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey, refreshMatrix,
-    catalogDirty, savingCatalog, saveCatalog,
+    catalogDirty, catalogChanges, savingCatalog, saveCatalog,
   } = useEdits()
+  // "N правок" — раньше было просто число без объяснений; теперь клик по
+  // чипу раскрывает список, какая именно строка поменялась (см.
+  // catalogChanges в lib/edits.tsx).
+  const [changesOpen, setChangesOpen] = useState(false)
+  const changesRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!changesOpen) return
+    const h = (e: MouseEvent) => { if (changesRef.current && !changesRef.current.contains(e.target as Node)) setChangesOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [changesOpen])
   // "Обновить" — перечитать матрицу прямо из Google-таблицы (например,
   // если там только что поправили название компании/товара), без захода в
   // Настройки iiko. Дёргаем оба региона сразу — Астана может быть ещё не
@@ -535,7 +546,27 @@ export default function DataEditor() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {editCount > 0 && <span className="chip border-brand-500/40 bg-brand-500/10 text-brand-300">{fmt(editCount)} {plural(editCount, 'правка', 'правки', 'правок')}</span>}
+          {catalogChanges.length > 0 && (
+            <div className="relative" ref={changesRef}>
+              <button
+                onClick={() => setChangesOpen((v) => !v)}
+                title="Показать, что именно изменилось"
+                className="chip border-brand-500/40 bg-brand-500/10 text-brand-300 hover:bg-brand-500/20"
+              >
+                {fmt(catalogChanges.length)} {plural(catalogChanges.length, 'правка', 'правки', 'правок')}
+                <IChevron width={11} height={11} className={`transition-transform ${changesOpen ? 'rotate-90' : ''}`} />
+              </button>
+              {changesOpen && (
+                <div className="animate-scale-in absolute left-0 z-30 mt-2 max-h-80 w-96 overflow-y-auto rounded-xl border border-ink-700 bg-ink-850 p-2 text-left shadow-card">
+                  <ul className="space-y-0.5">
+                    {catalogChanges.map((c, i) => (
+                      <li key={i} className="rounded-md px-2 py-1.5 text-xs text-fg-200">{c}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
           {catalogDirty && !savingCatalog && (
             <span className="chip border-warn/30 bg-warn/10 text-warn">Есть несохранённое</span>
           )}
