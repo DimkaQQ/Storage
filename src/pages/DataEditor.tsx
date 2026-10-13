@@ -18,6 +18,7 @@ export default function DataEditor() {
     addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey, refreshMatrix,
+    catalogDirty, savingCatalog, saveCatalog,
   } = useEdits()
   // "Обновить" — перечитать матрицу прямо из Google-таблицы (например,
   // если там только что поправили название компании/товара), без захода в
@@ -529,12 +530,15 @@ export default function DataEditor() {
               <InfoTip text="Здесь сверяем названия компаний, товаров и точек: как они записаны в iiko — и как в матрице план-цен." />
             </div>
             <p className="mt-0.5 max-w-2xl text-xs text-fg-500">
-              Правки сохраняются сами. Кнопка «Сохранить» нужна только для новых компаний, которых ещё нет в матрице.
+              Правки держатся только у вас в браузере, пока не нажмёте «Сохранить» — тогда они уйдут на сервер и станут видны всем.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {editCount > 0 && <span className="chip border-brand-500/40 bg-brand-500/10 text-brand-300">{fmt(editCount)} {plural(editCount, 'правка', 'правки', 'правок')}</span>}
+          {catalogDirty && !savingCatalog && (
+            <span className="chip border-warn/30 bg-warn/10 text-warn">Есть несохранённое</span>
+          )}
           {matrixSyncMsg && (
             <span className={`chip ${matrixSyncMsg === 'Обновлено' ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>{matrixSyncMsg}</span>
           )}
@@ -550,6 +554,12 @@ export default function DataEditor() {
             title="Отменить последнее изменение"
             className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
           ><IUndo width={16} height={16} /> Отменить</button>
+          <button
+            onClick={saveCatalog}
+            disabled={!catalogDirty || savingCatalog}
+            title="Отправить правки компаний/точек/привязок на сервер"
+            className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
+          ><ICheck width={16} height={16} /> {savingCatalog ? 'Сохраняю…' : 'Сохранить'}</button>
         </div>
       </div>
 
@@ -796,7 +806,7 @@ export default function DataEditor() {
               {tab === 'suppliers' ? (
                 <tr>
                   <th className="th w-[42%]">Название (iiko)</th>
-                  <th className="th w-[28%]">Название из матрицы <InfoTip text="Название компании, обычно как в матрице — можно поправить вручную, например переименовать ИП. Влияет только на подпись, не на сопоставление. «Нет в справочнике» — этой компании нет в матрице ни под каким известным написанием; если это действительно новый поставщик — нажмите «Сохранить»." /></th>
+                  <th className="th w-[28%]">Название из матрицы <InfoTip text="Название компании, обычно как в матрице — можно поправить вручную, например переименовать ИП. Влияет только на подпись, не на сопоставление. «Нет в справочнике» — этой компании нет в матрице ни под каким известным написанием; если это действительно новый поставщик — нажмите «Подтвердить»." /></th>
                   <th className="th w-[12%] text-right">Позиций</th>
                   <th className="th w-[18%] text-center">Действие</th>
                 </tr>
@@ -861,7 +871,7 @@ export default function DataEditor() {
                                 {duplicate && (
                                   <span className="flex items-center gap-1 text-[11px] text-fg-500">
                                     похоже на «{duplicate}»?
-                                    <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Сохранить» стоит свериться с матрицей." align="left" />
+                                    <InfoTip text="Это не точное совпадение, а похожее по написанию название, уже занесённое в справочник — возможно, это тот же поставщик, просто иначе записанный в iiko (опечатка, сокращение). Перед «Подтвердить» стоит свериться с матрицей." align="left" />
                                   </span>
                                 )}
                               </div>
@@ -875,8 +885,8 @@ export default function DataEditor() {
                               <IReset width={13} height={13} /> Вернуть
                             </button>
                           ) : !canon ? (
-                            <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-fg-300 hover:border-good/50 hover:text-good" title="Сохранить — это действительно новый поставщик">
-                              <ICheck width={12} height={12} /> Сохранить
+                            <button onClick={() => acknowledgeSupplier(s.name)} className="btn mx-auto border border-ink-600 bg-ink-800/70 px-2 py-1 text-xs text-fg-300 hover:border-good/50 hover:text-good" title="Отметить — это действительно новый поставщик (саму правку ещё нужно будет сохранить общей кнопкой «Сохранить» сверху)">
+                              <ICheck width={12} height={12} /> Подтвердить
                             </button>
                           ) : null}
                         </td>

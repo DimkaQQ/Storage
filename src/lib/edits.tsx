@@ -50,11 +50,40 @@ function diffKeys<T>(current: Record<string, T>, target: Record<string, T>): str
   )
 }
 
+// Справочники (DataEditor) — ручное сохранение по кнопке, не на каждое
+// изменение: только эти пять категорий правок затрагивает его UI (см.
+// renameSupplier/setVenue/addVenue/removeVenue/acknowledgeSupplier/
+// unacknowledgeSupplier/setProductLink ниже). Остальные поля Edits
+// (rowComments/rowColors — "Проверка цен", и ненужные больше
+// renameProduct/productPackOverride/packAliases/planOverrides — нигде в
+// интерфейсе уже не вызываются) по-прежнему сохраняются сразу же, как и
+// раньше.
+type CatalogFields = Pick<Edits, 'supplierRenames' | 'venueOverrides' | 'newVenues' | 'acknowledgedSuppliers' | 'productLinks'>
+const pickCatalog = (e: Edits): CatalogFields => ({
+  supplierRenames: e.supplierRenames, venueOverrides: e.venueOverrides, newVenues: e.newVenues,
+  acknowledgedSuppliers: e.acknowledgedSuppliers, productLinks: e.productLinks,
+})
+const catalogIsDirty = (baseline: CatalogFields, current: CatalogFields): boolean =>
+  diffKeys(baseline.supplierRenames, current.supplierRenames).length > 0 ||
+  diffKeys(baseline.venueOverrides, current.venueOverrides).length > 0 ||
+  diffKeys(baseline.newVenues, current.newVenues).length > 0 ||
+  diffKeys(baseline.acknowledgedSuppliers, current.acknowledgedSuppliers).length > 0 ||
+  diffKeys(baseline.productLinks, current.productLinks).length > 0
+
 /**
  * Undo reverts local state instantly, but the server only knows individual
  * operations (no whole-blob overwrite) — so undo has to be pushed back to
  * the server the same way: as the specific corrective ops for whatever
  * categories actually changed between `current` and `target`.
+ *
+ * Пять "каталожных" полей (см. CatalogFields) сюда больше НЕ входят —
+ * Справочники теперь сохраняются по кнопке, а не на каждое изменение, и
+ * откат отменой там просто меняет локальное состояние (catalogDirty сам
+ * пересчитается против baseline); отправлять что-то на сервер должна
+ * только сама кнопка "Сохранить" (см. saveCatalog). Синхронно с сервером
+ * при undo остаются только поля, которые по-прежнему автосохраняются
+ * (комментарии/цвета строк в "Проверке цен" и мёртвые, но безопасные
+ * legacy-поля).
  */
 /**
  * Возвращает true, только если реально ВСЕ операции подтвердились сервером —
@@ -67,28 +96,35 @@ async function syncUndoToServer(current: Edits, target: Edits): Promise<boolean>
   const results: Promise<boolean>[] = []
   for (const k of diffKeys(current.productRenames, target.productRenames))
     results.push(applyEditOp('renameProduct', { original: k, name: target.productRenames[k] ?? '' }))
-  for (const k of diffKeys(current.supplierRenames, target.supplierRenames))
-    results.push(applyEditOp('renameSupplier', { original: k, name: target.supplierRenames[k] ?? '' }))
-  for (const k of diffKeys(current.venueOverrides, target.venueOverrides)) {
-    results.push(applyEditOp('clearVenue', { restaurant: k }))
-    if (target.venueOverrides[k]) results.push(applyEditOp('setVenue', { restaurant: k, patch: target.venueOverrides[k] }))
-  }
-  for (const k of diffKeys(current.newVenues, target.newVenues))
-    results.push(applyEditOp(target.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k }))
-  for (const k of diffKeys(current.acknowledgedSuppliers, target.acknowledgedSuppliers))
-    results.push(applyEditOp(target.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k }))
   for (const k of diffKeys(current.productPackOverride, target.productPackOverride))
     results.push(applyEditOp('setProductPackOverride', { product: k, value: target.productPackOverride[k] ?? null }))
   for (const k of diffKeys(current.packAliases, target.packAliases))
     results.push(applyEditOp('setPackAlias', { key: k, value: target.packAliases[k] ?? null }))
-  for (const k of diffKeys(current.productLinks, target.productLinks))
-    results.push(applyEditOp('setProductLink', { key: k, value: target.productLinks[k] ?? null }))
   for (const k of diffKeys(current.planOverrides, target.planOverrides))
     results.push(applyEditOp('setPlanOverride', { key: k, value: target.planOverrides[k] ?? null }))
   for (const k of diffKeys(current.rowComments, target.rowComments))
     results.push(applyEditOp('setRowComment', { key: k, value: target.rowComments[k] ?? null }))
   for (const k of diffKeys(current.rowColors, target.rowColors))
     results.push(applyEditOp('setRowColor', { key: k, value: target.rowColors[k] ?? null }))
+  const oks = await Promise.all(results)
+  return oks.every(Boolean)
+}
+
+/** Пять каталожных полей, пушит ровно те, что реально изменились с baseline — см. saveCatalog. */
+async function pushCatalogDiff(baseline: CatalogFields, current: CatalogFields): Promise<boolean> {
+  const results: Promise<boolean>[] = []
+  for (const k of diffKeys(baseline.supplierRenames, current.supplierRenames))
+    results.push(applyEditOp('renameSupplier', { original: k, name: current.supplierRenames[k] ?? '' }))
+  for (const k of diffKeys(baseline.venueOverrides, current.venueOverrides)) {
+    results.push(applyEditOp('clearVenue', { restaurant: k }))
+    if (current.venueOverrides[k]) results.push(applyEditOp('setVenue', { restaurant: k, patch: current.venueOverrides[k] }))
+  }
+  for (const k of diffKeys(baseline.newVenues, current.newVenues))
+    results.push(applyEditOp(current.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k }))
+  for (const k of diffKeys(baseline.acknowledgedSuppliers, current.acknowledgedSuppliers))
+    results.push(applyEditOp(current.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k }))
+  for (const k of diffKeys(baseline.productLinks, current.productLinks))
+    results.push(applyEditOp('setProductLink', { key: k, value: current.productLinks[k] ?? null }))
   const oks = await Promise.all(results)
   return oks.every(Boolean)
 }
@@ -145,6 +181,13 @@ interface Ctx {
   canUndo: boolean
   // не null — последняя правка не подтвердилась сервером (см. reportOpResult)
   saveError: string | null
+  // Справочники — ручное сохранение (см. CatalogFields выше): true, пока
+  // есть локальные правки компаний/точек/привязок, ещё не отправленные на
+  // сервер. saveCatalog шлёт их все разом и возвращает, подтвердил ли
+  // сервер все операции.
+  catalogDirty: boolean
+  savingCatalog: boolean
+  saveCatalog: () => Promise<boolean>
 }
 
 const EditsContext = createContext<Ctx | null>(null)
@@ -169,6 +212,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // sheets.js), отдельно от закупок. null = для этого периода ещё не
   // синхронизировали — тогда matching ниже падает на вшитую bundledMatching.
   const [backendMatching, setBackendMatching] = useState<MatchingTable | null>(null)
+  // Справочники — ручное сохранение: baseline = последнее подтверждённое
+  // сервером (или, до первого ответа сервера, то, что уже лежало в
+  // localStorage) состояние пяти "каталожных" полей. catalogDirty сравнивает
+  // текущие edits с этим baseline, а не просто "есть ли вообще правки" —
+  // иначе после успешного сохранения индикатор продолжал бы гореть.
+  const [catalogBaseline, setCatalogBaseline] = useState<CatalogFields>(() => pickCatalog(load()))
+  const [savingCatalog, setSavingCatalog] = useState(false)
   const history = useRef<Edits[]>([])
   const [canUndo, setCanUndo] = useState(false)
   // applyEditOp() раньше вызывался fire-and-forget — если бэкенд отклонял
@@ -209,6 +259,34 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
   }, [edits])
+
+  const catalogDirty = useMemo(() => catalogIsDirty(catalogBaseline, pickCatalog(edits)), [catalogBaseline, edits])
+
+  // Ручное сохранение — раз эти правки больше не улетают на сервер сами
+  // по себе, случайно закрытая вкладка/обновление страницы молча теряла
+  // бы их (localStorage переживёт перезагрузку, но следующий loadEdits()
+  // всё равно перезатрёт его версией с сервера, см. loadEdits выше) —
+  // предупреждаем явно, тот же приём, что в любом редакторе с ручным
+  // сохранением (Google Docs черновики, формы и т.п.).
+  useEffect(() => {
+    if (!catalogDirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [catalogDirty])
+
+  const saveCatalog = useCallback(async (): Promise<boolean> => {
+    setSavingCatalog(true)
+    try {
+      const current = pickCatalog(edits)
+      const ok = await pushCatalogDiff(catalogBaseline, current)
+      reportOpResult(ok)
+      if (ok) setCatalogBaseline(current)
+      return ok
+    } finally {
+      setSavingCatalog(false)
+    }
+  }, [edits, catalogBaseline, reportOpResult])
 
   const loadData = useCallback(async (period: string) => {
     const data = await fetchDataset(period)
@@ -251,7 +329,15 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   }, [])
   const loadEdits = useCallback(async () => {
     const data = await fetchEdits()
-    if (data) { setEdits(normalize(data)); setBackendOnline(true) }
+    if (data) {
+      const normalized = normalize(data)
+      setEdits(normalized); setBackendOnline(true)
+      // Это определённо то, что уже подтверждено сервером — baseline
+      // для catalogDirty должен сдвинуться сюда же, иначе локальные
+      // несохранённые правки (сделанные до перезагрузки страницы и
+      // осевшие только в localStorage) выглядели бы "уже сохранёнными".
+      setCatalogBaseline(pickCatalog(normalized))
+    }
   }, [])
   // Список включённых точек живёт на бэкенде (per-org), а не в коде — см.
   // DEFAULT_RESTAURANT_SCOPE/setRestaurantScope в lib/data.ts. Без бэкенда
@@ -399,8 +485,9 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[rawName] = v
       return { ...e, supplierRenames: next }
     })
-    applyEditOp('renameSupplier', { original: rawName, name: v }).then(reportOpResult)
-  }, [updateEdits, reportOpResult])
+    // Справочники — ручное сохранение по кнопке (см. saveCatalog), сюда
+    // больше не шлём сразу.
+  }, [updateEdits])
 
   const setVenue = useCallback((restaurant: string, patch: VenuePatch) => {
     updateEdits((e) => {
@@ -415,8 +502,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[restaurant] = cleaned
       return { ...e, venueOverrides: next }
     })
-    applyEditOp('setVenue', { restaurant, patch }).then(reportOpResult)
-  }, [updateEdits, reportOpResult])
+  }, [updateEdits])
 
   // Ручное добавление точки, у которой ещё нет закупок в iiko.
   const addVenue = useCallback((name: string, patch?: VenuePatch) => {
@@ -427,26 +513,22 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       const venueOverrides = patch ? { ...e.venueOverrides, [v]: { ...e.venueOverrides[v], ...patch } } : e.venueOverrides
       return { ...e, newVenues, venueOverrides }
     })
-    applyEditOp('addVenue', { name: v, patch: patch ?? null }).then(reportOpResult)
-  }, [updateEdits, reportOpResult])
+  }, [updateEdits])
   const removeVenue = useCallback((name: string) => {
     updateEdits((e) => {
       const n = { ...e.newVenues }; delete n[name]
       const vo = { ...e.venueOverrides }; delete vo[name]
       return { ...e, newVenues: n, venueOverrides: vo }
     })
-    applyEditOp('removeVenue', { name }).then(reportOpResult)
-  }, [updateEdits, reportOpResult])
+  }, [updateEdits])
 
   // «Добавить» — отмечаем, что это реально новый поставщик (не опечатка/дубликат).
   const acknowledgeSupplier = useCallback((rawName: string) => {
     updateEdits((e) => ({ ...e, acknowledgedSuppliers: { ...e.acknowledgedSuppliers, [rawName]: true } }))
-    applyEditOp('acknowledgeSupplier', { rawName }).then(reportOpResult)
-  }, [updateEdits, reportOpResult])
+  }, [updateEdits])
   const unacknowledgeSupplier = useCallback((rawName: string) => {
     updateEdits((e) => { const n = { ...e.acknowledgedSuppliers }; delete n[rawName]; return { ...e, acknowledgedSuppliers: n } })
-    applyEditOp('unacknowledgeSupplier', { rawName }).then(reportOpResult)
-  }, [updateEdits, reportOpResult])
+  }, [updateEdits])
 
   // Ручной override того, важна ли фасовка для сопоставления этого товара —
   // null возвращает к автоматике (см. resolveRowPlan/isPrecisePack).
@@ -486,8 +568,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       else next[key] = value
       return { ...e, productLinks: next }
     })
-    applyEditOp('setProductLink', { key, value }).then(reportOpResult)
-  }, [updateEdits, reportOpResult])
+  }, [updateEdits])
 
   // Ручная плановая цена (Справочники → Товары → «План») — key в той же
   // ключевой области, что и matching.planPairsByPack/planPairs (см.
@@ -574,6 +655,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride, setRowComment, setRowColor,
     reset, replaceAll, undo, canUndo,
     saveError,
+    catalogDirty, savingCatalog, saveCatalog,
   }
   return <EditsContext.Provider value={value}>{children}</EditsContext.Provider>
 }
