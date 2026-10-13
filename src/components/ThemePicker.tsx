@@ -40,7 +40,7 @@ export default function ThemePicker() {
         title="Цветовая тема"
       >
         <IPalette width={16} height={16} className="text-brand-300" />
-        <span className="h-3 w-3 rounded-full" style={{ background: current.accent }} />
+        <span className="h-3 w-3 rounded-full border border-ink-600 ring-1 ring-inset ring-black/10" style={{ background: current.accent }} />
         <IChevron className={`text-fg-500 transition-transform ${open ? 'rotate-90' : ''}`} width={14} height={14} />
       </button>
 
@@ -53,7 +53,7 @@ export default function ThemePicker() {
               onClick={() => pick(t.id)}
               className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-ink-800 ${t.id === theme ? 'text-fg-50' : 'text-fg-300'}`}
             >
-              <span className="h-5 w-5 shrink-0 rounded-full border border-ink-600/50" style={{ background: t.accent }} />
+              <span className="h-5 w-5 shrink-0 rounded-full border border-ink-600 ring-1 ring-inset ring-black/10" style={{ background: t.accent }} />
               <span className="flex-1">{t.name}</span>
               {t.id === theme && <ICheck width={15} height={15} className="text-brand-300" />}
             </button>
