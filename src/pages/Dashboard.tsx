@@ -1,28 +1,69 @@
 import { useMemo, useState } from 'react'
 import { PieChart, Pie, ResponsiveContainer, Tooltip, Cell } from 'recharts'
-import { Row, summarize, byRestaurant, fmt, money, pct, wrongSupplierFactPlan, STATUS_META, Status } from '../lib/data'
+import { Row, summarize, byRestaurant, fmt, money, pct, STATUS_META, Status } from '../lib/data'
 import StatCard from '../components/StatCard'
 import { Section } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
-import { IScale, ICheck, IStore, IChevron } from '../components/icons'
+import { IScale, ICheck, IStore, IChevron, IDownload } from '../components/icons'
+
+interface WrongSupplierItem {
+  supplier: string
+  product: string
+  pack: string
+  qty: number
+  fact: number
+  plan: number
+  delta: number
+  designatedSuppliers: string[]
+}
 
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
   const s = useMemo(() => summarize(rows), [rows])
   const [expanded, setExpanded] = useState<string | null>(null)
 
   // П. 2.2 Приложения №1 — факт и план по каждому ресторану, только для
-  // "заказ не по матрице" (wrongSupplierFactPlan в lib/data.ts — "нет в
-  // матрице" сюда специально не идёт, там сравнивать не с чем, попросили
-  // не смешивать с настоящей переплатой).
+  // "заказ не по матрице" ("нет в матрице" сюда специально не идёт, там
+  // сравнивать не с чем, попросили не смешивать с настоящей переплатой).
+  // Строим сразу и агрегат (fact/plan/delta), и построчную разбивку —
+  // при раскрытии ресторана нужно видеть не только общую сумму, но и по
+  // какому именно товару набежала разница (п. 2.3 — доработка дашборда).
   const perRest = useMemo(
     () => byRestaurant(rows).map((r) => {
-      const { fact, plan } = wrongSupplierFactPlan(r.rows)
-      return { name: r.name, fact, plan, delta: fact - plan }
+      const items: WrongSupplierItem[] = r.rows
+        .filter((x) => x.unit != null && !x.isTotalRow && x.status === 'wrongSupplier' && x.designatedPlan != null)
+        .map((x) => {
+          const fact = x.qty * (x.unit as number)
+          const plan = x.qty * (x.designatedPlan as number)
+          return {
+            supplier: x.supplier, product: x.productLabel ?? x.product, pack: x.pack, qty: x.qty,
+            fact, plan, delta: fact - plan, designatedSuppliers: x.designatedSuppliers,
+          }
+        })
+        .sort((a, b) => b.delta - a.delta)
+      const fact = items.reduce((sum, it) => sum + it.fact, 0)
+      const plan = items.reduce((sum, it) => sum + it.plan, 0)
+      return { name: r.name, fact, plan, delta: fact - plan, items }
     })
       .filter((r) => r.fact > 0)
       .sort((a, b) => b.delta - a.delta),
     [rows],
   )
+
+  const exportRestaurant = async (r: { name: string; items: WrongSupplierItem[] }) => {
+    const XLSX = await import('xlsx')
+    const title = [`Заказ не по матрице — ${r.name}`]
+    const head = ['Поставщик', 'Товар', 'Фасовка', 'Количество', 'План', 'Факт', 'Δ', 'Должны у']
+    const lines = r.items.map((it) => [
+      it.supplier, it.product, it.pack, it.qty, it.plan, it.fact, it.delta, it.designatedSuppliers.join(', '),
+    ])
+    const ws = XLSX.utils.aoa_to_sheet([title, head, ...lines])
+    ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 24 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Не по матрице')
+    const safe = (x: string) => x.replace(/\s+/g, '_').replace(/[\\/:*?"<>|]/g, '')
+    const todayStr = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `ne-po-matrice-${safe(r.name)}-${todayStr}.xlsx`)
+  }
   const totals = useMemo(
     () => perRest.reduce((acc, r) => ({ fact: acc.fact + r.fact, plan: acc.plan + r.plan, delta: acc.delta + r.delta }), { fact: 0, plan: 0, delta: 0 }),
     [perRest],
@@ -94,10 +135,48 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                       <span className="text-sm font-semibold text-warn tabnum">{money(r.delta)}</span>
                     </button>
                     {isOpen && (
-                      <div className="grid grid-cols-3 gap-3 border-t border-ink-700/60 px-3 py-2.5 text-xs">
-                        <div><div className="text-fg-500">Вышло</div><div className="font-medium text-fg-200 tabnum">{money(r.fact)}</div></div>
-                        <div><div className="text-fg-500">Должно было выйти</div><div className="font-medium text-fg-200 tabnum">{money(r.plan)}</div></div>
-                        <div><div className="text-fg-500">Разница</div><div className="font-medium text-warn tabnum">{money(r.delta)}</div></div>
+                      <div className="border-t border-ink-700/60 px-3 py-2.5">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex gap-4 text-xs">
+                            <div><div className="text-fg-500">Вышло</div><div className="font-medium text-fg-200 tabnum">{money(r.fact)}</div></div>
+                            <div><div className="text-fg-500">Должно было выйти</div><div className="font-medium text-fg-200 tabnum">{money(r.plan)}</div></div>
+                            <div><div className="text-fg-500">Разница</div><div className="font-medium text-warn tabnum">{money(r.delta)}</div></div>
+                          </div>
+                          <button
+                            onClick={() => exportRestaurant(r)}
+                            title="Скачать разбивку по товарам этого ресторана в Excel"
+                            className="btn !px-2.5 !py-1.5 border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750"
+                          >
+                            <IDownload width={14} height={14} /> Excel
+                          </button>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto rounded-lg border border-ink-700/40">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-ink-900/90">
+                              <tr>
+                                <th className="px-2 py-1.5 text-left font-medium text-fg-500">Товар</th>
+                                <th className="px-2 py-1.5 text-right font-medium text-fg-500">Кол-во</th>
+                                <th className="px-2 py-1.5 text-right font-medium text-fg-500">План</th>
+                                <th className="px-2 py-1.5 text-right font-medium text-fg-500">Факт</th>
+                                <th className="px-2 py-1.5 text-right font-medium text-fg-500">Δ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {r.items.map((it, i) => (
+                                <tr key={i} className="border-t border-ink-700/40">
+                                  <td className="px-2 py-1.5 text-fg-200">
+                                    {it.product}
+                                    <span className="block text-[10px] font-normal text-fg-500">{it.supplier}</span>
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right tabnum text-fg-400">{fmt(it.qty)}</td>
+                                  <td className="px-2 py-1.5 text-right tabnum text-fg-400">{money(it.plan)}</td>
+                                  <td className="px-2 py-1.5 text-right tabnum text-fg-200">{money(it.fact)}</td>
+                                  <td className="px-2 py-1.5 text-right tabnum font-semibold text-warn">{(it.delta >= 0 ? '+' : '') + money(it.delta)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>
