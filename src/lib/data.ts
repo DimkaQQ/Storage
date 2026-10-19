@@ -1539,9 +1539,10 @@ export function groupBy(rows: Row[], key: (r: Row) => string) {
 
 const nf = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 const nf1 = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
-// План/факт — точная сумма как есть, без округления до целого тенге
-// (округляем только когда сумма и так целая — 2 знака максимум, не всегда).
-const nfMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
+// План/факт — точная сумма как есть, без округления до целого тенге,
+// но не больше одного знака после запятой (копейки/тиыны никому не нужны,
+// а 2 знака делали таблицу визуально шумной — 123,45 против 123,4).
+const nfMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
 
 export const fmt = (n: number) => nf.format(Math.round(n))
 export const fmt1 = (n: number) => nf1.format(n)

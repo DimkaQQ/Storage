@@ -241,13 +241,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           <table className="w-full max-w-[1060px] table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[11%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[16%]" tight>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[19%]" tight>Товар</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[13%]">Факт</Th>
-                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[10%]">Δ</Th>
-                <th className="th w-[11%]">Статус</th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[18%]" tight>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[21%]" tight>Товар</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[7%]">План</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[10%]">Факт</Th>
+                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[8%]">Δ</Th>
+                <th className="th w-[14%]">Статус</th>
                 <th className="th w-[8%]">Заметка</th>
               </tr>
             </thead>
@@ -270,7 +270,17 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     {r.supplierLabel && <HoverName text={r.supplier} className="block text-[11px] font-normal text-fg-500" />}
                   </td>
                   <td className="td overflow-hidden px-2 font-medium text-fg-100">
-                    {r.unit == null ? (
+                    {r.status === 'nomatrix' || r.status === 'wrongSupplier' ? (
+                      // Для этих двух статусов сам статус важнее конкретного
+                      // названия — крупным текстом пишем "Нет в матрице"/
+                      // "Заказ не по матрице", а что именно купили —
+                      // отдельной мелкой серой строкой под ним (то же
+                      // название, что раньше было бы крупным).
+                      <>
+                        <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
+                        <HoverName text={r.productLabel ?? r.product} className="block text-[11px] font-normal text-fg-500" />
+                      </>
+                    ) : r.unit == null ? (
                       // Позиция из матрицы, ещё не купленная в этом периоде — тут
                       // r.product уже и есть их название, отдельного iiko-имени
                       // нет вовсе (не покупали), под ним просто фасовка.
@@ -316,10 +326,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   <td className="td text-right tabnum font-semibold text-fg-300">
                     {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
-                  <td className="td overflow-hidden">
+                  <td className="td overflow-hidden text-center">
                     <StatusBadge status={r.status} />
                     {r.note && (
-                      <div className="mt-0.5 flex items-center gap-1 text-[11px] text-fg-500">
+                      <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] text-fg-500">
                         <InfoTip text={r.note} align="left" />
                         <span>комментарий</span>
                       </div>
