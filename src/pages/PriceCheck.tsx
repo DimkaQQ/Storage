@@ -242,11 +242,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[18%]" tight>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[21%]" tight>Товар</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[7%]">План</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[10%]">Факт</Th>
-                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[8%]">Δ</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[16%]" tight>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[18%]" tight>Товар</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[12%]">Факт</Th>
+                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[9%]">Δ</Th>
                 <th className="th w-[14%]">Статус</th>
                 <th className="th w-[8%]">Заметка</th>
               </tr>
@@ -321,15 +321,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       </>
                     )}
                   </td>
-                  <td className="td text-right tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
-                  <td className="td text-right tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
-                  <td className="td text-right tabnum font-semibold text-fg-300">
+                  <td className="td whitespace-nowrap text-right tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
+                  <td className="td whitespace-nowrap text-right tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
+                  <td className="td whitespace-nowrap text-right tabnum font-semibold text-fg-300">
                     {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
-                  <td className="td overflow-hidden text-center">
+                  <td className="td overflow-hidden text-right">
                     <StatusBadge status={r.status} />
                     {r.note && (
-                      <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] text-fg-500">
+                      <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-fg-500">
                         <InfoTip text={r.note} align="left" />
                         <span>комментарий</span>
                       </div>
