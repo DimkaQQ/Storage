@@ -247,7 +247,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
                 <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[12%]">Факт</Th>
                 <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[9%]">Δ</Th>
-                <th className="th w-[14%] text-right">Статус</th>
+                <th className="th w-[14%] text-center">Статус</th>
                 <th className="th w-[5%]">Заметка</th>
               </tr>
             </thead>
@@ -326,10 +326,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   <td className="td whitespace-nowrap text-right tabnum font-semibold text-fg-300">
                     {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
-                  <td className="td overflow-hidden text-right">
+                  <td className="td overflow-hidden text-center">
                     <StatusBadge status={r.status} />
                     {r.note && (
-                      <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-fg-500">
+                      <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] text-fg-500">
                         <InfoTip text={r.note} align="left" />
                         <span>комментарий</span>
                       </div>
