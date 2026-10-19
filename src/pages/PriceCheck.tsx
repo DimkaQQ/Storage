@@ -97,20 +97,34 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const [limit, setLimit] = useState(PAGE_SIZE)
   useEffect(() => { setLimit(PAGE_SIZE) }, [q, active, onlyNoted])
   const shown = filtered.slice(0, limit)
+  // root — сам скроллящийся div (см. ниже), а не окно браузера. Таблица
+  // скроллится ВНУТРИ своего бокса (max-h-[70vh] overflow-auto), а не
+  // страницей целиком — без явного root IntersectionObserver сравнивает
+  // положение сентинела с окном браузера, а не с видимой областью этого
+  // бокса, и почти никогда не "видит" его, когда скроллишь именно внутри
+  // таблицы (итог — подгрузка молча не срабатывает, список выглядит
+  // оборванным на PAGE_SIZE, хотя дальше есть ещё строки).
+  const containerRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  // Сентинел рендерится только пока есть что подгружать — следим именно
+  // за этим условием (а не пустым deps-массивом), иначе при его
+  // размонтировании/перемонтировании (например, после смены фильтра)
+  // старый наблюдатель остаётся висеть на уже отсоединённом узле, а новый
+  // вообще не создаётся. useEffect (не callback-ref) — он гарантированно
+  // срабатывает уже после того, как ПОЛНОСТЬЮ смонтированы оба узла,
+  // включая containerRef, который иначе на момент коммита ref'а сентинела
+  // мог ещё быть null.
+  const hasMore = shown.length < filtered.length
   useEffect(() => {
-    const el = sentinelRef.current
-    if (!el) return
-    // rootMargin с запасом — подгружаем следующую партию чуть РАНЬШЕ, чем
-    // сентинел реально появится в видимой области, чтобы скролл не
-    // "спотыкался" о короткую паузу рендера на самом краю экрана.
+    const el = sentinelRef.current, root = containerRef.current
+    if (!hasMore || !el || !root) return
     const obs = new IntersectionObserver(
       (entries) => { if (entries[0].isIntersecting) setLimit((l) => l + PAGE_SIZE) },
-      { rootMargin: '800px' },
+      { root, rootMargin: '800px' },
     )
     obs.observe(el)
     return () => obs.disconnect()
-  }, [])
+  }, [hasMore])
 
   const toggle = (st: Status) => {
     const n = new Set(active)
@@ -223,7 +237,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           занимает почти весь экран, так что внешняя страница обычно не
           скроллится сама и второго скролла на глаз не видно. */}
       <div className="card overflow-hidden p-0">
-        <div className="max-h-[70vh] overflow-auto">
+        <div ref={containerRef} className="max-h-[70vh] overflow-auto">
           <table className="w-full max-w-[1060px] table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
