@@ -247,7 +247,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
                 <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[12%]">Факт</Th>
                 <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[9%]">Δ</Th>
-                <th className="th w-[14%]">Статус</th>
+                <th className="th w-[14%] text-right">Статус</th>
                 <th className="th w-[5%]">Заметка</th>
               </tr>
             </thead>
