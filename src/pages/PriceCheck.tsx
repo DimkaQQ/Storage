@@ -248,7 +248,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[12%]">Факт</Th>
                 <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[9%]">Δ</Th>
                 <th className="th w-[14%]">Статус</th>
-                <th className="th w-[8%]">Заметка</th>
+                <th className="th w-[5%]">Заметка</th>
               </tr>
             </thead>
             <tbody>
@@ -335,10 +335,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       </div>
                     )}
                   </td>
-                  <td className="td relative overflow-visible px-2 text-center">
+                  <td className="td relative overflow-visible px-1.5 text-left">
                     <button
                       onClick={() => { setOpenNoteFor(openNoteFor === r.rowKey ? null : r.rowKey); setDraft(r.userComment ?? '') }}
-                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-fg-500'}`}
+                      className={`inline-flex items-center gap-1 rounded-md px-1 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-fg-500'}`}
                       title={r.userComment ?? 'Добавить заметку'}
                     >
                       {colorMeta && <span className={`h-2 w-2 rounded-full ${colorMeta.dot}`} />}
