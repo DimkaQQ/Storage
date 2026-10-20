@@ -267,17 +267,17 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           занимает почти весь экран, так что внешняя страница обычно не
           скроллится сама и второго скролла на глаз не видно. */}
       <div className="card overflow-hidden p-0">
-        <div ref={containerRef} className="max-h-[70vh] overflow-auto">
+        <div ref={containerRef} className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
           <table className="w-full max-w-[1060px] table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[16%]" tight>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[18%]" tight>Товар</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[12%]">Факт</Th>
-                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[9%]">Δ</Th>
-                <th className="th w-[14%] text-center">Статус</th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[7%]" tight>Ресторан</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[19%]" tight>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[24%]" tight>Товар</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[7%]">План</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[9%]">Факт</Th>
+                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[7%]">Δ</Th>
+                <th className="th w-[11%] text-center">Статус</th>
                 <th className="th w-[5%] text-center">Заметка</th>
               </tr>
             </thead>
@@ -363,13 +363,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       </>
                     )}
                   </td>
-                  <td className="td whitespace-nowrap text-right tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
-                  <td className="td whitespace-nowrap text-right tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
-                  <td className="td whitespace-nowrap text-right tabnum font-semibold text-fg-300">
+                  <td className="td overflow-hidden whitespace-nowrap text-right text-xs tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
+                  <td className="td overflow-hidden whitespace-nowrap text-right text-xs tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
+                  <td className="td overflow-hidden whitespace-nowrap text-right text-xs tabnum font-semibold text-fg-300">
                     {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
                   <td className="td overflow-hidden text-center">
-                    <StatusBadge status={r.status} />
+                    <StatusBadge status={r.status} className="!text-[10px] !px-2 !py-0.5" />
                     {r.note && (
                       <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] text-fg-500">
                         <InfoTip text={r.note} align="left" />

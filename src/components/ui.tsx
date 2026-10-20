@@ -79,10 +79,10 @@ export function Reveal({ delay = 0, className = '', children }: {
   )
 }
 
-export function StatusBadge({ status }: { status: Status }) {
+export function StatusBadge({ status, className = '' }: { status: Status; className?: string }) {
   const m = STATUS_META[status]
   return (
-    <span className={`chip border-transparent bg-ink-750/70 ${m.color}`}>
+    <span className={`chip border-transparent bg-ink-750/70 ${m.color} ${className}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
       {m.label}
     </span>
