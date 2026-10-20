@@ -264,23 +264,14 @@ export default function DataEditor() {
       if (seen.has(dedupeKey)) continue
       seen.set(dedupeKey, { label: row.matrixLabel, targetProduct: row.productSegment, supplierName: row.supplier })
     }
-    const list = [...seen.values()]
-    // Название из самой матрицы (matrixLabel) — не гарантированно уникально
-    // само по себе: разные поставщики нередко описывают свой товар одним и
-    // тем же дженериковым текстом ("Ягода с/м в асс" и т.п.), а это РАЗНЫЕ
-    // строки матрицы (разный targetProduct). Поставщика нигде не показываем
-    // (не украшает список) — но если текст реально встретился больше
-    // одного раза, без разметки эти строки стали бы неотличимыми друг от
-    // друга дублями, а клик по любой из них тихо попадал бы не в ту (label
-    // — обратный ключ поиска при выборе, см. onCommit ниже). Тут поставщик
-    // дописывается вынужденно, только когда без него никак не различить.
-    const labelCount = new Map<string, number>()
-    for (const o of list) labelCount.set(o.label, (labelCount.get(o.label) ?? 0) + 1)
-    return list
-      .map((o) => ({
-        label: (labelCount.get(o.label) ?? 0) > 1 ? `${o.label} — ${o.supplierName}` : o.label,
-        targetProduct: o.targetProduct,
-      }))
+    // Поставщик дописывается всегда, не только когда текст товара реально
+    // задвоен (подтверждено явно человеком) — он подсказывает, какая это
+    // компания, даже когда названия у разных поставщиков просто ПОХОЖИ
+    // (не идентичны, но легко перепутать на вид), а не только когда они
+    // буквально совпадают — раньше в этом случае подсказка ничем не
+    // отличалась от обычной, хотя разница ровно в поставщике.
+    return [...seen.values()]
+      .map((o) => ({ label: `${o.label} — ${o.supplierName}`, targetProduct: o.targetProduct }))
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [realMatrixRows])
 
