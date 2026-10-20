@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack, norm } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
@@ -368,24 +369,30 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   <td className="td overflow-hidden whitespace-nowrap text-right text-xs tabnum font-semibold text-fg-300">
                     {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
+                  {/* Статус — всегда одна строка (бейдж, без второй строки с
+                      подсказкой под ним, как было раньше): высота строки
+                      таблицы иначе гуляла от ряда к ряду (есть системная
+                      подсказка/нет), и соседние колонки в той же строке
+                      визуально "съезжали" друг с другом. Сама подсказка
+                      никуда не делась — она теперь в Заметке, рядом со своей
+                      же ручной заметкой, одним и тем же по смыслу значком. */}
                   <td className="td overflow-hidden text-center">
                     <StatusBadge status={r.status} className="!text-[10px] !px-2 !py-0.5" />
-                    {r.note && (
-                      <div className="mt-0.5 flex items-center justify-center gap-1 text-[11px] text-fg-500">
-                        <InfoTip text={r.note} align="left" />
-                        <span>комментарий</span>
-                      </div>
-                    )}
                   </td>
                   <td className="td relative overflow-visible px-1.5 text-center">
-                    <button
-                      onClick={() => { setOpenNoteFor(openNoteFor === r.rowKey ? null : r.rowKey); setDraft(r.userComment ?? '') }}
-                      className={`inline-flex items-center gap-1 rounded-md px-1 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-fg-500'}`}
-                      title={r.userComment ?? 'Добавить заметку'}
-                    >
-                      {colorMeta && <span className={`h-2 w-2 rounded-full ${colorMeta.dot}`} />}
-                      <IEdit width={13} height={13} />
-                    </button>
+                    <span className="inline-flex items-center gap-1">
+                      {r.note && <InfoTip text={r.note} align="left" />}
+                      <NoteHoverTip text={r.userComment}>
+                        <button
+                          onClick={() => { setOpenNoteFor(openNoteFor === r.rowKey ? null : r.rowKey); setDraft(r.userComment ?? '') }}
+                          className={`inline-flex items-center gap-1 rounded-md px-1 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-fg-500'}`}
+                          title={r.userComment ?? 'Добавить заметку'}
+                        >
+                          {colorMeta && <span className={`h-2 w-2 rounded-full ${colorMeta.dot}`} />}
+                          <IEdit width={13} height={13} />
+                        </button>
+                      </NoteHoverTip>
+                    </span>
                     {openNoteFor === r.rowKey && (
                       <div className="absolute right-2 top-full z-20 mt-1 w-64 rounded-xl border border-ink-600 bg-ink-800 p-3 text-left shadow-card">
                         <div className="mb-2 flex items-center justify-between">
@@ -453,6 +460,49 @@ function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: str
 function FasovkaStar({ n, pack }: { n: number; pack: string }) {
   return (
     <span className="shrink-0 font-semibold text-brand-300" title={`Та же позиция у этого поставщика, но другая фасовка: ${pack || '—'}`}>★{n}</span>
+  )
+}
+
+/**
+ * Показывает свою заметку по наведению (портал, та же механика, что и у
+ * InfoTip) — раньше её можно было прочитать только кликом (открыть
+ * редактор) или browser-тайтлом (медленный, без переносов строк). Без
+ * текста — просто прозрачная обёртка, ничего не добавляет.
+ */
+function NoteHoverTip({ text, children }: { text: string | null; children: ReactNode }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [tip, setTip] = useState<{ left: number; top: number; below: boolean } | null>(null)
+  if (!text) return <>{children}</>
+
+  const TIP_WIDTH = 240
+  const open = () => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const m = 10
+    const left = Math.max(m + TIP_WIDTH / 2, Math.min(window.innerWidth - m - TIP_WIDTH / 2, r.left + r.width / 2))
+    const below = r.bottom + 100 < window.innerHeight
+    const top = below ? r.bottom + 8 : r.top - 8
+    setTip({ left, top, below })
+  }
+  const close = () => setTip(null)
+
+  return (
+    <span ref={ref} className="inline-flex" onMouseEnter={open} onMouseLeave={close}>
+      {children}
+      {tip && createPortal(
+        <div
+          style={{
+            position: 'fixed', left: tip.left, top: tip.top, width: TIP_WIDTH,
+            transform: `translateX(-50%) ${tip.below ? '' : 'translateY(-100%)'}`,
+          }}
+          className="pointer-events-none z-[100] whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-xs font-normal leading-relaxed text-fg-200 shadow-xl"
+        >
+          {text}
+        </div>,
+        document.body,
+      )}
+    </span>
   )
 }
 
