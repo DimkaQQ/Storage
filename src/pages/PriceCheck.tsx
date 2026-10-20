@@ -273,11 +273,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[17%]" tight center>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[21%]" tight center>Товар</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[7%]">План</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[9%]">Факт</Th>
-                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[7%]">Δ</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[15%]" tight center>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[17%]" tight center>Товар</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[10%]">Факт</Th>
+                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[10%]">Δ</Th>
                 <th className="th w-[11%] text-center">Статус</th>
                 <th className="th w-[6%] text-center">Заметка</th>
               </tr>
