@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { PieChart, Pie, ResponsiveContainer, Tooltip, Cell } from 'recharts'
-import { Row, summarize, byRestaurant, fmt, money, pct, STATUS_META, Status } from '../lib/data'
+import { Row, summarize, byRestaurant, fmt, money, pct, norm, STATUS_META, Status } from '../lib/data'
 import StatCard from '../components/StatCard'
 import { Section } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
@@ -18,6 +18,7 @@ interface WrongSupplierItem {
   delta: number
   deltaUnit: number
   designatedSuppliers: string[]
+  star: number | null  // отличить одинаковый товар+поставщик, пришедший разной фасовкой (см. perRest ниже) — "Фасоль 400гр банка" и "Фасоль 250гр банка" у одного и того же поставщика выглядели бы как задвоенная строка без этого
 }
 
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
@@ -32,7 +33,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
   // какому именно товару набежала разница (п. 2.3 — доработка дашборда).
   const perRest = useMemo(
     () => byRestaurant(rows).map((r) => {
-      const items: WrongSupplierItem[] = r.rows
+      const rawItems = r.rows
         .filter((x) => x.unit != null && !x.isTotalRow && x.status === 'wrongSupplier' && x.designatedPlan != null)
         .map((x) => {
           const unit = x.unit as number, planUnit = x.designatedPlan as number
@@ -40,8 +41,28 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
           return {
             supplier: x.supplier, product: x.productLabel ?? x.product, pack: x.pack, qty: x.qty,
             unit, planUnit, fact, plan, delta: fact - plan, deltaUnit: unit - planUnit,
-            designatedSuppliers: x.designatedSuppliers,
+            designatedSuppliers: x.designatedSuppliers, star: null as number | null,
           }
+        })
+      // Звёздочки — один и тот же товар у одного и того же поставщика может
+      // встретиться несколько раз под разной фасовкой (например банка 400гр
+      // и банка 250гр); без отметки это выглядело бы как случайно
+      // задвоенная строка. Факт/план каждой строки не трогаем — только
+      // подпись, чтобы было видно, что это разные позиции. Номер звезды
+      // назначаем по алфавиту фасовки — стабильно, не зависит от сортировки
+      // по разнице ниже.
+      const groupKey = (it: typeof rawItems[number]) => `${norm(it.product)}::${norm(it.supplier)}`
+      const groupSizes = new Map<string, number>()
+      for (const it of rawItems) groupSizes.set(groupKey(it), (groupSizes.get(groupKey(it)) ?? 0) + 1)
+      const starSeq = new Map<string, number>()
+      const items: WrongSupplierItem[] = [...rawItems]
+        .sort((a, b) => a.pack.localeCompare(b.pack))
+        .map((it) => {
+          const key = groupKey(it)
+          if ((groupSizes.get(key) ?? 0) < 2) return it
+          const n = (starSeq.get(key) ?? 0) + 1
+          starSeq.set(key, n)
+          return { ...it, star: n }
         })
         .sort((a, b) => b.delta - a.delta)
       const fact = items.reduce((sum, it) => sum + it.fact, 0)
@@ -58,7 +79,8 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
     const title = [`Заказ не по матрице — ${r.name} (цена за ед.)`]
     const head = ['Поставщик', 'Товар', 'Фасовка', 'Количество', 'План (за ед.)', 'Факт (за ед.)', 'Δ', 'Должны у']
     const lines = r.items.map((it) => [
-      it.supplier, it.product, it.pack, it.qty, it.planUnit, it.unit, it.deltaUnit, it.designatedSuppliers.join(', '),
+      it.supplier, it.star != null ? `${it.product} ★${it.star}` : it.product, it.pack, it.qty,
+      it.planUnit, it.unit, it.deltaUnit, it.designatedSuppliers.join(', '),
     ])
     const ws = XLSX.utils.aoa_to_sheet([title, head, ...lines])
     ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 24 }]
@@ -169,7 +191,12 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                               {r.items.map((it, i) => (
                                 <tr key={i} className="border-t border-ink-700/40">
                                   <td className="max-w-0 px-2 py-1.5 text-fg-200">
-                                    <div className="truncate">{it.product}</div>
+                                    <div className="truncate">
+                                      {it.product}
+                                      {it.star != null && (
+                                        <span className="ml-1 font-semibold text-brand-300" title={`Та же позиция у этого поставщика, но другая фасовка: ${it.pack || '—'}`}>★{it.star}</span>
+                                      )}
+                                    </div>
                                     <div className="truncate text-[10px] font-normal text-fg-500">{it.supplier}</div>
                                   </td>
                                   <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{fmt(it.qty)}</td>
