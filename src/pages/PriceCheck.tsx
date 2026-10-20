@@ -386,7 +386,12 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         <button
                           onClick={() => { setOpenNoteFor(openNoteFor === r.rowKey ? null : r.rowKey); setDraft(r.userComment ?? '') }}
                           className={`inline-flex items-center gap-1 rounded-md px-1 py-1 hover:bg-ink-750 ${r.userComment || r.rowColor ? 'text-brand-300' : 'text-fg-500'}`}
-                          title={r.userComment ?? 'Добавить заметку'}
+                          // Не дублируем текст заметки нативным title — его
+                          // уже показывает NoteHoverTip (мгновенно, без
+                          // браузерной задержки в 1.5-2с), а родной title с
+                          // ТЕМ ЖЕ текстом всё равно всплывал бы следом,
+                          // выглядя как вторая, "запоздавшая" подсказка.
+                          title={r.userComment ? undefined : 'Добавить заметку'}
                         >
                           {colorMeta && <span className={`h-2 w-2 rounded-full ${colorMeta.dot}`} />}
                           <IEdit width={13} height={13} />
