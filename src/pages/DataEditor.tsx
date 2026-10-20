@@ -16,7 +16,7 @@ export default function DataEditor() {
   const {
     edits, rows, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, pendingProductLinks, stageProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey, refreshMatrix,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,
   } = useEdits()
@@ -424,10 +424,16 @@ export default function DataEditor() {
     return [...groups.values()]
   }, [rows, matching, editorRestaurant, needle])
 
-  const commitUnmatchedLink = (u: UnmatchedRow, targetProduct: string | undefined) => {
+  // Черновик, не применяется к rows сразу (см. Ctx.pendingProductLinks) —
+  // строка остаётся в «Нет в матрице», пока не нажата общая «Сохранить»
+  // (подтверждено явно: раньше привязка срабатывала мгновенно, строка
+  // тут же пропадала из вида, и было не разобрать, то ли правда сохранилось,
+  // то ли нет — теперь поле сразу показывает выбор, а список обновляется
+  // только по кнопке).
+  const stageUnmatchedLink = (u: UnmatchedRow, targetProduct: string | undefined) => {
     const pack = u.pack ? normPack(u.pack) : ''
     const key = u.key
-    if (!targetProduct) { setProductLink(key, null); return }
+    if (!targetProduct) { stageProductLink(key, null); return }
     // link.supplier — то же каноническое написание, что кладёт
     // commitMatrixIikoName (row.supplier = supplierDisplayByNorm...), не
     // сырое u.supplier (как было: iiko-поставщик "ИП Иванов..." вместо
@@ -437,7 +443,7 @@ export default function DataEditor() {
     // совпадёт никогда — привязка, заведённая отсюда, просто не находилась
     // бы и оставалась бы висеть в edits.productLinks навсегда.
     const supplier = supplierDisplayByNorm.get(u.supplierNorm) ?? u.supplier
-    setProductLink(key, { targetProduct, supplier, rawProduct: u.product, pack, restaurant: u.restaurant })
+    stageProductLink(key, { targetProduct, supplier, rawProduct: u.product, pack, restaurant: u.restaurant })
   }
 
   // Значения для чек-листов «Ресторан», «Название» и «Фасовка» — как в
@@ -753,7 +759,14 @@ export default function DataEditor() {
                     // статус всё равно не сошёлся (например, разошлась ещё и
                     // фасовка) — не молчим об этом пустым полем, показываем,
                     // что уже назначено.
-                    const currentLink = edits.productLinks[u.key]
+                    // Черновик (см. stageUnmatchedLink/pendingProductLinks)
+                    // побеждает над уже применённой привязкой, если он есть —
+                    // именно он показывает, что реально сейчас стоит в поле,
+                    // пока не нажата «Сохранить». has() отличает "явно снят"
+                    // (Map хранит null) от "вообще не трогали" (ключа нет).
+                    const hasPending = pendingProductLinks.has(u.key)
+                    const pendingLink = pendingProductLinks.get(u.key)
+                    const currentLink = hasPending ? pendingLink : edits.productLinks[u.key]
                     const currentLabel = currentLink
                       ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
                       : ''
@@ -786,11 +799,14 @@ export default function DataEditor() {
                               // Пустое поле — явно снимаем привязку. Любой
                               // другой текст сюда долетает уже только как
                               // точное совпадение с подсказкой (matchOnly).
-                              if (!v) { commitUnmatchedLink(u, undefined); return }
+                              if (!v) { stageUnmatchedLink(u, undefined); return }
                               const picked = options.find((o) => o.label === v)
-                              if (picked) commitUnmatchedLink(u, picked.targetProduct)
+                              if (picked) stageUnmatchedLink(u, picked.targetProduct)
                             }}
                           />
+                          {hasPending && (
+                            <div className="mt-1 text-[11px] text-brand-300">Выбрано — нажмите «Сохранить» вверху, чтобы применить.</div>
+                          )}
                           {notPricedHere && (
                             <div className="mt-1 text-[11px] text-fg-500">
                               В матрице есть у: {[...(pricedFor ?? [])].join(', ') || '—'} — но не у «{u.restaurant}».

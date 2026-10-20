@@ -210,6 +210,18 @@ interface Ctx {
   setProductPackOverride: (product: string, value: boolean | null) => void
   setPackAlias: (key: string, value: PackAlias | null) => void
   setProductLink: (key: string, value: ProductLink | null) => void
+  // Черновик привязки из «Нет в матрице» — ТОЛЬКО для показа в самом поле
+  // (что реально напечатали/выбрали), ни на rows, ни на computeRows нигде
+  // не влияет, пока не нажата «Сохранить» (см. saveCatalog). Раньше
+  // setProductLink применялся сразу — строка в тот же момент пропадала из
+  // списка «Нет в матрице», человек терял из виду, что он только что
+  // заполнил, и путался, сохранилось оно вообще или нет (подтверждено
+  // явно: "давай сделаем удобнее... пропадали только после сохранить").
+  // Map (не Record) — null-значение (явный снятый выбор) и "вообще не
+  // трогали" (ключа нет) тут два разных состояния, а Record тяжелее
+  // отличить третьим состоянием без костылей вроде `in`.
+  pendingProductLinks: Map<string, ProductLink | null>
+  stageProductLink: (key: string, value: ProductLink | null) => void
   setPlanOverride: (key: string, value: number | null) => void
   setRowComment: (key: string, value: string | null) => void
   setRowColor: (key: string, value: RowColor | null) => void
@@ -258,6 +270,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // иначе после успешного сохранения индикатор продолжал бы гореть.
   const [catalogBaseline, setCatalogBaseline] = useState<CatalogFields>(() => pickCatalog(load()))
   const [savingCatalog, setSavingCatalog] = useState(false)
+  // Черновик привязок «Нет в матрице», ещё не применённый к edits.productLinks
+  // (см. Ctx.pendingProductLinks выше) — живёт только в памяти вкладки,
+  // в localStorage не пишется: это буквально то же самое "несохранённое",
+  // что и остальные каталожные поля, просто на уровень ближе к полю ввода.
+  const [pendingProductLinks, setPendingProductLinks] = useState<Map<string, ProductLink | null>>(new Map())
+  const stageProductLink = useCallback((key: string, value: ProductLink | null) => {
+    setPendingProductLinks((prev) => new Map(prev).set(key, value))
+  }, [])
   const history = useRef<Edits[]>([])
   const [canUndo, setCanUndo] = useState(false)
   // applyEditOp() раньше вызывался fire-and-forget — если бэкенд отклонял
@@ -299,8 +319,20 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem(KEY, JSON.stringify(edits)) } catch { /* ignore quota */ }
   }, [edits])
 
-  const catalogDirty = useMemo(() => catalogIsDirty(catalogBaseline, pickCatalog(edits)), [catalogBaseline, edits])
-  const catalogChanges = useMemo(() => describeCatalogChanges(catalogBaseline, pickCatalog(edits)), [catalogBaseline, edits])
+  const catalogDirty = useMemo(() =>
+    catalogIsDirty(catalogBaseline, pickCatalog(edits)) || pendingProductLinks.size > 0,
+  [catalogBaseline, edits, pendingProductLinks])
+  // Черновые привязки ещё не попали в edits.productLinks (см. выше), так
+  // что describeCatalogChanges их не видит сам по себе — дописываем
+  // отдельно, тем же текстом, что и у уже применённых. null-значение —
+  // снятие СУЩЕСТВУЮЩЕЙ привязки, у которой нет под рукой rawProduct —
+  // показываем общей фразой.
+  const pendingChanges = useMemo(() => [...pendingProductLinks.values()].map((v) =>
+    v ? `Товар «${v.rawProduct}» (${v.restaurant}): привязан к «${v.targetProduct}»` : 'Товар: привязка снята',
+  ), [pendingProductLinks])
+  const catalogChanges = useMemo(() =>
+    [...describeCatalogChanges(catalogBaseline, pickCatalog(edits)), ...pendingChanges],
+  [catalogBaseline, edits, pendingChanges])
 
   // Ручное сохранение — раз эти правки больше не улетают на сервер сами
   // по себе, случайно закрытая вкладка/обновление страницы молча теряла
@@ -318,7 +350,21 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const saveCatalog = useCallback(async (): Promise<boolean> => {
     setSavingCatalog(true)
     try {
-      const current = pickCatalog(edits)
+      let current = pickCatalog(edits)
+      // Черновик «Нет в матрице» применяется по-настоящему только сейчас —
+      // до этого момента rows/computeRows его не видели вовсе (см.
+      // pendingProductLinks выше). Считаем итоговые productLinks тут же,
+      // локально (не полагаясь на edits после setState — он обновится
+      // только на следующий рендер), и используем именно их и для
+      // реального применения, и для диффа/отправки на сервер ниже —
+      // иначе на сервер мог бы уйти ещё старый, не содержащий черновик.
+      if (pendingProductLinks.size > 0) {
+        const nextLinks = { ...current.productLinks }
+        for (const [k, v] of pendingProductLinks) { if (v == null) delete nextLinks[k]; else nextLinks[k] = v }
+        current = { ...current, productLinks: nextLinks }
+        updateEdits((e) => ({ ...e, productLinks: nextLinks }))
+        setPendingProductLinks(new Map())
+      }
       const ok = await pushCatalogDiff(catalogBaseline, current)
       reportOpResult(ok)
       if (ok) setCatalogBaseline(current)
@@ -326,7 +372,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     } finally {
       setSavingCatalog(false)
     }
-  }, [edits, catalogBaseline, reportOpResult])
+  }, [edits, catalogBaseline, reportOpResult, pendingProductLinks, updateEdits])
 
   const loadData = useCallback(async (period: string) => {
     const data = await fetchDataset(period)
@@ -692,7 +738,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setPlanOverride, setRowComment, setRowColor,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor,
     reset, replaceAll, undo, canUndo,
     saveError,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,
