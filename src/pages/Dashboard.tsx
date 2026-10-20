@@ -48,21 +48,23 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
       // встретиться несколько раз под разной фасовкой (например банка 400гр
       // и банка 250гр); без отметки это выглядело бы как случайно
       // задвоенная строка. Факт/план каждой строки не трогаем — только
-      // подпись, чтобы было видно, что это разные позиции. Номер звезды
-      // назначаем по алфавиту фасовки — стабильно, не зависит от сортировки
-      // по разнице ниже.
+      // подпись. Звезда — за РАЗЛИЧНУЮ фасовку, не за отдельную строку: если
+      // этот же товар+поставщик+фасовку купили дважды отдельными закупками
+      // за период, это одна и та же позиция — им обеим один и тот же номер
+      // (назначаем по алфавиту фасовки — стабильно, не зависит от сортировки
+      // по разнице ниже).
       const groupKey = (it: typeof rawItems[number]) => `${norm(it.product)}::${norm(it.supplier)}`
-      const groupSizes = new Map<string, number>()
-      for (const it of rawItems) groupSizes.set(groupKey(it), (groupSizes.get(groupKey(it)) ?? 0) + 1)
-      const starSeq = new Map<string, number>()
-      const items: WrongSupplierItem[] = [...rawItems]
-        .sort((a, b) => a.pack.localeCompare(b.pack))
+      const packsByGroup = new Map<string, Set<string>>()
+      for (const it of rawItems) {
+        const k = groupKey(it)
+        if (!packsByGroup.has(k)) packsByGroup.set(k, new Set())
+        packsByGroup.get(k)!.add(norm(it.pack))
+      }
+      const items: WrongSupplierItem[] = rawItems
         .map((it) => {
-          const key = groupKey(it)
-          if ((groupSizes.get(key) ?? 0) < 2) return it
-          const n = (starSeq.get(key) ?? 0) + 1
-          starSeq.set(key, n)
-          return { ...it, star: n }
+          const packs = [...(packsByGroup.get(groupKey(it)) ?? [])].sort((a, b) => a.localeCompare(b))
+          if (packs.length < 2) return it
+          return { ...it, star: packs.indexOf(norm(it.pack)) + 1 }
         })
         .sort((a, b) => b.delta - a.delta)
       const fact = items.reduce((sum, it) => sum + it.fact, 0)

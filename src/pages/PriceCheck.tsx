@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack, norm } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -86,6 +86,37 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       return av.localeCompare(bv) * dir
     })
   }, [rows, q, active, sort, moneyMode, onlyNoted])
+
+  // Звёздочки — тот же товар у того же поставщика в том же ресторане может
+  // встретиться несколько раз под разной фасовкой (банка 400гр и банка
+  // 250гр и т.п.) — без отметки, у статусов "Нет в матрице"/"Заказ не по
+  // матрице" (там крупно показан сам статус, а не фасовка, см. ниже),
+  // такие строки выглядели бы как случайно задвоенные. Считаем по ВСЕМ
+  // rows (не по filtered) — чтобы номер звезды не прыгал при поиске/
+  // фильтрах, и по тому же принципу, что и в Обзоре (см. Dashboard.tsx):
+  // номер — по алфавиту фасовки, стабильно.
+  const starByRowKey = useMemo(() => {
+    const map = new Map<string, number>()
+    const candidates = rows.filter((r) => r.status === 'nomatrix' || r.status === 'wrongSupplier')
+    const groupKey = (r: Row) => `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.productLabel ?? r.product)}`
+    const groups = new Map<string, Row[]>()
+    for (const r of candidates) {
+      const k = groupKey(r)
+      if (!groups.has(k)) groups.set(k, [])
+      groups.get(k)!.push(r)
+    }
+    for (const group of groups.values()) {
+      // Звезда — за РАЗЛИЧНУЮ фасовку, не за отдельную строку: если этот же
+      // товар+поставщик+фасовку купили дважды отдельными закупками за
+      // период, это не два разных "варианта", это одна и та же позиция —
+      // им обеим достаётся один и тот же номер.
+      const packs = [...new Set(group.map((r) => norm(r.pack)))].sort((a, b) => a.localeCompare(b))
+      if (packs.length < 2) continue
+      const starByPack = new Map(packs.map((p, i) => [p, i + 1]))
+      for (const r of group) map.set(r.rowKey, starByPack.get(norm(r.pack))!)
+    }
+    return map
+  }, [rows])
 
   const s = useMemo(() => summarize(filtered), [filtered])
   // Раньше была ручная кнопка "Показать ещё" (убрана — не работала как
@@ -278,7 +309,12 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // название, что раньше было бы крупным).
                       <>
                         <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
-                        <HoverName text={r.productLabel ?? r.product} className="block text-[11px] font-normal text-fg-500" />
+                        <span className="flex items-center gap-1 text-[11px] font-normal text-fg-500">
+                          <HoverName text={r.productLabel ?? r.product} className="min-w-0 flex-1" />
+                          {starByRowKey.has(r.rowKey) && (
+                            <span className="shrink-0 font-semibold text-brand-300" title={`Та же позиция у этого поставщика, но другая фасовка: ${r.pack || '—'}`}>★{starByRowKey.get(r.rowKey)}</span>
+                          )}
+                        </span>
                       </>
                     ) : r.unit == null ? (
                       // Позиция из матрицы, ещё не купленная в этом периоде — тут
