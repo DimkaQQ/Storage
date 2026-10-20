@@ -11,10 +11,10 @@ interface WrongSupplierItem {
   product: string
   pack: string
   qty: number
-  unit: number     // факт за единицу (кг/шт/л — как в матрице)
-  planUnit: number // план за единицу, назначенный поставщик
-  fact: number      // qty * unit — общая сумма
-  plan: number      // qty * planUnit — общая сумма
+  unit: number      // факт за единицу (кг/шт/л — как в матрице) — то, что показываем построчно
+  planUnit: number  // план за единицу, назначенный поставщик — то, что показываем построчно
+  fact: number      // qty * unit — общая сумма, только для агрегатов по ресторану сверху
+  plan: number      // qty * planUnit — общая сумма, только для агрегатов по ресторану сверху
   delta: number
   deltaUnit: number
   designatedSuppliers: string[]
@@ -23,10 +23,6 @@ interface WrongSupplierItem {
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
   const s = useMemo(() => summarize(rows), [rows])
   const [expanded, setExpanded] = useState<string | null>(null)
-  // Общая сумма закупки vs цена за единицу — тот же переключатель, что и в
-  // Проверке цен (moneyMode), только тут он один на все раскрытые рестораны
-  // сразу, не по каждому отдельно.
-  const [unitMode, setUnitMode] = useState(false)
 
   // П. 2.2 Приложения №1 — факт и план по каждому ресторану, только для
   // "заказ не по матрице" ("нет в матрице" сюда специально не идёт, там
@@ -59,13 +55,10 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
 
   const exportRestaurant = async (r: { name: string; items: WrongSupplierItem[] }) => {
     const XLSX = await import('xlsx')
-    const modeLabel = unitMode ? 'за ед.' : 'сумма'
-    const title = [`Заказ не по матрице — ${r.name} (${modeLabel})`]
-    const head = ['Поставщик', 'Товар', 'Фасовка', 'Количество', `План (${modeLabel})`, `Факт (${modeLabel})`, 'Δ', 'Должны у']
+    const title = [`Заказ не по матрице — ${r.name} (цена за ед.)`]
+    const head = ['Поставщик', 'Товар', 'Фасовка', 'Количество', 'План (за ед.)', 'Факт (за ед.)', 'Δ', 'Должны у']
     const lines = r.items.map((it) => [
-      it.supplier, it.product, it.pack, it.qty,
-      unitMode ? it.planUnit : it.plan, unitMode ? it.unit : it.fact, unitMode ? it.deltaUnit : it.delta,
-      it.designatedSuppliers.join(', '),
+      it.supplier, it.product, it.pack, it.qty, it.planUnit, it.unit, it.deltaUnit, it.designatedSuppliers.join(', '),
     ])
     const ws = XLSX.utils.aoa_to_sheet([title, head, ...lines])
     ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 24 }]
@@ -73,7 +66,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
     XLSX.utils.book_append_sheet(wb, ws, 'Не по матрице')
     const safe = (x: string) => x.replace(/\s+/g, '_').replace(/[\\/:*?"<>|]/g, '')
     const todayStr = new Date().toISOString().slice(0, 10)
-    XLSX.writeFile(wb, `ne-po-matrice-${safe(r.name)}-${unitMode ? 'za-ed' : 'summa'}-${todayStr}.xlsx`)
+    XLSX.writeFile(wb, `ne-po-matrice-${safe(r.name)}-za-ed-${todayStr}.xlsx`)
   }
   const totals = useMemo(
     () => perRest.reduce((acc, r) => ({ fact: acc.fact + r.fact, plan: acc.plan + r.plan, delta: acc.delta + r.delta }), { fact: 0, plan: 0, delta: 0 }),
@@ -153,22 +146,13 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                             <div><div className="text-fg-500">Должно было выйти</div><div className="font-medium text-fg-200 tabnum">{money(r.plan)}</div></div>
                             <div><div className="text-fg-500">Разница</div><div className="font-medium text-warn tabnum">{money(r.delta)}</div></div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => setUnitMode((v) => !v)}
-                              title="Переключить: общая сумма закупки или цена за единицу (кг/шт/л)"
-                              className={`btn !px-2.5 !py-1.5 border transition-colors ${unitMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
-                            >
-                              {unitMode ? 'Цена за ед.' : 'Общая сумма'}
-                            </button>
-                            <button
-                              onClick={() => exportRestaurant(r)}
-                              title="Скачать разбивку по товарам этого ресторана в Excel"
-                              className="btn !px-2.5 !py-1.5 border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750"
-                            >
-                              <IDownload width={14} height={14} /> Excel
-                            </button>
-                          </div>
+                          <button
+                            onClick={() => exportRestaurant(r)}
+                            title="Скачать разбивку по товарам этого ресторана в Excel"
+                            className="btn !px-2.5 !py-1.5 border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750"
+                          >
+                            <IDownload width={14} height={14} /> Excel
+                          </button>
                         </div>
                         <div className="max-h-64 overflow-y-auto rounded-lg border border-ink-700/40">
                           <table className="w-full text-xs">
@@ -176,8 +160,8 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                               <tr>
                                 <th className="w-full px-2 py-1.5 text-left font-medium text-fg-500">Товар</th>
                                 <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Кол-во</th>
-                                <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">План</th>
-                                <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Факт</th>
+                                <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">План (за ед.)</th>
+                                <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Факт (за ед.)</th>
                                 <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Δ</th>
                               </tr>
                             </thead>
@@ -189,10 +173,10 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                                     <div className="truncate text-[10px] font-normal text-fg-500">{it.supplier}</div>
                                   </td>
                                   <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{fmt(it.qty)}</td>
-                                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{money(unitMode ? it.planUnit : it.plan)}</td>
-                                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-200">{money(unitMode ? it.unit : it.fact)}</td>
+                                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{money(it.planUnit)}</td>
+                                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-200">{money(it.unit)}</td>
                                   <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum font-semibold text-warn">
-                                    {(() => { const d = unitMode ? it.deltaUnit : it.delta; return (d >= 0 ? '+' : '') + money(d) })()}
+                                    {(it.deltaUnit >= 0 ? '+' : '') + money(it.deltaUnit)}
                                   </td>
                                 </tr>
                               ))}
