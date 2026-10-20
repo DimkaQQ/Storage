@@ -385,7 +385,7 @@ export default function DataEditor() {
   // разошедшееся написание — тогда достаточно привязать эту закупку к уже
   // существующему товару из матрицы прямо здесь.
   interface UnmatchedRow {
-    restaurant: string; supplier: string; supplierNorm: string; product: string; pack: string | null; count: number; note: string | null
+    key: string; restaurant: string; supplier: string; supplierNorm: string; product: string; pack: string | null; count: number; note: string | null
   }
   // Раньше эта секция вообще не учитывала ни поиск, ни фильтр по ресторану
   // с Товаров (подтверждено человеком явно, что это мешает) — теперь оба
@@ -416,7 +416,7 @@ export default function DataEditor() {
       // ко всем будущим закупкам с тем же текстом, даже если там на самом
       // деле другой вкус — слишком рискованно угадывать одним кликом.
       if (!g) {
-        g = { restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0, note: r.note }
+        g = { key, restaurant: r.restaurant, supplier: r.supplier, supplierNorm, product: r.productRaw, pack: r.pack, count: 0, note: r.note }
         groups.set(key, g)
       }
       g.count++
@@ -426,7 +426,7 @@ export default function DataEditor() {
 
   const commitUnmatchedLink = (u: UnmatchedRow, targetProduct: string | undefined) => {
     const pack = u.pack ? normPack(u.pack) : ''
-    const key = `${norm(u.restaurant)}::${u.supplierNorm}::${norm(u.product)}::${pack}`
+    const key = u.key
     if (!targetProduct) { setProductLink(key, null); return }
     // link.supplier — то же каноническое написание, что кладёт
     // commitMatrixIikoName (row.supplier = supplierDisplayByNorm...), не
@@ -745,7 +745,7 @@ export default function DataEditor() {
                   </tr>
                 </thead>
                 <tbody>
-                  {unmatchedRows.map((u, i) => {
+                  {unmatchedRows.map((u) => {
                     const options = allMatrixProductOptions
                     // Обычно после успешной привязки строка сама пропадает из
                     // этого списка (статус перестаёт быть «нет в матрице») —
@@ -753,7 +753,7 @@ export default function DataEditor() {
                     // статус всё равно не сошёлся (например, разошлась ещё и
                     // фасовка) — не молчим об этом пустым полем, показываем,
                     // что уже назначено.
-                    const currentLink = edits.productLinks[`${norm(u.restaurant)}::${u.supplierNorm}::${norm(u.product)}::${u.pack ? normPack(u.pack) : ''}`]
+                    const currentLink = edits.productLinks[u.key]
                     const currentLabel = currentLink
                       ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
                       : ''
@@ -767,7 +767,7 @@ export default function DataEditor() {
                     const pricedFor = currentLink ? restaurantsByTarget.get(`${u.supplierNorm}::${norm(currentLink.targetProduct)}`) : null
                     const notPricedHere = currentLink && !pricedFor?.has(u.restaurant)
                     return (
-                      <tr key={i} className="row-hover hover:bg-ink-800/40">
+                      <tr key={u.key} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={u.restaurant} /></td>
                         <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={u.supplier} /></td>
                         <td className="td overflow-hidden text-fg-100"><HoverName text={u.product} /></td>
@@ -777,14 +777,15 @@ export default function DataEditor() {
                           <ProductLabelSuggest
                             value={currentLabel}
                             suggestions={options}
+                            // matchOnly — тут можно только указать на
+                            // существующий товар матрицы, а не вписать новый
+                            // текст; см. комментарий у пропса в
+                            // ProductLabelSuggest.
+                            matchOnly
                             onCommit={(v) => {
-                              // Пустое поле — явно снимаем привязку. Текст, который
-                              // ТОЧНО совпал с подсказкой — ставим её. А свободный
-                              // текст без точного совпадения (напечатали что-то,
-                              // не выбрали из списка, увели фокус) раньше тоже
-                              // снимал уже стоявшую привязку молча — оставляем её
-                              // как есть, ничего не делаем, пока не выберут вариант
-                              // или явно не очистят поле.
+                              // Пустое поле — явно снимаем привязку. Любой
+                              // другой текст сюда долетает уже только как
+                              // точное совпадение с подсказкой (matchOnly).
                               if (!v) { commitUnmatchedLink(u, undefined); return }
                               const picked = options.find((o) => o.label === v)
                               if (picked) commitUnmatchedLink(u, picked.targetProduct)

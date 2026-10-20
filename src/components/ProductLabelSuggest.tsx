@@ -20,12 +20,22 @@ import { createPortal } from 'react-dom'
  * решение, что уже применено в InfoTip.
  */
 export default function ProductLabelSuggest({
-  value, suggestions, onCommit, className = '',
+  value, suggestions, onCommit, className = '', matchOnly = false,
 }: {
   value: string
   suggestions: { label: string; supplier?: string }[]
   onCommit: (v: string) => void
   className?: string
+  // true — поле может указывать только на существующую подсказку (напр.
+  // привязка «Нет в матрице» к реальной строке матрицы), свободный текст,
+  // который точно ни с чем не совпал, никуда не применяется; тогда поле
+  // возвращается к тому, что реально сохранено, а не остаётся висеть с
+  // текстом, который никуда не делся визуально, но по факту не сохранился
+  // (иначе ровно это и путает — напечатали, ушли с поля, выглядит как
+  // сохранилось, а на деле нет). false (по умолчанию) — как раньше,
+  // свободный текст — тоже валидный ввод (переименование компании, ручное
+  // iiko-название).
+  matchOnly?: boolean
 }) {
   const [v, setV] = useState(value)
   const [open, setOpen] = useState(false)
@@ -120,11 +130,19 @@ export default function ProductLabelSuggest({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // Общий путь и для клика по подсказке (next уже точно есть в списке), и
+  // для ухода с поля после ручного ввода. matchOnly — см. пропс выше.
   const commit = (next: string) => {
+    if (matchOnly && next && !suggestions.some((s) => s.label === next)) {
+      setV(value)
+      setOpen(false)
+      setTip(null)
+      return
+    }
     setV(next)
-    // Как и в onBlur — если кликнули подсказку, которая совпадает с уже
-    // показанным значением (частый случай: подсказка ровно одна и это то,
-    // что и так уже стоит), это не правка, коммитить нечего.
+    // Если кликнули подсказку, которая совпадает с уже показанным
+    // значением (частый случай: подсказка ровно одна и это то, что и так
+    // уже стоит), это не правка, коммитить нечего.
     if (next !== value) onCommit(next)
     setOpen(false)
     setTip(null)
@@ -153,7 +171,7 @@ export default function ProductLabelSuggest({
         // Коммитим только если реально поменяли значение — иначе просто
         // кликнуть в поле и выйти (например, случайно проходя табом) молча
         // "замораживает" текущую подсказку как ручное переименование.
-        onBlur={() => { if (v !== value) onCommit(v) }}
+        onBlur={() => { if (v !== value) commit(v) }}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
         className={`w-full max-w-md rounded-md border border-ink-700/50 bg-ink-900/40 px-2 py-1 text-sm text-fg-100 transition-colors hover:border-ink-500 focus:border-brand-500 focus:bg-ink-900/70 focus:outline-none ${className}`}
       />
@@ -169,7 +187,12 @@ export default function ProductLabelSuggest({
               // onMouseDown (не onClick) + preventDefault — иначе onBlur инпута
               // срабатывает раньше клика и закрывает список до выбора.
               onMouseDown={(e) => { e.preventDefault(); commit(s.label) }}
-              onMouseEnter={(e) => { if (s.supplier) openTip(e.currentTarget, s.supplier) }}
+              // Полный текст — список обрезает длинные подсказки
+              // многоточием (ширина поля фиксирована), а разница между
+              // похожими товарами часто именно в хвосте (бренд, партия/
+              // слив, вкус) — на усечённый текст её не разглядеть. Плюс
+              // поставщик, если он есть у подсказки (см. supplier выше).
+              onMouseEnter={(e) => openTip(e.currentTarget, s.supplier ? `${s.label} — ${s.supplier}` : s.label)}
               onMouseLeave={closeTip}
               className="block w-full truncate px-3 py-2 text-left text-sm text-fg-200 hover:bg-ink-800"
             >
