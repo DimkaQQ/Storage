@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { fmt, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { syncMatrix } from '../lib/api'
@@ -11,6 +12,49 @@ import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPl
 
 type Tab = 'suppliers' | 'products' | 'venues'
 type SupplierFilter = 'all' | 'new'
+
+/**
+ * Мгновенная подсказка по наведению (портал, та же механика, что у InfoTip/
+ * HoverName) — вместо нативного title: тот почти наверняка ВСЕ РАВНО
+ * всплывёт следом, с задержкой браузера в 1.5-2с, и будет выглядеть второй,
+ * запоздавшей подсказкой поверх уже показанной (ровно так однажды и
+ * спутало в Проверке цен — см. заметку к строке там же).
+ */
+function HoverTip({ text, children }: { text: string; children: ReactNode }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [tip, setTip] = useState<{ left: number; top: number; below: boolean } | null>(null)
+  const TIP_WIDTH = 260
+
+  const open = () => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const m = 10
+    const left = Math.max(m + TIP_WIDTH / 2, Math.min(window.innerWidth - m - TIP_WIDTH / 2, r.left + r.width / 2))
+    const below = r.bottom + 100 < window.innerHeight
+    const top = below ? r.bottom + 8 : r.top - 8
+    setTip({ left, top, below })
+  }
+  const close = () => setTip(null)
+
+  return (
+    <span ref={ref} className="inline-flex" onMouseEnter={open} onMouseLeave={close}>
+      {children}
+      {tip && createPortal(
+        <div
+          style={{
+            position: 'fixed', left: tip.left, top: tip.top, width: TIP_WIDTH,
+            transform: `translateX(-50%) ${tip.below ? '' : 'translateY(-100%)'}`,
+          }}
+          className="pointer-events-none z-[100] whitespace-pre-wrap rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-xs font-normal leading-relaxed text-fg-200 shadow-xl"
+        >
+          {text}
+        </div>,
+        document.body,
+      )}
+    </span>
+  )
+}
 
 export default function DataEditor() {
   const {
@@ -970,12 +1014,11 @@ export default function DataEditor() {
                               onCommit={(v) => commitMatrixIikoName(row, primary, v)}
                             />
                             {extra.length > 0 && (
-                              <span
-                                className="chip shrink-0 border-transparent bg-ink-700 text-[10px] text-fg-400"
-                                title={`Ещё встречается под другим написанием: ${extra.join(', ')}`}
-                              >
-                                +{extra.length}
-                              </span>
+                              <HoverTip text={`Ещё встречается под другим написанием: ${extra.join(', ')}`}>
+                                <span className="chip shrink-0 border-transparent bg-ink-700 text-[10px] text-fg-400">
+                                  +{extra.length}
+                                </span>
+                              </HoverTip>
                             )}
                           </div>
                         </td>
