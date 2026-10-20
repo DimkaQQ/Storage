@@ -1307,12 +1307,29 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
 
   // Matrix slots nobody bought this period — the flip side of the table:
   // "what's priced for this restaurant that just didn't get ordered". Where
-  // a product has BOTH a flat planPairs price AND per-pack breakdowns, only
-  // the per-pack entries are shown — the flat price there is just a fallback
-  // resolveRowPlan itself would only use once no pack-specific price exists,
-  // so listing both would double-count the item.
+  // a product has BOTH a flat planPairs price AND per-pack breakdowns, the
+  // flat entry is skipped ONLY when it's genuinely the same item as the
+  // pack-specific ones (knownFlatPairs — same productLabels everywhere,
+  // see buildKnownFlatIndex) — there the flat price really is just the
+  // fallback resolveRowPlan would use once no pack-specific price exists,
+  // and listing both would double-count it.
+  //
+  // Подтверждено реальными данными (аудит сентябрьской матрицы): несколько
+  // поставщиков используют ровно эту форму записи — ОДНО общее iiko-
+  // название на ДВА по-настоящему разных товара, различая их только
+  // наличием/отсутствием фасовки (напр. "Сыр дорблю" у Меркуловой: плоская
+  // строка без фасовки — это "Extra blu 2кг", отдельная строка с фасовкой
+  // "пач. 100гр." — это "Friendship 100гр", два разных бренда/SKU, не один
+  // и тот же товар с уточнённой фасовкой). Старое правило "раз есть
+  // фасовочная строка — плоскую прячем" в этом случае просто стирало с
+  // радаров целый отдельный товар: ни "не закупали", ни тем более покупку
+  // под ним никогда не покажет никто, пока он прайсован только плоской
+  // строкой. Если лейблы разные (это и есть то же самое, что isAssortment)
+  // — прятать плоскую строку нельзя, она не дубль, а отдельная позиция.
   const packBrokenDownPairKeys = new Set(
-    Object.keys(matching.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
+    Object.keys(matching.planPairsByPack)
+      .map((k) => k.split('::').slice(0, 3).join('::'))
+      .filter((pairKey) => knownFlatPairs.has(pairKey)),
   )
   let seq = 0
   const addPlanOnlyRow = (key: string, restaurantNorm: string, product: string, pack: string, plan: number | null) => {
