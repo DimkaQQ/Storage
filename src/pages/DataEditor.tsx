@@ -383,6 +383,58 @@ export default function DataEditor() {
     return map
   }, [edits.productLinks])
 
+  // Привязки той же пары "ресторан+поставщик+targetProduct", но БЕЗ
+  // фасовки в ключе — нужны как запасной путь для linkedRawNameByTarget:
+  // привязку для этой же строки матрицы могли завести НЕ отсюда, а через
+  // «Нет в матрице» (там в ключ идёт фасовка САМОЙ ЗАКУПКИ, см.
+  // stageUnmatchedLink), и эта фасовка совершенно не обязана совпадать с
+  // фасовкой строки матрицы (row.pack) — живой случай: матрица прайсует
+  // авокадо "за кг", а iiko пишет закупку "1 шт". Раньше из-за этого
+  // привязку, заведённую через «Нет в матрице», тут было невозможно ни
+  // увидеть, ни снять — точный ключ по row.pack просто не находил её.
+  const linksByTargetGroup = useMemo(() => {
+    const map = new Map<string, { pack: string; rawProduct: string }[]>()
+    for (const link of Object.values(edits.productLinks)) {
+      const key = `${norm(link.restaurant)}::${norm(link.supplier)}::${norm(link.targetProduct)}`
+      const list = map.get(key) ?? []
+      list.push({ pack: link.pack, rawProduct: link.rawProduct })
+      map.set(key, list)
+    }
+    return map
+  }, [edits.productLinks])
+
+  // Сколько РАЗНЫХ фасовок матрица вообще знает под этим названием у этого
+  // поставщика в этом ресторане. Больше одной — это ассортимент (разные
+  // фасовки означают буквально разные товары, см. isAssortment в data.ts),
+  // и тогда фасовку в ключе привязки трогать нельзя — только точный
+  // запасной путь выше рискует перепутать привязку одной фасовки с другой.
+  // Фасовка ровно одна — гадать не с чем, запасной путь безопасен.
+  const packCountByTarget = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const row of matrixRows) {
+      const key = `${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}`
+      map.set(key, (map.get(key) ?? 0) + 1)
+    }
+    return map
+  }, [matrixRows])
+
+  // Явная привязка для ЭТОЙ строки матрицы — точный ключ (фасовка строки
+  // матрицы) побеждает, если нашёлся; иначе, когда для этого названия в
+  // матрице только одна фасовка вообще, берём единственную привязку на эту
+  // пару, даже если она хранится под другим текстом фасовки (см. выше).
+  // Возвращает фасовку, под которой привязка РЕАЛЬНО лежит — она нужна,
+  // чтобы снять её по точно тому же ключу, не выдумывая свой.
+  const resolveExplicitLink = (row: MatrixRow): { rawProduct: string; pack: string } | null => {
+    const exact = linkedRawNameByTarget.get(`${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}::${row.pack}`)
+    if (exact) return { rawProduct: exact, pack: row.pack }
+    const groupKey = `${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}`
+    if ((packCountByTarget.get(groupKey) ?? 1) <= 1) {
+      const candidates = linksByTargetGroup.get(groupKey) ?? []
+      if (candidates.length === 1) return candidates[0]
+    }
+    return null
+  }
+
   // Что РЕАЛЬНО подтягивается к этой строке матрицы прямо сейчас — не
   // только явные привязки (linkedRawNameByTarget), но и обычное прямое
   // совпадение текста, которое работает и без всякой привязки. Строим из
@@ -407,10 +459,23 @@ export default function DataEditor() {
     // совпадением текста (без всякой привязки) — тогда снимать нечего.
     // Явную старую привязку (если реально была) ищем отдельно по тому же
     // ключу строки матрицы, а не по тому, что было в поле — иначе при
-    // замене названия рискуем не найти, что удалять.
-    const explicitLink = linkedRawNameByTarget.get(`${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}::${row.pack}`)
-    if (explicitLink) setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(explicitLink)}::${row.pack}`, null)
-    if (next) setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(next)}::${row.pack}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next, pack: row.pack, restaurant: row.restaurant })
+    // замене названия рискуем не найти, что удалять. resolveExplicitLink
+    // находит её, даже если она когда-то была заведена под другой
+    // фасовкой (через «Нет в матрице») — и возвращает ИМЕННО тот ключ,
+    // под которым она реально лежит, чтобы снять её точно, а не мимо.
+    const explicit = resolveExplicitLink(row)
+    if (explicit) setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(explicit.rawProduct)}::${explicit.pack}`, null)
+    if (next) {
+      // Фасовка строки матрицы в ключе новой привязки нужна, только если
+      // у этого названия в матрице их вообще несколько (ассортимент) — а
+      // если она одна, привязка без фасовки (плоский ключ) сработает для
+      // любой закупки этого названия, независимо от того, как именно iiko
+      // у себя записал фасовку (см. комментарий у packCountByTarget).
+      const groupKey = `${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}`
+      const packMatters = (packCountByTarget.get(groupKey) ?? 1) > 1
+      const linkPack = packMatters ? row.pack : ''
+      setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(next)}::${linkPack}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next, pack: linkPack, restaurant: row.restaurant })
+    }
   }
 
   // «Нет в матрице» — закупки этого периода, для которых ни прямое
@@ -978,7 +1043,7 @@ export default function DataEditor() {
                   })
                 : tab === 'products'
                 ? (shown as typeof matrixRowsFiltered).map((row) => {
-                    const explicitLink = linkedRawNameByTarget.get(`${row.supplierNorm}::${row.productSegment}::${row.pack}`)
+                    const explicitLink = resolveExplicitLink(row)?.rawProduct
                     // Что реально сейчас подтягивается — не только явная
                     // привязка, но и обычное прямое совпадение текста (см.
                     // matchedRawNamesByKey). Явную привязку показываем в
