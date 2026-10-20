@@ -279,7 +279,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[10%]">Факт</Th>
                 <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[10%]">Δ</Th>
                 <th className="th w-[11%] text-center">Статус</th>
-                <th className="th w-[6%] text-center">Заметка</th>
+                <th className="th w-[6%] px-2">Заметка</th>
               </tr>
             </thead>
             <tbody>
