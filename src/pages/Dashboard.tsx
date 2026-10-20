@@ -11,15 +11,22 @@ interface WrongSupplierItem {
   product: string
   pack: string
   qty: number
-  fact: number
-  plan: number
+  unit: number     // факт за единицу (кг/шт/л — как в матрице)
+  planUnit: number // план за единицу, назначенный поставщик
+  fact: number      // qty * unit — общая сумма
+  plan: number      // qty * planUnit — общая сумма
   delta: number
+  deltaUnit: number
   designatedSuppliers: string[]
 }
 
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
   const s = useMemo(() => summarize(rows), [rows])
   const [expanded, setExpanded] = useState<string | null>(null)
+  // Общая сумма закупки vs цена за единицу — тот же переключатель, что и в
+  // Проверке цен (moneyMode), только тут он один на все раскрытые рестораны
+  // сразу, не по каждому отдельно.
+  const [unitMode, setUnitMode] = useState(false)
 
   // П. 2.2 Приложения №1 — факт и план по каждому ресторану, только для
   // "заказ не по матрице" ("нет в матрице" сюда специально не идёт, там
@@ -32,11 +39,12 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
       const items: WrongSupplierItem[] = r.rows
         .filter((x) => x.unit != null && !x.isTotalRow && x.status === 'wrongSupplier' && x.designatedPlan != null)
         .map((x) => {
-          const fact = x.qty * (x.unit as number)
-          const plan = x.qty * (x.designatedPlan as number)
+          const unit = x.unit as number, planUnit = x.designatedPlan as number
+          const fact = x.qty * unit, plan = x.qty * planUnit
           return {
             supplier: x.supplier, product: x.productLabel ?? x.product, pack: x.pack, qty: x.qty,
-            fact, plan, delta: fact - plan, designatedSuppliers: x.designatedSuppliers,
+            unit, planUnit, fact, plan, delta: fact - plan, deltaUnit: unit - planUnit,
+            designatedSuppliers: x.designatedSuppliers,
           }
         })
         .sort((a, b) => b.delta - a.delta)
@@ -51,10 +59,13 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
 
   const exportRestaurant = async (r: { name: string; items: WrongSupplierItem[] }) => {
     const XLSX = await import('xlsx')
-    const title = [`Заказ не по матрице — ${r.name}`]
-    const head = ['Поставщик', 'Товар', 'Фасовка', 'Количество', 'План', 'Факт', 'Δ', 'Должны у']
+    const modeLabel = unitMode ? 'за ед.' : 'сумма'
+    const title = [`Заказ не по матрице — ${r.name} (${modeLabel})`]
+    const head = ['Поставщик', 'Товар', 'Фасовка', 'Количество', `План (${modeLabel})`, `Факт (${modeLabel})`, 'Δ', 'Должны у']
     const lines = r.items.map((it) => [
-      it.supplier, it.product, it.pack, it.qty, it.plan, it.fact, it.delta, it.designatedSuppliers.join(', '),
+      it.supplier, it.product, it.pack, it.qty,
+      unitMode ? it.planUnit : it.plan, unitMode ? it.unit : it.fact, unitMode ? it.deltaUnit : it.delta,
+      it.designatedSuppliers.join(', '),
     ])
     const ws = XLSX.utils.aoa_to_sheet([title, head, ...lines])
     ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 24 }]
@@ -62,7 +73,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
     XLSX.utils.book_append_sheet(wb, ws, 'Не по матрице')
     const safe = (x: string) => x.replace(/\s+/g, '_').replace(/[\\/:*?"<>|]/g, '')
     const todayStr = new Date().toISOString().slice(0, 10)
-    XLSX.writeFile(wb, `ne-po-matrice-${safe(r.name)}-${todayStr}.xlsx`)
+    XLSX.writeFile(wb, `ne-po-matrice-${safe(r.name)}-${unitMode ? 'za-ed' : 'summa'}-${todayStr}.xlsx`)
   }
   const totals = useMemo(
     () => perRest.reduce((acc, r) => ({ fact: acc.fact + r.fact, plan: acc.plan + r.plan, delta: acc.delta + r.delta }), { fact: 0, plan: 0, delta: 0 }),
@@ -142,36 +153,47 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                             <div><div className="text-fg-500">Должно было выйти</div><div className="font-medium text-fg-200 tabnum">{money(r.plan)}</div></div>
                             <div><div className="text-fg-500">Разница</div><div className="font-medium text-warn tabnum">{money(r.delta)}</div></div>
                           </div>
-                          <button
-                            onClick={() => exportRestaurant(r)}
-                            title="Скачать разбивку по товарам этого ресторана в Excel"
-                            className="btn !px-2.5 !py-1.5 border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750"
-                          >
-                            <IDownload width={14} height={14} /> Excel
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setUnitMode((v) => !v)}
+                              title="Переключить: общая сумма закупки или цена за единицу (кг/шт/л)"
+                              className={`btn !px-2.5 !py-1.5 border transition-colors ${unitMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
+                            >
+                              {unitMode ? 'Цена за ед.' : 'Общая сумма'}
+                            </button>
+                            <button
+                              onClick={() => exportRestaurant(r)}
+                              title="Скачать разбивку по товарам этого ресторана в Excel"
+                              className="btn !px-2.5 !py-1.5 border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750"
+                            >
+                              <IDownload width={14} height={14} /> Excel
+                            </button>
+                          </div>
                         </div>
                         <div className="max-h-64 overflow-y-auto rounded-lg border border-ink-700/40">
                           <table className="w-full text-xs">
                             <thead className="sticky top-0 bg-ink-900/90">
                               <tr>
-                                <th className="px-2 py-1.5 text-left font-medium text-fg-500">Товар</th>
-                                <th className="px-2 py-1.5 text-right font-medium text-fg-500">Кол-во</th>
-                                <th className="px-2 py-1.5 text-right font-medium text-fg-500">План</th>
-                                <th className="px-2 py-1.5 text-right font-medium text-fg-500">Факт</th>
-                                <th className="px-2 py-1.5 text-right font-medium text-fg-500">Δ</th>
+                                <th className="w-full px-2 py-1.5 text-left font-medium text-fg-500">Товар</th>
+                                <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Кол-во</th>
+                                <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">План</th>
+                                <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Факт</th>
+                                <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Δ</th>
                               </tr>
                             </thead>
                             <tbody>
                               {r.items.map((it, i) => (
                                 <tr key={i} className="border-t border-ink-700/40">
-                                  <td className="px-2 py-1.5 text-fg-200">
-                                    {it.product}
-                                    <span className="block text-[10px] font-normal text-fg-500">{it.supplier}</span>
+                                  <td className="max-w-0 px-2 py-1.5 text-fg-200">
+                                    <div className="truncate">{it.product}</div>
+                                    <div className="truncate text-[10px] font-normal text-fg-500">{it.supplier}</div>
                                   </td>
-                                  <td className="px-2 py-1.5 text-right tabnum text-fg-400">{fmt(it.qty)}</td>
-                                  <td className="px-2 py-1.5 text-right tabnum text-fg-400">{money(it.plan)}</td>
-                                  <td className="px-2 py-1.5 text-right tabnum text-fg-200">{money(it.fact)}</td>
-                                  <td className="px-2 py-1.5 text-right tabnum font-semibold text-warn">{(it.delta >= 0 ? '+' : '') + money(it.delta)}</td>
+                                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{fmt(it.qty)}</td>
+                                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{money(unitMode ? it.planUnit : it.plan)}</td>
+                                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-200">{money(unitMode ? it.unit : it.fact)}</td>
+                                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum font-semibold text-warn">
+                                    {(() => { const d = unitMode ? it.deltaUnit : it.delta; return (d >= 0 ? '+' : '') + money(d) })()}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
