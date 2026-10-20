@@ -461,6 +461,7 @@ interface DesignatedIndex {
   byProduct: Map<string, Set<string>>  // "restaurant::product" -> suppliers priced for this product, any pack — used when the FACT itself has no pack to be precise about
   byProductFlatOnly: Map<string, Set<string>>  // "restaurant::product" -> suppliers designated WITHOUT a specific pack (matrix never split them by fasovka) — genuinely pack-agnostic, unlike byProduct which also includes pack-specific suppliers
   bySupplierProduct: Map<string, Set<string>>  // "restaurant::supplier::product" -> pack variants THIS supplier has priced
+  bySupplierProductNoPrice: Map<string, Set<string>>  // same as bySupplierProduct, but for noPriceExact (designated, no price) variants — see loose pack match in resolveRowPlan
 }
 
 // Комментарий обещал "строится один раз на таблицу", а по факту computeRows
@@ -483,6 +484,7 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
   const byProduct = new Map<string, Set<string>>()
   const byProductFlatOnly = new Map<string, Set<string>>()
   const bySupplierProduct = new Map<string, Set<string>>()
+  const bySupplierProductNoPrice = new Map<string, Set<string>>()
   const add = (map: Map<string, Set<string>>, k: string, v: string) => {
     const set = map.get(k) ?? new Set<string>()
     set.add(v)
@@ -509,10 +511,12 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
     const parts = key.split('::')
     const [restaurant, supplier, product, pack] = parts
     add(byProduct, `${restaurant}::${product}`, supplier)
-    if (parts.length === 4) add(byPack, `${restaurant}::${product}::${pack}`, supplier)
-    else add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
+    if (parts.length === 4) {
+      add(byPack, `${restaurant}::${product}::${pack}`, supplier)
+      add(bySupplierProductNoPrice, `${restaurant}::${supplier}::${product}`, pack)
+    } else add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
   }
-  const result = { byPack, byProduct, byProductFlatOnly, bySupplierProduct }
+  const result = { byPack, byProduct, byProductFlatOnly, bySupplierProduct, bySupplierProductNoPrice }
   designatedIndexCache.set(matching, result)
   return result
 }
@@ -851,6 +855,21 @@ const CURATED_PACK_FIXES: Record<string, string[]> = {
   'ип азык жасулан ип azik trade::мука пшеничная в/с.::1*25': ['пач. 50кг'],
 }
 
+/**
+ * Товары, для которых фасовка в iiko-названии реально значит РАЗНЫЙ товар
+ * (разный вкус/сорт под одним общим названием-категорией), а не просто
+ * другую упаковку того же самого — подтверждено явно человеком, как
+ * единственные два исключения из общего правила "фасовка не должна мешать
+ * сопоставлению поставщик+товар" (см. resolveRowPlan ниже): пюре разных
+ * вкусов и ягоды в ассортименте (живой случай — "Ягода импортная" у Ayakaz/
+ * Alga73 прайсована под малину/голубику/ежевику, но не под клубнику; взять
+ * цену малины для клубники только потому, что это "тот же поставщик, тот же
+ * текст названия" — реальная подмена товара, а не просто другая тара).
+ */
+function isPackSensitiveProduct(product: string): boolean {
+  return product.includes('пюре') || (product.includes('ягод') && product.includes('асс'))
+}
+
 function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex, knownFlatPairs: Set<string>): Resolved {
   const restaurant = norm(b.restaurant)
   // Канон строго ДЛЯ ЭТОГО ресторана (см. supplierAliasFor) — один и тот
@@ -948,41 +967,35 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const plan = matching.planPairs[pairKey]
   if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, ...NONE }
 
-  // Раньше тут был автоматический подбор "у поставщика всего один
-  // прайсованный вариант фасовки — значит, это он" (без проверки цены).
-  // Убрано: ровно то же самое рассуждение однажды молча подменило "Ягода
-  // импортная / голубика" на "Малина" — у Azik Trade прайсована только
-  // малина, и логика решила, что раз вариант один, то и голубика — это она,
-  // хотя сама фасовка в закупке ясно говорит другое.
-  //
-  // НО: это касалось только ассортимента (isAssortment — см.
-  // buildKnownFlatIndex), где разная фасовка реально значит разный товар.
-  // Для подавляющего большинства товаров фасовка вообще не должна мешать
-  // сопоставлению (подтверждено человеком явно: "мы не должны по фасовки
-  // проверять, есть такой поставщик есть такой товар — то берём") — матрица
-  // уже сама подтверждает, что под этим iiko-названием у ЭТОГО поставщика
-  // всегда один и тот же товар (knownFlatPairs — labels.size === 1), так что
-  // раз у него вообще есть прайсованный вариант (пусть под другой
-  // фасовкой/тиром цены — кг vs упаковка), берём его как есть. Ягоды и
-  // прочий ассортимент этот шорткат не затрагивает — там по-прежнему только
-  // точное совпадение фасовки выше, либо явная ручная привязка.
-  // Берём цену по "любой другой фасовке" только когда у поставщика ровно
-  // ОДИН прайсованный вариант — однозначно, гадать не нужно. Если их
-  // несколько (например "кг" за 500 и "мешок 50кг" за 20000 — одна и та же
-  // строка матрицы, но разный масштаб цены), автоматически подставлять
-  // любую из них нельзя: получится либо случайно верно, либо показывает
-  // надуманный "недоплатили/переплатили X%", сравнивая цену за кг с ценой
-  // за мешок. Несколько вариантов — та же неопределённость, что раньше уже
-  // ломала "Ягода голубика/малина" (см. выше), только теперь про цену, а
-  // не про идентичность товара — оставляем нерешённым, с подсказкой
-  // (candidateNote/availableFasovki ниже), а не угадываем.
-  if (!isAssortment) {
-    const anyPacks = designatedIndex.bySupplierProduct.get(pairKey)
-    if (anyPacks && anyPacks.size === 1) {
-      const anyPack = [...anyPacks][0]
-      const anyKey = `${pairKey}::${anyPack}`
-      const anyPlan = matching.planPairsByPack[anyKey]
-      if (anyPlan != null) return { plan: anyPlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[anyKey]), unpricedMatch: false, matchedKey: anyKey, ...NONE }
+  // Фасовка самой закупки почти никогда не должна мешать сопоставлению
+  // поставщик+товар (подтверждено человеком явно, дважды: "мы не должны по
+  // фасовки проверять, есть такой поставщик есть такой товар — то берём",
+  // "нам не важна фасовка нам важно название товара") — кроме двух явно
+  // названных категорий (isPackSensitiveProduct выше), где разная фасовка
+  // реально значит разный товар. Для всего остального берём любую
+  // прайсованную (или хотя бы назначенную без цены) фасовку этого же
+  // поставщика для этого же товара — ОДНУ И ТУ ЖЕ для всех закупок этой
+  // пары за период (сортировка по тексту фасовки, не порядок обхода Set —
+  // стабильно), а не обязательно ту, что в самой закупке. Благодаря этому
+  // все закупки одного товара у одного поставщика под разными фасовками
+  // попадают под один и тот же ключ матрицы — "Не закупали" не плодит
+  // фантомных недостающих вариантов этой же пары (см. consumedPairs в
+  // computeRows), а звёздочка (PriceCheck/Dashboard) сама покажет, что факт
+  // приходит под разными фасовками, по r.pack — без участия этой логики.
+  if (!isPackSensitiveProduct(product)) {
+    const variants = designatedIndex.bySupplierProduct.get(pairKey)
+    if (variants && variants.size > 0) {
+      const sortedPacks = [...variants].sort((a, c) => a.localeCompare(c))
+      for (const p of sortedPacks) {
+        const key = `${pairKey}::${p}`
+        const loosePlan = matching.planPairsByPack[key]
+        if (loosePlan != null) return { plan: loosePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[key]), unpricedMatch: false, matchedKey: key, ...NONE }
+      }
+    }
+    const noPriceVariants = designatedIndex.bySupplierProductNoPrice.get(pairKey)
+    if (noPriceVariants && noPriceVariants.size > 0) {
+      const p = [...noPriceVariants].sort((a, c) => a.localeCompare(c))[0]
+      return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: `${pairKey}::${p}`, ...NONE }
     }
   }
 
@@ -997,12 +1010,14 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
     return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: pairKey, ...NONE }
   }
 
-  // Ни одна фасовка этого поставщика для этого товара не совпала с фактом —
-  // ни точно, ни по единственно-возможному варианту выше. Раз у поставщика
-  // вообще ЕСТЬ прайсованные варианты (один или несколько), не молчим об
-  // этом: показываем их все как подсказку/варианты для ручной правки
-  // фасовки (см. packFixKey/setPackAlias) — возможно, это просто иначе
-  // записанная фасовка того же товара, а не другой товар вовсе.
+  // Сюда доходим только для isPackSensitiveProduct (пюре/ягоды в
+  // ассортименте — см. выше) с несовпавшей фасовкой: для всех остальных
+  // товаров loose-match выше уже забрал бы любой прайсованный/назначенный
+  // вариант этой пары, так что availableFasovki тут всегда пуст. Раз у
+  // поставщика вообще ЕСТЬ прайсованные варианты (один или несколько), не
+  // молчим об этом: показываем их все как подсказку/варианты для ручной
+  // правки фасовки (см. packFixKey/setPackAlias) — возможно, это просто
+  // иначе записанная фасовка того же товара, а не другой товар вовсе.
   let availableFasovki: FasovkaOption[] = []
   if (pack) {
     const variants = designatedIndex.bySupplierProduct.get(pairKey)
@@ -1136,6 +1151,18 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   const designatedIndex = buildDesignatedIndex(matching)
   const knownFlatPairs = buildKnownFlatIndex(matching)
   const consumed = new Set<string>()
+  // Пары "ресторан::поставщик::товар" (без фасовки), у которых в этом
+  // периоде УЖЕ была хотя бы одна реальная закупка, совпавшая с матрицей —
+  // см. loose pack match в resolveRowPlan: для товаров, где фасовка не
+  // мешает сопоставлению (всё, кроме isPackSensitiveProduct), разные
+  // фасовки той же пары в матрице — это один и тот же товар с точки зрения
+  // "купили/не купили", а не отдельные позиции. Без этого ниже, в блоке
+  // "Не закупали", каждая непотреблённая фасовка-соседка (та, которую
+  // resolveRowPlan не выбрал как канонический ключ для этой пары) молча
+  // плодила бы фантомное "не закупали", хотя этот же товар у этого же
+  // поставщика в этом периоде уже реально куплен — просто под другим
+  // ключом матрицы.
+  const consumedPairs = new Set<string>()
   // Restaurants actually present in this dataset (post RESTAURANT_SCOPE), so
   // matrix entries for restaurants we don't even show don't spawn rows here.
   // First occurrence per restaurant carries the venue meta (brand/city/...)
@@ -1171,6 +1198,10 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     const venue = edits.venueOverrides[b.restaurant]
     const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, resolvedProduct, resolvedPack } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
     if (matchedKey) consumed.add(matchedKey)
+    if (matchedKey && status === 'ok') {
+      const matchedPairKey = matchedKey.split('::').slice(0, 3).join('::')
+      if (!isPackSensitiveProduct(matchedPairKey.split('::')[2])) consumedPairs.add(matchedPairKey)
+    }
     // Переименование хранится по товар+поставщик+фасовка (для категорий-
     // ассортиментов типа "Пюре в асс", где у одного iiko-названия за разными
     // фасовками разные реальные товары — правка бьёт ровно в одну фасовку),
@@ -1287,6 +1318,11 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   const addPlanOnlyRow = (key: string, restaurantNorm: string, product: string, pack: string, plan: number | null) => {
     const venueRow = venueByRestaurant.get(restaurantNorm)
     if (!venueRow || consumed.has(key)) return
+    // Соседняя фасовка той же пары поставщик+товар уже закрыта реальной
+    // закупкой (см. consumedPairs выше) — не плодим для неё отдельное
+    // "не закупали", раз это не защищённый фасовкой товар.
+    const pairKey = key.split('::').slice(0, 3).join('::')
+    if (!isPackSensitiveProduct(product) && consumedPairs.has(pairKey)) return
     const [, supplierNorm] = key.split('::')
     const supplierDisplay = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
     const label = matching.productLabels[key] ?? null
