@@ -272,14 +272,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           <table className="w-full max-w-[1060px] table-fixed">
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[7%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[19%]" tight>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[24%]" tight>Товар</Th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[17%]" tight>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[21%]" tight>Товар</Th>
                 <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[7%]">План</Th>
                 <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[9%]">Факт</Th>
                 <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[7%]">Δ</Th>
                 <th className="th w-[11%] text-center">Статус</th>
-                <th className="th w-[5%] text-center">Заметка</th>
+                <th className="th w-[6%] text-center">Заметка</th>
               </tr>
             </thead>
             <tbody>
@@ -298,7 +298,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     {/* Крупным — название из матрицы (если есть), мелким под ним —
                         как называется в iiko. Тот же порядок, что и у товара ниже. */}
                     <HoverName text={r.supplierLabel ?? r.supplier} />
-                    {r.supplierLabel && <HoverName text={r.supplier} className="block text-[11px] font-normal text-fg-500" />}
+                    {r.supplierLabel && <HoverName text={r.supplier} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
                   </td>
                   <td className="td overflow-hidden px-2 font-medium text-fg-100">
                     {r.status === 'nomatrix' || r.status === 'wrongSupplier' ? (
@@ -309,7 +309,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // название, что раньше было бы крупным).
                       <>
                         <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
-                        <span className="flex items-center gap-1 text-[11px] font-normal text-fg-500">
+                        <span className="mt-0.5 flex items-center gap-1 text-[11px] font-normal text-fg-500">
                           <HoverName text={r.productLabel ?? r.product} className="min-w-0 flex-1" />
                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
                         </span>
@@ -323,7 +323,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                           <HoverName text={r.product} className="min-w-0 flex-1" />
                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
                         </span>
-                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-fg-500" />}
+                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
                       </>
                     ) : r.productLabel || r.product !== r.productRaw ? (
                       // Крупным — название из матрицы, если товар с ней совпал,
@@ -343,7 +343,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         </span>
                         <HoverName
                           text={(isPrecisePack(r.pack) || r.isAssortment) && r.pack ? `${r.productRaw} - ${r.pack}` : r.productRaw}
-                          className="block text-[11px] font-normal text-fg-500"
+                          className="mt-0.5 block text-[11px] font-normal text-fg-500"
                         />
                       </>
                     ) : (
@@ -360,7 +360,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                           <HoverName text={r.product} className="min-w-0 flex-1" />
                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
                         </span>
-                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-fg-500" />}
+                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
                       </>
                     )}
                   </td>
