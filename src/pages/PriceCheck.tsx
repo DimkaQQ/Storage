@@ -89,18 +89,17 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
 
   // Звёздочки — тот же товар у того же поставщика в том же ресторане может
   // встретиться несколько раз под разной фасовкой (банка 400гр и банка
-  // 250гр и т.п.) — без отметки, у статусов "Нет в матрице"/"Заказ не по
-  // матрице" (там крупно показан сам статус, а не фасовка, см. ниже),
-  // такие строки выглядели бы как случайно задвоенные. Считаем по ВСЕМ
-  // rows (не по filtered) — чтобы номер звезды не прыгал при поиске/
-  // фильтрах, и по тому же принципу, что и в Обзоре (см. Dashboard.tsx):
-  // номер — по алфавиту фасовки, стабильно.
+  // 250гр и т.п.) — без отметки такие строки выглядели бы как случайно
+  // задвоенные. По всем статусам сразу (не только "Нет в матрице"/"Заказ не
+  // по матрице" — попросили везде), считаем по ВСЕМ rows (не по filtered) —
+  // чтобы номер звезды не прыгал при поиске/фильтрах, и по тому же
+  // принципу, что и в Обзоре (см. Dashboard.tsx): номер — по алфавиту
+  // фасовки, стабильно.
   const starByRowKey = useMemo(() => {
     const map = new Map<string, number>()
-    const candidates = rows.filter((r) => r.status === 'nomatrix' || r.status === 'wrongSupplier')
     const groupKey = (r: Row) => `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.productLabel ?? r.product)}`
     const groups = new Map<string, Row[]>()
-    for (const r of candidates) {
+    for (const r of rows) {
       const k = groupKey(r)
       if (!groups.has(k)) groups.set(k, [])
       groups.get(k)!.push(r)
@@ -311,9 +310,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
                         <span className="flex items-center gap-1 text-[11px] font-normal text-fg-500">
                           <HoverName text={r.productLabel ?? r.product} className="min-w-0 flex-1" />
-                          {starByRowKey.has(r.rowKey) && (
-                            <span className="shrink-0 font-semibold text-brand-300" title={`Та же позиция у этого поставщика, но другая фасовка: ${r.pack || '—'}`}>★{starByRowKey.get(r.rowKey)}</span>
-                          )}
+                          {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
                         </span>
                       </>
                     ) : r.unit == null ? (
@@ -321,7 +318,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // r.product уже и есть их название, отдельного iiko-имени
                       // нет вовсе (не покупали), под ним просто фасовка.
                       <>
-                        <HoverName text={r.product} />
+                        <span className="flex items-center gap-1">
+                          <HoverName text={r.product} className="min-w-0 flex-1" />
+                          {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
+                        </span>
                         {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-fg-500" />}
                       </>
                     ) : r.productLabel || r.product !== r.productRaw ? (
@@ -336,7 +336,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // уточняет, не показываем её отдельно; для ассортимента —
                       // всегда, там сама фасовка и есть разница между товарами).
                       <>
-                        <HoverName text={r.productLabel ?? r.product} />
+                        <span className="flex items-center gap-1">
+                          <HoverName text={r.productLabel ?? r.product} className="min-w-0 flex-1" />
+                          {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
+                        </span>
                         <HoverName
                           text={(isPrecisePack(r.pack) || r.isAssortment) && r.pack ? `${r.productRaw} - ${r.pack}` : r.productRaw}
                           className="block text-[11px] font-normal text-fg-500"
@@ -352,7 +355,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // товар не сопоставился, так что лучше показать даже
                       // такую фасовку, чем молча скрыть саму неопределённость.
                       <>
-                        <HoverName text={r.product} />
+                        <span className="flex items-center gap-1">
+                          <HoverName text={r.product} className="min-w-0 flex-1" />
+                          {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
+                        </span>
                         {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="block text-[11px] font-normal text-fg-500" />}
                       </>
                     )}
@@ -440,6 +446,13 @@ function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: str
       <div className="text-[11px] text-fg-500">{label}</div>
       <div className={`mt-1 text-lg font-bold tabnum ${cls}`}>{value}</div>
     </div>
+  )
+}
+
+/** ★N рядом с названием товара — тот же товар+поставщик+ресторан встретился под другой фасовкой (см. starByRowKey). */
+function FasovkaStar({ n, pack }: { n: number; pack: string }) {
+  return (
+    <span className="shrink-0 font-semibold text-brand-300" title={`Та же позиция у этого поставщика, но другая фасовка: ${pack || '—'}`}>★{n}</span>
   )
 }
 
