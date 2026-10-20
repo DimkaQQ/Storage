@@ -991,10 +991,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // яйцо" продаёт им "Яйцо куриное" один в один как в iiko, только без
   // цены. Точное совпадение имени — тут гадать не нужно, оно и так точное.
   if (pack && matching.noPriceExact[`${pairKey}::${pack}`]) {
-    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null, ...NONE }
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: `${pairKey}::${pack}`, ...NONE }
   }
   if (matching.noPriceExact[pairKey]) {
-    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: null, ...NONE }
+    return { plan: null, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: true, matchedKey: pairKey, ...NONE }
   }
 
   // Ни одна фасовка этого поставщика для этого товара не совпала с фактом —
@@ -1260,18 +1260,16 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   })
 
   // Matrix slots nobody bought this period — the flip side of the table:
-  // "what's priced for this restaurant that just didn't get ordered". Only
-  // for matrix keys with an actual plan price (planPairs/planPairsByPack) —
-  // noPriceExact entries have nothing to show a price for, so skipping those
-  // avoids adding noise. Where a product has BOTH a flat planPairs price AND
-  // per-pack breakdowns, only the per-pack entries are shown — the flat price
-  // there is just a fallback resolveRowPlan itself would only use once no
-  // pack-specific price exists, so listing both would double-count the item.
+  // "what's priced for this restaurant that just didn't get ordered". Where
+  // a product has BOTH a flat planPairs price AND per-pack breakdowns, only
+  // the per-pack entries are shown — the flat price there is just a fallback
+  // resolveRowPlan itself would only use once no pack-specific price exists,
+  // so listing both would double-count the item.
   const packBrokenDownPairKeys = new Set(
     Object.keys(matching.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
   )
   let seq = 0
-  const addPlanOnlyRow = (key: string, restaurantNorm: string, product: string, pack: string, plan: number) => {
+  const addPlanOnlyRow = (key: string, restaurantNorm: string, product: string, pack: string, plan: number | null) => {
     const venueRow = venueByRestaurant.get(restaurantNorm)
     if (!venueRow || consumed.has(key)) return
     const [, supplierNorm] = key.split('::')
@@ -1309,6 +1307,21 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     const [restaurant, , product] = key.split('::')
     if (!venueByRestaurant.has(restaurant)) continue
     addPlanOnlyRow(key, restaurant, product, '', plan)
+  }
+  // Назначенный поставщик без цены (noPriceExact) — раньше такие позиции
+  // пропускали молча (план показать нечего), но попросили не прятать их
+  // вовсе: пусть будут видны как "Не закупали", просто План пустой — лучше
+  // честный пробел, чем товар, которого как будто вообще нет в матрице.
+  for (const key of Object.keys(matching.noPriceExact)) {
+    const parts = key.split('::')
+    const [restaurant, , product, pack] = parts
+    if (!venueByRestaurant.has(restaurant)) continue
+    if (parts.length === 4) {
+      addPlanOnlyRow(key, restaurant, product, pack, null)
+    } else {
+      if (packBrokenDownPairKeys.has(key)) continue
+      addPlanOnlyRow(key, restaurant, product, '', null)
+    }
   }
 
   return rows
