@@ -273,8 +273,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[17%]" tight>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[21%]" tight>Товар</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[17%]" tight center>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[21%]" tight center>Товар</Th>
                 <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[7%]">План</Th>
                 <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[9%]">Факт</Th>
                 <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[7%]">Δ</Th>
@@ -506,10 +506,10 @@ function NoteHoverTip({ text, children }: { text: string | null; children: React
   )
 }
 
-function Th({ children, onClick, sort, k, right, width, tight }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; width?: string; tight?: boolean }) {
+function Th({ children, onClick, sort, k, right, center, width, tight }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; center?: boolean; width?: string; tight?: boolean }) {
   const on = sort.key === k
   return (
-    <th className={`th hover:text-fg-300 ${right ? 'text-right' : ''} ${tight ? 'px-2' : ''} ${width ?? ''}`}>
+    <th className={`th hover:text-fg-300 ${right ? 'text-right' : center ? 'text-center' : ''} ${tight ? 'px-2' : ''} ${width ?? ''}`}>
       <span className={`inline-flex cursor-pointer items-center gap-1 ${right ? 'flex-row-reverse' : ''}`} onClick={onClick}>
         {children}
         {on ? (sort.dir === 1 ? <IArrowUp width={12} height={12} className="text-brand-300" /> : <IArrowDown width={12} height={12} className="text-brand-300" />) : <ISort width={12} height={12} className="text-fg-600" />}
