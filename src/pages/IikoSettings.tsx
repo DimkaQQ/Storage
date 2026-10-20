@@ -35,7 +35,7 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, rawBase, period } = useEdits()
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -54,6 +54,7 @@ export default function IikoSettings() {
   const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  const [rawExporting, setRawExporting] = useState(false)
   const [resetArmed, setResetArmed] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{ ok: boolean; message?: string } | null>(null)
@@ -241,6 +242,31 @@ export default function IikoSettings() {
     setAstanaSyncResult(r)
     if (r.ok) await refreshMatrix()
     setAstanaSyncing(false)
+  }
+
+  // "Сырой" отчёт — закупки ТЕКУЩЕГО периода ровно как их прислал iiko
+  // (rawBase из useEdits — до computeRows, без переименований/привязок из
+  // Справочники и без матчинга с матрицей вообще). Нужен, когда кому-то
+  // (в т.ч. при отладке) нужны именно необработанные данные, а не то, что
+  // уже показывает Проверка цен.
+  const exportRawDataset = async () => {
+    setRawExporting(true)
+    try {
+      const XLSX = await import('xlsx')
+      const head = ['Ресторан', 'Бренд', 'Город', 'Юрлицо', 'Категория', 'Поставщик (iiko)', 'Товар (iiko)', 'Фасовка', 'Количество', 'Сумма', 'Цена за ед.', 'Комментарий iiko']
+      const lines = rawBase.map((b) => [
+        b.restaurant, b.brand, b.city, b.entity, b.category, b.supplier0, b.product0, b.pack, b.qty, b.sum, b.unit, b.comment ?? '',
+      ])
+      const ws = XLSX.utils.aoa_to_sheet([[`Сырой отчёт о закупках — ${period}`], head, ...lines])
+      ws['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 12 }, { wch: 24 }, { wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 30 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Сырой отчёт')
+      const safe = (s: string) => s.replace(/\s+/g, '_').replace(/[\\/:*?"<>|]/g, '')
+      const todayStr = new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(wb, `syroy-otchet-${safe(period)}-${todayStr}.xlsx`)
+    } finally {
+      setRawExporting(false)
+    }
   }
 
   // Бэкап/сброс — скачивание как файл, без серверного хранения: обычный
@@ -586,6 +612,15 @@ export default function IikoSettings() {
             )}
           </div>
         )}
+      </Section>
+
+      <Section title="Сырой отчёт" subtitle={`Закупки текущего периода (${period}) ровно как их прислал iiko — без матрицы, переименований и привязок из Справочников. Для отладки или если нужно передать исходные данные.`}>
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={exportRawDataset} disabled={rawExporting || rawBase.length === 0} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+            <ISync width={16} height={16} className={rawExporting ? 'animate-spin' : ''} /> {rawExporting ? 'Готовлю файл…' : 'Скачать сырой отчёт (Excel)'}
+          </button>
+          <span className="text-xs text-fg-500">{rawBase.length === 0 ? 'За этот период данных ещё нет' : `${rawBase.length} строк закупок`}</span>
+        </div>
       </Section>
 
       {/* venues */}

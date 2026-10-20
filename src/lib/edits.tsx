@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -165,6 +165,11 @@ function describeCatalogChanges(baseline: CatalogFields, current: CatalogFields)
 interface Ctx {
   edits: Edits
   rows: Row[]
+  // Закупки текущего периода ДО матчинга — как их прислал сам iiko (их
+  // поставщик/товар/фасовка, без переименований и привязок из Справочников).
+  // Нужен для "сырого" экспорта (Настройки iiko), в отличие от rows — те
+  // уже прогнаны через computeRows.
+  rawBase: BaseRow[]
   editCount: number
   // dataset (bundled fallback → replaced by backend data when available)
   period: string
@@ -680,7 +685,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   )
 
   const value: Ctx = {
-    edits, rows, editCount,
+    edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, city: parsed.city, category: parsed.category,
     restaurants, suppliers: parsed.suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus,
