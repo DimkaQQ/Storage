@@ -1079,8 +1079,23 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
     for (const k in obj) if (inScope(k)) out[k] = obj[k]
     return out
   }
+  // supplierAlias — особый случай: помимо ресторан-скоуп ключей
+  // ("ресторан::iiko-имя"), в нём живут и ПЛОСКИЕ ключи без ресторана вовсе
+  // (один и тот же alias одинаков для всех точек, его незачем дублировать
+  // на каждую) — supplierAliasFor специально проверяет оба яруса, сначала
+  // ресторан-скоуп, потом плоский как фолбэк. Общий filterKeys above
+  // отбрасывал плоские ключи целиком (ни один не начинается с "ресторан::"),
+  // из-за чего supplierAliasFor переставал находить вообще ЛЮБОЙ плоский
+  // alias — supplierCanon молча откатывался на сырой iiko-текст, и всё
+  // дальнейшее сопоставление (designatedIndex, planPairs, productLinks)
+  // било мимо канонического ключа матрицы.
+  const filterSupplierAlias = (obj: Record<string, string>): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const k in obj) if (!k.includes('::') || inScope(k)) out[k] = obj[k]
+    return out
+  }
   const result: MatchingTable = {
-    supplierAlias: filterKeys(matching.supplierAlias),
+    supplierAlias: filterSupplierAlias(matching.supplierAlias),
     planPairs: filterKeys(matching.planPairs),
     planPairsByPack: filterKeys(matching.planPairsByPack),
     productLabels: filterKeys(matching.productLabels),
