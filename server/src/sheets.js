@@ -243,7 +243,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
           const prevAt = seenAt.get(key)
           if (prevAt && (prevAt.price !== price || prevAt.label !== label) && !duplicateKeys.has(key)) {
             duplicateKeys.set(key, {
-              key, restaurant: sheetToRestaurant[title], supplier: supplierDisplay, product: String(iikoNameRaw), pack: pack || null,
+              restaurant: sheetToRestaurant[title], supplier: supplierDisplay, product: String(iikoNameRaw), pack: pack || null,
               first: { price: prevAt.price, label: prevAt.label }, second: { price, label },
             })
           }

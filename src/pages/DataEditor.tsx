@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fmt, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor } from '../lib/data'
 import { useEdits } from '../lib/edits'
-import { syncMatrix, setMatrixCollisionChoice, MatrixSyncDuplicate } from '../lib/api'
+import { syncMatrix, MatrixSyncDuplicate } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
@@ -100,17 +100,6 @@ export default function DataEditor() {
     setMatrixSyncing(false)
     setMatrixSyncMsg(almaty.ok || astana.ok ? 'Обновлено' : (almaty.message || astana.message || 'Не удалось обновить'))
     setMatrixDuplicates([...(almaty.duplicates ?? []), ...(astana.duplicates ?? [])])
-  }
-  const [pickingCollision, setPickingCollision] = useState<string | null>(null)
-  const pickCollisionWinner = async (d: MatrixSyncDuplicate, choice: 'first' | 'second') => {
-    const picked = d[choice]
-    setPickingCollision(d.key)
-    const res = await setMatrixCollisionChoice(d.key, picked.price, picked.label)
-    if (res.ok) {
-      setMatrixDuplicates((prev) => prev.filter((x) => x.key !== d.key))
-      await refreshMatrix()
-    }
-    setPickingCollision(null)
   }
   // Подсказки автопоиска (Компании/Товары) должны предлагать то, что уже
   // реально известно, даже когда включён тестовый режим "без матрицы" —
@@ -864,38 +853,28 @@ export default function DataEditor() {
                 <table className="w-full table-fixed">
                   <thead className="sticky top-0 z-10 bg-ink-850">
                     <tr>
-                      <th className="th w-[13%]">Ресторан</th>
-                      <th className="th w-[16%]">Поставщик</th>
-                      <th className="th w-[14%]">Название (iiko)</th>
-                      <th className="th w-[9%]">Фасовка</th>
-                      <th className="th w-[24%]">Вариант 1</th>
-                      <th className="th w-[24%]">Вариант 2 (сейчас в приложении)</th>
+                      <th className="th w-[14%]">Ресторан</th>
+                      <th className="th w-[18%]">Поставщик</th>
+                      <th className="th w-[16%]">Название (iiko)</th>
+                      <th className="th w-[10%]">Фасовка</th>
+                      <th className="th w-[21%]">Потерялось</th>
+                      <th className="th w-[21%]">Победило (сейчас в приложении)</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {matrixDuplicates.map((d) => (
-                      <tr key={d.key} className="row-hover hover:bg-ink-800/40">
+                    {matrixDuplicates.map((d, i) => (
+                      <tr key={i} className="row-hover hover:bg-ink-800/40">
                         <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={d.restaurant} /></td>
                         <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={d.supplier} /></td>
                         <td className="td overflow-hidden text-fg-100"><HoverName text={d.product} /></td>
                         <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={d.pack || '—'} /></td>
-                        <td className="td overflow-hidden text-xs text-fg-200">
+                        <td className="td overflow-hidden text-xs text-bad">
                           <HoverName text={d.first.label ?? '—'} />
-                          <span className="block text-[11px] font-normal text-fg-500">{fmt(d.first.price)} ₸</span>
-                          <button
-                            onClick={() => pickCollisionWinner(d, 'first')}
-                            disabled={pickingCollision === d.key}
-                            className="mt-1 rounded-md border border-brand-500/40 bg-brand-500/10 px-2 py-0.5 text-[11px] text-brand-300 hover:bg-brand-500/20 disabled:opacity-50"
-                          >Оставить этот</button>
+                          <span className="block text-[11px] font-normal">{fmt(d.first.price)} ₸</span>
                         </td>
-                        <td className="td overflow-hidden text-xs text-fg-200">
+                        <td className="td overflow-hidden text-xs text-good">
                           <HoverName text={d.second.label ?? '—'} />
-                          <span className="block text-[11px] font-normal text-fg-500">{fmt(d.second.price)} ₸</span>
-                          <button
-                            onClick={() => pickCollisionWinner(d, 'second')}
-                            disabled={pickingCollision === d.key}
-                            className="mt-1 rounded-md border border-brand-500/40 bg-brand-500/10 px-2 py-0.5 text-[11px] text-brand-300 hover:bg-brand-500/20 disabled:opacity-50"
-                          >Оставить этот</button>
+                          <span className="block text-[11px] font-normal">{fmt(d.second.price)} ₸</span>
                         </td>
                       </tr>
                     ))}

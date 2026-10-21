@@ -7,7 +7,6 @@ import {
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
-  getCollisionChoices, setCollisionChoice, applyCollisionChoices,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes } from './iiko.js'
@@ -463,15 +462,6 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       sheetMap,
     )
-    // Ручные выборы "какая из двух коллизующихся строк актуальна" (см.
-    // setCollisionChoice) подставляются поверх свежих данных из таблицы —
-    // иначе каждый следующий синк заново выбирал бы по порядку строк,
-    // стирая то, что человек уже один раз решил. Список коллизий в summary
-    // дальше показывает только то, что ЕЩЁ не решено — решённые просто не
-    // должны маячить в Справочниках заново при каждом обновлении.
-    applyCollisionChoices(orgId, matching)
-    const choices = getCollisionChoices(orgId)
-    summary.duplicates = summary.duplicates.filter((d) => !(d.key in choices))
     // Мёрджим с уже сохранённой матрицей, а не перезаписываем — иначе синк
     // Астаны стирал бы уже синканную Алматы (и наоборот), т.к. обе живут в
     // одном файле matrix.json. Рестораны ИМЕННО этого города передаём
@@ -483,20 +473,6 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
-})
-
-// Ручной выбор "какая из двух коллизующихся строк таблицы сейчас
-// актуальна" (см. applyCollisionChoices/setCollisionChoice в store.js) —
-// сохраняет выбор на будущее (переживёт любой синк) И сразу же патчит уже
-// сохранённую матрицу, чтобы эффект был виден без повторного «Обновить».
-app.post('/api/matrix/collision-choice', requireAuth, requireAdmin, (req, res) => {
-  const orgId = req.auth.orgId
-  const { key, price, label } = req.body || {}
-  if (!key || typeof price !== 'number' || !Number.isFinite(price)) return res.status(400).json({ ok: false, message: 'Нужны key и числовая price' })
-  setCollisionChoice(orgId, key, { price, label: label ?? null })
-  const matching = getMatrix(orgId)
-  if (matching) saveMatrix(orgId, applyCollisionChoices(orgId, matching))
-  res.json({ ok: true })
 })
 
 app.get('/api/matching', requireAuth, (req, res) => {
