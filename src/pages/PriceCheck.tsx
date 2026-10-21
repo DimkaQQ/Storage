@@ -1,6 +1,6 @@
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt, summarize, isPrecisePack, norm } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt, summarize, isPrecisePack, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -81,16 +81,47 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const [openNoteFor, setOpenNoteFor] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
 
+  // Голый текст вида "1.5", "1 шт 20 гр", "0.056 сикс" — это ФАСОВКА, а не
+  // название товара. Берётся из "их собственного описания" в самой матрице
+  // (столбец I) — иногда туда вписан вес/тара вместо настоящего названия
+  // (путаница в самой Google-таблице, не у нас), а для строк "Не закупали"
+  // Row.product вообще может оказаться именно этим описанием (см.
+  // addPlanOnlyRow в data.ts). Прямой запрос — "надо видеть что это за
+  // товар", а не фасовку.
+  const looksLikePack = (s: string) => {
+    let t = s.trim().toLowerCase()
+    if (!t) return false
+    t = t.replace(/\d+([.,]\d+)?/g, '') // числа (целые и дробные)
+    t = t.replace(/(кг|гр|г|мл|л|шт|уп|бан(?:ка)?|кор|пач|сикс)/g, '') // частые единицы/тара
+    t = t.replace(/[\s*/x.,-]/g, '') // соединители
+    return t.length === 0
+  }
+  // Настоящее название товара для ЭТОЙ строки — если то, что обычно
+  // показываем (их описание или уже решённое название), на поверку просто
+  // фасовка, пробуем более надёжные поля по очереди: для "Не закупали" —
+  // само iiko-название из ключа матрицы (Row.matchedKey, 3-й сегмент,
+  // пока ещё не подменено их описанием); для настоящих закупок — сырое
+  // название из iiko (Row.productRaw), которое их описание как раз и могло
+  // заслонить. Если и это не помогло — показываем как есть, хоть что-то
+  // лучше пустой строки.
+  const productNameFor = (r: Row): string => {
+    const primary = r.unit == null ? r.product : (r.productLabel ?? r.product)
+    if (!looksLikePack(primary)) return primary
+    if (r.unit == null && r.matchedKey) {
+      const seg = r.matchedKey.split('::')[2]
+      if (seg && !looksLikePack(seg)) return capitalize(seg)
+    }
+    if (r.productRaw && !looksLikePack(r.productRaw)) return r.productRaw
+    return primary
+  }
   // Поставщик — ключ сам по себе уже однозначен (их же название). Товар —
-  // НЕТ: голый текст вида "1.5" или "1 шт 20 гр" (их собственное описание
-  // в матрице, когда оно по факту просто фасовка, а не название товара —
-  // реальная путаница в самой таблице, не у нас) ничего не говорит сам по
-  // себе, пока не видно, у какого именно поставщика он встретился —
-  // прямой запрос: "непонятно... надо видеть что это за товар". Поэтому
-  // ключ товара — ПАРА товар+поставщик (sublabel показывает поставщика
-  // под названием в самом списке), а не голый текст товара.
+  // НЕТ: даже настоящее название может повторяться у разных поставщиков
+  // (разные компании возят один и тот же "Сыр моцарелла") — пока не видно,
+  // у какого именно поставщика он встретился, не всегда понятно, тот ли
+  // это товар. Поэтому ключ товара — ПАРА товар+поставщик (sublabel
+  // показывает поставщика под названием в самом списке).
   const supplierKeyOf = (r: Row) => r.supplierLabel ?? r.supplier
-  const productKeyOf = (r: Row) => `${r.productLabel ?? r.product}::${r.supplierLabel ?? r.supplier}`
+  const productKeyOf = (r: Row) => `${productNameFor(r)}::${r.supplierLabel ?? r.supplier}`
 
   // Варианты для фильтров — считаем по ВСЕМ rows (не по filtered), иначе
   // список сужался бы вместе с результатом, и снять уже выбранный фильтр,
@@ -104,7 +135,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     const seen = new Map<string, FilterOption>()
     for (const r of rows) {
       const key = productKeyOf(r)
-      if (!seen.has(key)) seen.set(key, { key, label: r.productLabel ?? r.product, sublabel: r.supplierLabel ?? r.supplier })
+      if (!seen.has(key)) seen.set(key, { key, label: productNameFor(r), sublabel: r.supplierLabel ?? r.supplier })
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || a.sublabel!.localeCompare(b.sublabel!))
   }, [rows])
