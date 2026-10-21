@@ -179,6 +179,22 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   const productLabels = {}
   const noPriceExact = {}
   let rowsSeen = 0
+  // Одна и та же пара поставщик+товар+фасовка иногда встречается в
+  // таблице НЕСКОЛЬКО раз под одним и тем же iiko-названием — это не
+  // перезапись одной и той же цены, а два по-настоящему разных товара
+  // (разные бренды/сорта), которые iiko никак не различает в самой
+  // закупке (живой случай: "Сыр пармезан" у Ocean Fresh — одна строка
+  // "Грано Подано" по 13000, другая "Грано Моравия" по 11600, обе с
+  // пустой/одинаковой фасовкой). planPairs/planPairsByPack — простые
+  // объекты, вторая строка молча стирает первую, и какая из двух цен
+  // реально попадёт в приложение, зависит только от порядка строк в
+  // таблице — ничего общего с тем, что реально купили. Явно так не
+  // чинится (iiko не записывает, какой именно бренд купили) — но хотя бы
+  // не должно происходить МОЛЧА: копим и возвращаем сводку, чтобы было
+  // видно, где в таблице есть такая неоднозначность и нужно её разводить
+  // вручную (например, вписать бренд в фасовку обеих строк).
+  const seenAt = new Map()
+  const duplicateKeys = new Map()
 
   sheets.forEach((title, i) => {
     const restaurant = norm(sheetToRestaurant[title])
@@ -223,9 +239,18 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       if (hasPrice) {
         const price = Number(priceRaw)
         if (Number.isFinite(price)) {
+          const label = labelRaw ? String(labelRaw) : null
+          const prevAt = seenAt.get(key)
+          if (prevAt && (prevAt.price !== price || prevAt.label !== label) && !duplicateKeys.has(key)) {
+            duplicateKeys.set(key, {
+              restaurant: sheetToRestaurant[title], supplier: supplierDisplay, product: String(iikoNameRaw), pack: pack || null,
+              first: { price: prevAt.price, label: prevAt.label }, second: { price, label },
+            })
+          }
+          seenAt.set(key, { price, label })
           if (pack) planPairsByPack[key] = price
           else planPairs[key] = price
-          if (labelRaw) productLabels[key] = String(labelRaw)
+          if (labelRaw) productLabels[key] = label
         }
       } else {
         noPriceExact[key] = true
@@ -235,7 +260,10 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
 
   return {
     matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact },
-    summary: { sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
+    summary: {
+      sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length,
+      duplicates: [...duplicateKeys.values()],
+    },
   }
 }
 

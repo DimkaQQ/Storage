@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fmt, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor } from '../lib/data'
 import { useEdits } from '../lib/edits'
-import { syncMatrix } from '../lib/api'
+import { syncMatrix, MatrixSyncDuplicate } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
@@ -83,12 +83,23 @@ export default function DataEditor() {
   // Алматы при этом обновилась нормально.
   const [matrixSyncing, setMatrixSyncing] = useState(false)
   const [matrixSyncMsg, setMatrixSyncMsg] = useState<string | null>(null)
+  // Неоднозначности из самой Google-таблицы (см. syncMatrix в
+  // server/src/sheets.js) — не ошибка синка, а то, что в таблице одна и та
+  // же пара поставщик+товар записана несколько раз под разными ценами
+  // (обычно два разных реальных товара под одним общим iiko-названием,
+  // живой случай — "Сыр пармезан" у Ocean Fresh: "Грано Подано" и "Грано
+  // Моравия" под одним и тем же названием и фасовкой). Победила строка,
+  // что ниже в таблице — остальные молча потерялись; тут просто видно,
+  // где именно, чтобы развести их в самой таблице руками.
+  const [matrixDuplicates, setMatrixDuplicates] = useState<MatrixSyncDuplicate[]>([])
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false)
   const refreshFromMatrix = async () => {
     setMatrixSyncing(true); setMatrixSyncMsg(null)
     const [almaty, astana] = await Promise.all([syncMatrix('almaty'), syncMatrix('astana')])
     await refreshMatrix()
     setMatrixSyncing(false)
     setMatrixSyncMsg(almaty.ok || astana.ok ? 'Обновлено' : (almaty.message || astana.message || 'Не удалось обновить'))
+    setMatrixDuplicates([...(almaty.duplicates ?? []), ...(astana.duplicates ?? [])])
   }
   // Подсказки автопоиска (Компании/Товары) должны предлагать то, что уже
   // реально известно, даже когда включён тестовый режим "без матрицы" —
@@ -825,6 +836,54 @@ export default function DataEditor() {
           </div>
         )}
 
+
+        {tab === 'products' && matrixDuplicates.length > 0 && (
+          <div className="mb-4 overflow-hidden rounded-xl border border-warn/30 bg-warn/[0.04]">
+            <button
+              onClick={() => setDuplicatesOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 border-b border-warn/20 px-3 py-2 text-left"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+              <span className="text-xs font-medium text-warn">Неоднозначности в таблице ({fmt(matrixDuplicates.length)})</span>
+              <InfoTip text="Одна и та же пара поставщик+товар(+фасовка) записана в Google-таблице НЕСКОЛЬКО раз под разными ценами/названиями — обычно это два по-настоящему разных товара под одним общим iiko-названием (разные бренды/сорта), которые iiko никак не различает в самой закупке. Побеждает строка, что ниже в таблице, — остальные молча теряются. Развести их можно только в самой таблице (например, добавить бренд в фасовку обеих строк)." align="left" />
+              <IChevron width={13} height={13} className={`ml-auto shrink-0 text-warn/70 transition-transform duration-150 ${duplicatesOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {duplicatesOpen && (
+              <div className="max-h-[50vh] overflow-auto">
+                <table className="w-full table-fixed">
+                  <thead className="sticky top-0 z-10 bg-ink-850">
+                    <tr>
+                      <th className="th w-[14%]">Ресторан</th>
+                      <th className="th w-[18%]">Поставщик</th>
+                      <th className="th w-[16%]">Название (iiko)</th>
+                      <th className="th w-[10%]">Фасовка</th>
+                      <th className="th w-[21%]">Потерялось</th>
+                      <th className="th w-[21%]">Победило (сейчас в приложении)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixDuplicates.map((d, i) => (
+                      <tr key={i} className="row-hover hover:bg-ink-800/40">
+                        <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={d.restaurant} /></td>
+                        <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={d.supplier} /></td>
+                        <td className="td overflow-hidden text-fg-100"><HoverName text={d.product} /></td>
+                        <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={d.pack || '—'} /></td>
+                        <td className="td overflow-hidden text-xs text-bad">
+                          <HoverName text={d.first.label ?? '—'} />
+                          <span className="block text-[11px] font-normal">{fmt(d.first.price)} ₸</span>
+                        </td>
+                        <td className="td overflow-hidden text-xs text-good">
+                          <HoverName text={d.second.label ?? '—'} />
+                          <span className="block text-[11px] font-normal">{fmt(d.second.price)} ₸</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
         {tab === 'products' && unmatchedRows.length > 0 && (
           <div className="mb-4 overflow-hidden rounded-xl border border-purple/30 bg-purple/[0.04]">
