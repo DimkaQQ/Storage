@@ -4,7 +4,8 @@ import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
-import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose, IChevron } from '../components/icons'
+import MultiSelectFilter, { FilterOption } from '../components/MultiSelectFilter'
+import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'sum' | 'diff'
 
@@ -57,12 +58,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // это не "ноль", а отдельная, самостоятельная проблема, прятать её сюда
   // не просили.
   const [onlyDiff, setOnlyDiff] = useState(false)
-  // Поставщик/Товар — отдельные фильтры по ТОЧНОМУ значению (не по
-  // подстроке, как общий поиск) — выбрать ровно одного поставщика/товар из
-  // выпадающего списка, а не печатать текст вручную. Пустая строка —
-  // фильтр не применяется.
-  const [supplierFilter, setSupplierFilter] = useState('')
-  const [productFilter, setProductFilter] = useState('')
+  // Поставщик/Товар — отдельные фильтры с множественным выбором и поиском
+  // внутри самого списка (см. MultiSelectFilter) — прямой запрос: обычный
+  // <select> не позволял ни выбрать несколько значений сразу, ни набрать
+  // текст, чтобы сузить длинный список. Пустое множество — фильтр не
+  // применяется.
+  const [supplierFilter, setSupplierFilter] = useState<Set<string>>(new Set())
+  const [productFilter, setProductFilter] = useState<Set<string>>(new Set())
   // По умолчанию — сумма закупки по убыванию, как в их собственном "Отчёте
   // о закупках по складам" из iiko (крупнейшие позиции сверху), а не
   // алфавит по ресторану/товару.
@@ -79,19 +81,33 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const [openNoteFor, setOpenNoteFor] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
 
-  // Варианты для выпадающих списков Поставщик/Товар — то же отображаемое
-  // название, что и в самой таблице (их собственное из матрицы, если есть,
-  // иначе как в iiko), без дублей, по алфавиту. Считаем по ВСЕМ rows (не по
-  // filtered) — иначе список вариантов сужался бы вместе с результатом, и
-  // снять уже выбранный фильтр, чтобы найти другой, было бы неочевидно.
-  const supplierOptions = useMemo(
-    () => [...new Set(rows.map((r) => r.supplierLabel ?? r.supplier))].sort((a, b) => a.localeCompare(b)),
-    [rows],
-  )
-  const productOptions = useMemo(
-    () => [...new Set(rows.map((r) => r.productLabel ?? r.product))].sort((a, b) => a.localeCompare(b)),
-    [rows],
-  )
+  // Поставщик — ключ сам по себе уже однозначен (их же название). Товар —
+  // НЕТ: голый текст вида "1.5" или "1 шт 20 гр" (их собственное описание
+  // в матрице, когда оно по факту просто фасовка, а не название товара —
+  // реальная путаница в самой таблице, не у нас) ничего не говорит сам по
+  // себе, пока не видно, у какого именно поставщика он встретился —
+  // прямой запрос: "непонятно... надо видеть что это за товар". Поэтому
+  // ключ товара — ПАРА товар+поставщик (sublabel показывает поставщика
+  // под названием в самом списке), а не голый текст товара.
+  const supplierKeyOf = (r: Row) => r.supplierLabel ?? r.supplier
+  const productKeyOf = (r: Row) => `${r.productLabel ?? r.product}::${r.supplierLabel ?? r.supplier}`
+
+  // Варианты для фильтров — считаем по ВСЕМ rows (не по filtered), иначе
+  // список сужался бы вместе с результатом, и снять уже выбранный фильтр,
+  // чтобы найти другой, было бы неочевидно.
+  const supplierOptions = useMemo(() => {
+    const seen = new Map<string, FilterOption>()
+    for (const r of rows) { const label = supplierKeyOf(r); if (!seen.has(label)) seen.set(label, { key: label, label }) }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
+  }, [rows])
+  const productOptions = useMemo(() => {
+    const seen = new Map<string, FilterOption>()
+    for (const r of rows) {
+      const key = productKeyOf(r)
+      if (!seen.has(key)) seen.set(key, { key, label: r.productLabel ?? r.product, sublabel: r.supplierLabel ?? r.supplier })
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || a.sublabel!.localeCompare(b.sublabel!))
+  }, [rows])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -99,8 +115,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     if (active.size) r = r.filter((x) => active.has(x.status))
     if (onlyNoted) r = r.filter((x) => x.userComment || x.rowColor)
     if (onlyDiff) r = r.filter((x) => diffOf(x) !== 0)
-    if (supplierFilter) r = r.filter((x) => (x.supplierLabel ?? x.supplier) === supplierFilter)
-    if (productFilter) r = r.filter((x) => (x.productLabel ?? x.product) === productFilter)
+    if (supplierFilter.size) r = r.filter((x) => supplierFilter.has(supplierKeyOf(x)))
+    if (productFilter.size) r = r.filter((x) => productFilter.has(productKeyOf(x)))
     if (needle) {
       r = r.filter((x) =>
         x.product.toLowerCase().includes(needle) || x.supplier.toLowerCase().includes(needle) ||
@@ -267,31 +283,15 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
-          {/* Отдельные фильтры по точному значению — в отличие от общего
-              поиска выше (тот ищет по подстроке сразу везде), тут выбирается
-              ровно один поставщик/товар из уже известных в этом срезе. */}
-          <div className="relative">
-            <select
-              value={supplierFilter}
-              onChange={(e) => setSupplierFilter(e.target.value)}
-              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-3 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
-            >
-              <option value="">Все поставщики</option>
-              {supplierOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-            </select>
-            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
-          </div>
-          <div className="relative">
-            <select
-              value={productFilter}
-              onChange={(e) => setProductFilter(e.target.value)}
-              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-3 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
-            >
-              <option value="">Все товары</option>
-              {productOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-            </select>
-            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
-          </div>
+          {/* Отдельные фильтры с множественным выбором и поиском внутри
+              списка (см. MultiSelectFilter) — в отличие от общего поиска
+              выше (тот ищет по подстроке сразу везде), тут выбирается один
+              или несколько конкретных поставщиков/товаров из уже известных
+              в этом срезе. У товара под названием — поставщик, иначе
+              голый текст фасовки вместо названия (их собственное описание
+              в матрице) ничего не говорит сам по себе. */}
+          <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supplierFilter} onChange={setSupplierFilter} />
+          <MultiSelectFilter allLabel="Все товары" options={productOptions} selected={productFilter} onChange={setProductFilter} />
           <button
             onClick={() => setMoneyMode((m) => !m)}
             title="Переключить, как считаются План/Факт/Δ: реальные деньги за закупку, или цена за единицу матрицы (кг и т.п.)"
@@ -335,9 +335,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
             Только расхождения
           </button>
-          {(active.size > 0 || onlyNoted || onlyDiff || supplierFilter || productFilter) && (
+          {(active.size > 0 || onlyNoted || onlyDiff || supplierFilter.size > 0 || productFilter.size > 0) && (
             <button
-              onClick={() => { setActive(new Set()); setOnlyNoted(false); setOnlyDiff(false); setSupplierFilter(''); setProductFilter('') }}
+              onClick={() => { setActive(new Set()); setOnlyNoted(false); setOnlyDiff(false); setSupplierFilter(new Set()); setProductFilter(new Set()) }}
               className="chip border-ink-600 text-fg-500 hover:text-fg-300"
             >
               сбросить
