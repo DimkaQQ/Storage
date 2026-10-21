@@ -109,6 +109,7 @@ function orgPaths(orgId) {
     status: join(dir, 'status.json'),
     venues: join(dir, 'venues.json'),
     matrix: join(dir, 'matrix.json'),
+    collisionChoices: join(dir, 'matrix-collision-choices.json'),
   }
 }
 const orgDatasetPath = (orgId, period) => join(orgDir(orgId), `dataset-${period}.json`)
@@ -274,6 +275,36 @@ export function getMatrix(orgId) {
   return read(orgPaths(orgId).matrix, null)
 }
 export const saveMatrix = (orgId, m) => write(orgPaths(orgId).matrix, m)
+
+/**
+ * Ручной выбор "какая из двух коллизующихся строк таблицы реально
+ * актуальна" (см. syncMatrix в sheets.js — duplicates в summary) — человек
+ * решает один раз в Справочниках, какая цена/название сейчас правильные,
+ * и этот выбор переживает любой следующий синк: applyCollisionChoices
+ * вызывается после каждого syncMatrix и подставляет сохранённое значение
+ * поверх того, что выиграло бы просто по порядку строк в таблице. Ключ —
+ * тот же составной ключ матрицы (ресторан::поставщик::товар[::фасовка]).
+ */
+export const getCollisionChoices = (orgId) => read(orgPaths(orgId).collisionChoices, {})
+export const saveCollisionChoices = (orgId, choices) => write(orgPaths(orgId).collisionChoices, choices)
+export function setCollisionChoice(orgId, key, choice) {
+  const choices = getCollisionChoices(orgId)
+  if (choice == null) delete choices[key]
+  else choices[key] = choice
+  saveCollisionChoices(orgId, choices)
+  return choices
+}
+/** Подставляет сохранённые ручные выборы поверх свежесинканной матрицы — см. setCollisionChoice. */
+export function applyCollisionChoices(orgId, matching) {
+  const choices = getCollisionChoices(orgId)
+  for (const [key, choice] of Object.entries(choices)) {
+    if (key in matching.planPairsByPack) matching.planPairsByPack[key] = choice.price
+    else if (key in matching.planPairs) matching.planPairs[key] = choice.price
+    else continue // коллизия в таблице больше не актуальна (например, фасовки развели) — выбор просто не на что применить
+    if (choice.label != null) matching.productLabels[key] = choice.label
+  }
+  return matching
+}
 
 /** Available periods for this org, oldest first, read straight off the stored dataset files. */
 export function listDatasetPeriods(orgId) {

@@ -220,8 +220,22 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
 // server/src/sheets.js) — не ошибка синка, а неоднозначность в самой
 // Google-таблице: побеждает строка, что ниже, остальные молча теряются.
 export interface MatrixSyncDuplicate {
+  key: string
   restaurant: string; supplier: string; product: string; pack: string | null
   first: { price: number; label: string | null }; second: { price: number; label: string | null }
+}
+/**
+ * Ручной выбор "эта строка из таблицы сейчас актуальна" — для одной из
+ * коллизующихся пар (см. MatrixSyncDuplicate.key). Сохраняется на сервере
+ * и переживёт любой следующий «Обновить» (см. applyCollisionChoices в
+ * server/src/store.js), а также сразу применяется к уже сохранённой
+ * матрице — эффект виден без повторного синка.
+ */
+export async function setMatrixCollisionChoice(key: string, price: number, label: string | null): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const r = await fetch('/api/matrix/collision-choice', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ key, price, label }) })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 export async function syncMatrix(target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number; duplicates?: MatrixSyncDuplicate[] }> {
   try {
