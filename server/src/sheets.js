@@ -186,15 +186,13 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   // закупке (живой случай: "Сыр пармезан" у Ocean Fresh — одна строка
   // "Грано Подано" по 13000, другая "Грано Моравия" по 11600, обе с
   // пустой/одинаковой фасовкой). planPairs/planPairsByPack — простые
-  // объекты, вторая строка молча стирает первую, и какая из двух цен
-  // реально попадёт в приложение, зависит только от порядка строк в
-  // таблице — ничего общего с тем, что реально купили. Явно так не
-  // чинится (iiko не записывает, какой именно бренд купили) — но хотя бы
-  // не должно происходить МОЛЧА: копим и возвращаем сводку, чтобы было
-  // видно, где в таблице есть такая неоднозначность и нужно её разводить
-  // вручную (например, вписать бренд в фасовку обеих строк).
-  const seenAt = new Map()
-  const duplicateKeys = new Map()
+  // объекты, при совпадении ключа вторая строка молча стирает первую —
+  // какая из цен реально победит, зависит только от порядка строк в
+  // таблице, никак не от того, что реально купили. Копим ВСЕ встреченные
+  // варианты под ambiguous[key] (не только побеждающий) — resolveRowPlan
+  // в data.ts покажет их все на КОНКРЕТНОЙ закупке этого периода, чтобы
+  // человек выбрал подходящий прямо там, а не гадать за него синком.
+  const ambiguousVariants = new Map()
 
   sheets.forEach((title, i) => {
     const restaurant = norm(sheetToRestaurant[title])
@@ -240,14 +238,9 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
         const price = Number(priceRaw)
         if (Number.isFinite(price)) {
           const label = labelRaw ? String(labelRaw) : null
-          const prevAt = seenAt.get(key)
-          if (prevAt && (prevAt.price !== price || prevAt.label !== label) && !duplicateKeys.has(key)) {
-            duplicateKeys.set(key, {
-              restaurant: sheetToRestaurant[title], supplier: supplierDisplay, product: String(iikoNameRaw), pack: pack || null,
-              first: { price: prevAt.price, label: prevAt.label }, second: { price, label },
-            })
-          }
-          seenAt.set(key, { price, label })
+          const variants = ambiguousVariants.get(key) ?? []
+          if (!variants.some((v) => v.price === price && v.label === label)) variants.push({ price, label })
+          ambiguousVariants.set(key, variants)
           if (pack) planPairsByPack[key] = price
           else planPairs[key] = price
           if (labelRaw) productLabels[key] = label
@@ -258,12 +251,15 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
     }
   })
 
+  // Только реально неоднозначные ключи (>1 различимого варианта) — для
+  // подавляющего большинства ключей тут ровно один вариант, незачем
+  // таскать его копией дальше по matching.
+  const ambiguous = {}
+  for (const [key, variants] of ambiguousVariants) if (variants.length > 1) ambiguous[key] = variants
+
   return {
-    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact },
-    summary: {
-      sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length,
-      duplicates: [...duplicateKeys.values()],
-    },
+    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous },
+    summary: { sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
 
@@ -308,5 +304,6 @@ export function mergeMatching(a, b, restaurantNames) {
     planPairsByPack: replaceScoped(a.planPairsByPack, b.planPairsByPack),
     productLabels: replaceScoped(a.productLabels, b.productLabels),
     noPriceExact: replaceScoped(a.noPriceExact, b.noPriceExact),
+    ambiguous: replaceScoped(a.ambiguous ?? {}, b.ambiguous ?? {}),
   }
 }

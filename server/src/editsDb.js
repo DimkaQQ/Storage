@@ -46,6 +46,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS plan_overrides    (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS row_comments      (org_id TEXT NOT NULL, key TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS row_colors        (org_id TEXT NOT NULL, key TEXT NOT NULL, color TEXT NOT NULL, PRIMARY KEY (org_id, key));
+  CREATE TABLE IF NOT EXISTS ambiguous_choices (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, label TEXT, PRIMARY KEY (org_id, key));
 `)
 // Миграция: product_links изначально была без pack (ключ привязки стал
 // учитывать фасовку позже) — на уже существующих базах столбца может не
@@ -58,7 +59,7 @@ try { db.exec("ALTER TABLE product_links ADD COLUMN pack TEXT NOT NULL DEFAULT '
 // максимум придётся привязать заново, зато не утекут в другой ресторан.
 try { db.exec("ALTER TABLE product_links ADD COLUMN restaurant TEXT NOT NULL DEFAULT ''") } catch { /* столбец уже есть */ }
 
-const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides', 'row_comments', 'row_colors']
+const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides', 'row_comments', 'row_colors', 'ambiguous_choices']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -95,7 +96,9 @@ export function getEditsForOrg(orgId) {
     db.prepare('SELECT key, text FROM row_comments WHERE org_id=?').all(orgId).map((r) => [r.key, r.text]))
   const rowColors = Object.fromEntries(
     db.prepare('SELECT key, color FROM row_colors WHERE org_id=?').all(orgId).map((r) => [r.key, r.color]))
-  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides, rowComments, rowColors }
+  const ambiguousChoices = Object.fromEntries(
+    db.prepare('SELECT key, price, label FROM ambiguous_choices WHERE org_id=?').all(orgId).map((r) => [r.key, { price: r.price, label: r.label ?? null }]))
+  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides, rowComments, rowColors, ambiguousChoices }
 }
 
 function hasAnyRows(orgId) {
@@ -266,6 +269,25 @@ export function setRowColor(orgId, key, value) {
   db.prepare('INSERT INTO row_colors (org_id, key, color) VALUES (?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET color=excluded.color').run(orgId, k, value)
 }
 
+/**
+ * Какой из нескольких вариантов (см. AmbiguousVariant в lib/data.ts) реально
+ * был куплен — выбор на ОДНУ ровно закупку (key = buildRowKey(...)), не на
+ * поставщик+товар вообще: другая закупка той же неоднозначной пары в другом
+ * месяце разруливается заново, этот выбор на неё не переносится (явное
+ * требование — см. комментарий у Edits.ambiguousChoices). value: null —
+ * снять выбор (строка снова показывается как неоднозначная).
+ */
+export function setAmbiguousChoice(orgId, key, value) {
+  const k = str(key)
+  if (!k) return
+  if (value === null || value === undefined) { db.prepare('DELETE FROM ambiguous_choices WHERE org_id=? AND key=?').run(orgId, k); return }
+  const price = Number(value.price)
+  if (!Number.isFinite(price)) return
+  const label = value.label == null ? null : String(value.label)
+  db.prepare('INSERT INTO ambiguous_choices (org_id, key, price, label) VALUES (?,?,?,?) ON CONFLICT(org_id, key) DO UPDATE SET price=excluded.price, label=excluded.label')
+    .run(orgId, k, price, label)
+}
+
 // e's fields are whatever JSON the client sent ("Импорт" uploads a file
 // verbatim) — Object.entries()/keys() on a non-object (a string, an array)
 // silently iterates its indices/characters instead of throwing, which used
@@ -333,6 +355,13 @@ export function replaceAllEdits(orgId, e) {
     for (const [key, color] of Object.entries(plainObject(edits.rowColors))) {
       const k = str(key); if (!k || !VALID_ROW_COLORS.has(color)) continue
       db.prepare('INSERT INTO row_colors (org_id, key, color) VALUES (?,?,?)').run(orgId, k, color)
+    }
+    for (const [key, vRaw] of Object.entries(plainObject(edits.ambiguousChoices))) {
+      const k = str(key); if (!k) continue
+      const v = plainObject(vRaw)
+      const price = Number(v.price); if (!Number.isFinite(price)) continue
+      const label = v.label == null ? null : String(v.label)
+      db.prepare('INSERT INTO ambiguous_choices (org_id, key, price, label) VALUES (?,?,?,?)').run(orgId, k, price, label)
     }
   })
 }

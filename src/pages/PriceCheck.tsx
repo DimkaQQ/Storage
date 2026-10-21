@@ -1,6 +1,6 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Row, ROW_COLORS, Status, STATUS_META, money, pct, fmt, summarize, isPrecisePack, norm } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt, summarize, isPrecisePack, norm } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -40,7 +40,7 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
-  const { setRowComment, setRowColor, period } = useEdits()
+  const { setRowComment, setRowColor, setAmbiguousChoice, period } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   // «С заметкой» — строки, где уже есть свой комментарий или цветовая
@@ -340,6 +340,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         <span className="flex items-center gap-1">
                           <HoverName text={r.productLabel ?? r.product} className="min-w-0 flex-1" />
                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
+                          {r.ambiguousOptions && r.ambiguousOptions.length > 0 && (
+                            <AmbiguousPicker options={r.ambiguousOptions} onPick={(v) => setAmbiguousChoice(r.rowKey, v)} />
+                          )}
                         </span>
                         <HoverName
                           text={(isPrecisePack(r.pack) || r.isAssortment) && r.pack ? `${r.productRaw} - ${r.pack}` : r.productRaw}
@@ -359,6 +362,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                         <span className="flex items-center gap-1">
                           <HoverName text={r.product} className="min-w-0 flex-1" />
                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
+                          {r.ambiguousOptions && r.ambiguousOptions.length > 0 && (
+                            <AmbiguousPicker options={r.ambiguousOptions} onPick={(v) => setAmbiguousChoice(r.rowKey, v)} />
+                          )}
                         </span>
                         {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
                       </>
@@ -465,6 +471,73 @@ function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: str
 function FasovkaStar({ n, pack }: { n: number; pack: string }) {
   return (
     <span className="shrink-0 font-semibold text-brand-300" title={`Та же позиция у этого поставщика, но другая фасовка: ${pack || '—'}`}>★{n}</span>
+  )
+}
+
+/**
+ * ⚠ рядом с названием товара — Google-таблица сама записала под этой парой
+ * поставщик+товар[+фасовка] НЕСКОЛЬКО разных вариантов (разную цену и/или
+ * название), и синк не может угадать, какой из них реально купили в этом
+ * периоде (iiko не различает бренд/вариант — см. matching.ambiguous,
+ * sheets.js). Клик открывает список вариантов; выбор — ИМЕННО на эту
+ * закупку (setAmbiguousChoice по rowKey), не навсегда и не на всю пару:
+ * та же пара в другой закупке/другом месяце показывает ⚠ заново, пока не
+ * выбрана отдельно (прямое требование — решать прямо на строке, по
+ * периоду, а не общим правилом в Справочниках).
+ */
+function AmbiguousPicker({ options, onPick }: { options: AmbiguousVariant[]; onPick: (v: AmbiguousVariant) => void }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+
+  useEffect(() => {
+    if (!pos) return
+    const close = () => setPos(null)
+    document.addEventListener('mousedown', close)
+    window.addEventListener('scroll', close, true)
+    return () => { document.removeEventListener('mousedown', close); window.removeEventListener('scroll', close, true) }
+  }, [pos])
+
+  const toggle = (e: ReactMouseEvent) => {
+    e.stopPropagation()
+    if (pos) { setPos(null); return }
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const m = 10, WIDTH = 260
+    const left = Math.max(m + WIDTH / 2, Math.min(window.innerWidth - m - WIDTH / 2, r.left + r.width / 2))
+    setPos({ left, top: r.bottom + 6 })
+  }
+
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={toggle}
+      title="В таблице несколько вариантов этого товара — неизвестно, какой купили. Нажмите, чтобы выбрать."
+      className="shrink-0 rounded px-1 text-xs font-semibold leading-none text-amber-400 hover:bg-ink-750"
+    >
+      ⚠
+      {pos && createPortal(
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ position: 'fixed', left: pos.left, top: pos.top, width: 260, transform: 'translateX(-50%)' }}
+          className="z-[100] rounded-xl border border-ink-600 bg-ink-800 p-2 text-left shadow-xl"
+        >
+          <div className="mb-1.5 px-1 text-[11px] text-fg-400">В таблице несколько вариантов — какой купили?</div>
+          {options.map((o, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => { onPick(o); setPos(null) }}
+              className="block w-full rounded-lg px-2 py-1.5 text-left text-xs text-fg-100 hover:bg-ink-700"
+            >
+              {o.label ?? '(без названия)'} — {money(o.price)}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </button>
   )
 }
 

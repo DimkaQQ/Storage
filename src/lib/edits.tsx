@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -17,6 +17,7 @@ function normalize(p: any): Edits {
     newVenues: p?.newVenues ?? {},
     rowComments: p?.rowComments ?? {},
     rowColors: p?.rowColors ?? {},
+    ambiguousChoices: p?.ambiguousChoices ?? {},
   }
 }
 
@@ -106,6 +107,8 @@ async function syncUndoToServer(current: Edits, target: Edits): Promise<boolean>
     results.push(applyEditOp('setRowComment', { key: k, value: target.rowComments[k] ?? null }))
   for (const k of diffKeys(current.rowColors, target.rowColors))
     results.push(applyEditOp('setRowColor', { key: k, value: target.rowColors[k] ?? null }))
+  for (const k of diffKeys(current.ambiguousChoices, target.ambiguousChoices))
+    results.push(applyEditOp('setAmbiguousChoice', { key: k, value: target.ambiguousChoices[k] ?? null }))
   const oks = await Promise.all(results)
   return oks.every(Boolean)
 }
@@ -225,6 +228,11 @@ interface Ctx {
   setPlanOverride: (key: string, value: number | null) => void
   setRowComment: (key: string, value: string | null) => void
   setRowColor: (key: string, value: RowColor | null) => void
+  // Какой из нескольких неоднозначных вариантов (см. AmbiguousVariant в
+  // lib/data.ts) реально купили — на ЭТУ ровно закупку (key = buildRowKey),
+  // не на поставщик+товар вообще. Автосохраняется сразу, как rowComments/
+  // rowColors, без «Сохранить».
+  setAmbiguousChoice: (key: string, value: AmbiguousVariant | null) => void
   reset: () => void
   replaceAll: (e: Edits) => void
   undo: () => void
@@ -689,6 +697,15 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
     applyEditOp('setRowColor', { key, value }).then(reportOpResult)
   }, [updateEdits, reportOpResult])
+  const setAmbiguousChoice = useCallback((key: string, value: AmbiguousVariant | null) => {
+    updateEdits((e) => {
+      const next = { ...e.ambiguousChoices }
+      if (value === null) delete next[key]
+      else next[key] = value
+      return { ...e, ambiguousChoices: next }
+    })
+    applyEditOp('setAmbiguousChoice', { key, value }).then(reportOpResult)
+  }, [updateEdits, reportOpResult])
 
   const reset = useCallback(() => {
     updateEdits(() => EMPTY_EDITS)
@@ -707,6 +724,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       newVenues: e.newVenues ?? {},
       rowComments: e.rowComments ?? {},
       rowColors: e.rowColors ?? {},
+      ambiguousChoices: e.ambiguousChoices ?? {},
     }
     updateEdits(() => next)
     saveEdits(next).then(reportOpResult) // whole-blob PUT — Импорт is an explicit, deliberate replace-everything action
@@ -723,7 +741,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newVenues).length +
     Object.keys(edits.rowComments).length +
-    Object.keys(edits.rowColors).length
+    Object.keys(edits.rowColors).length +
+    Object.keys(edits.ambiguousChoices).length
 
   const restaurants = useMemo(
     () => withNewVenues(applyVenueOverrides(parsed.restaurants, edits.venueOverrides), edits),
@@ -738,7 +757,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     addVenue, removeVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
     reset, replaceAll, undo, canUndo,
     saveError,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,

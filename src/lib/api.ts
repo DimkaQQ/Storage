@@ -215,15 +215,7 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
-// duplicate — та же пара поставщик+товар(+фасовка) встретилась в таблице
-// несколько раз под разными ценами/названиями (см. syncMatrix в
-// server/src/sheets.js) — не ошибка синка, а неоднозначность в самой
-// Google-таблице: побеждает строка, что ниже, остальные молча теряются.
-export interface MatrixSyncDuplicate {
-  restaurant: string; supplier: string; product: string; pack: string | null
-  first: { price: number; label: string | null }; second: { price: number; label: string | null }
-}
-export async function syncMatrix(target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number; duplicates?: MatrixSyncDuplicate[] }> {
+export async function syncMatrix(target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number }> {
   try {
     const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}) }) })
     return await r.json()

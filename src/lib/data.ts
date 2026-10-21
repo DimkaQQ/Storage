@@ -27,6 +27,8 @@ export interface MatchingTable {
   planPairsByPack: Record<string, number>     // "restaurant::supplier::product::pack" (norm) -> plan price
   productLabels: Record<string, string>       // same keys as planPairs/planPairsByPack -> их собственное "Наименование товара" (колонка I)
   noPriceExact: Record<string, true>          // same keys as planPairs/planPairsByPack -> связь с iiko прописана точно, но цены (H) просто нет
+  // same keys as planPairs/planPairsByPack -> ВСЕ различимые варианты цена+название, что реально встретились в таблице под этим ключом, когда их больше одного (см. syncMatrix в server/src/sheets.js) — опционально, старые вшитые демо-матрицы (src/data/matching-*.json) его не содержат вовсе.
+  ambiguous?: Record<string, { price: number; label: string | null }[]>
 }
 const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
   '2026-05': matchingMay as MatchingTable,
@@ -247,6 +249,7 @@ export interface Row {
   rowKey: string  // стабильный ключ этой ровно закупки (период+ресторан+поставщик+товар+фасовка+кол-во+сумма, как их прислал iiko) — для комментария/цвета строки (edits.rowComments/rowColors), НЕ то же самое что id (id — просто порядковый номер за один парсинг, от захода к заходу может быть другим)
   userComment: string | null  // свой комментарий пользователя к этой закупке (Проверка цен) — отдельно от note/b.comment (их же комментарий из iiko)
   rowColor: RowColor | null  // цветовая метка строки, если поставили вручную
+  ambiguousOptions: AmbiguousVariant[] | null  // см. AmbiguousVariant — непустой, когда эта строка притянула неоднозначный ключ матрицы и выбор ещё не сделан (edits.ambiguousChoices[rowKey])
 }
 
 /**
@@ -374,10 +377,11 @@ export interface Edits {
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
   rowComments: Record<string, string>      // buildRowKey(...) -> свой комментарий пользователя к этой ровно закупке (Проверка цен)
   rowColors: Record<string, RowColor>      // buildRowKey(...) -> цветовая метка строки, если поставили вручную
+  ambiguousChoices: Record<string, AmbiguousVariant>  // buildRowKey(...) -> какой из нескольких вариантов (см. AmbiguousVariant) реально был куплен — выбор на КОНКРЕТНУЮ закупку конкретного периода, не на поставщик+товар вообще (другая закупка/другой месяц разруливается заново)
 }
 export const EMPTY_EDITS: Edits = {
   productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, productLinks: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
-  rowComments: {}, rowColors: {},
+  rowComments: {}, rowColors: {}, ambiguousChoices: {},
 }
 
 /** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
@@ -394,6 +398,19 @@ export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta
 
 export interface FasovkaOption { pack: string; price: number; label: string | null }
 
+/**
+ * Один из нескольких реально встретившихся в самой Google-таблице вариантов
+ * цены/названия для ОДНОГО и того же ключа (поставщик+товар[+фасовка]) —
+ * см. matching.ambiguous и sheets.js. Строка таблицы записана дважды под
+ * разными товарами (например "Сыр пармезан" — то Подано, то Моравия), и
+ * синк сам не знает, какой из них реально купили в этом периоде: iiko не
+ * различает бренд/вариант. Разруливается не тут и не навсегда — см.
+ * Edits.ambiguousChoices и AmbiguousPicker (PriceCheck.tsx): пользователь
+ * выбирает прямо на строке закупки, выбор привязан к rowKey (конкретная
+ * закупка конкретного месяца), на другой месяц/закупку не переносится.
+ */
+export interface AmbiguousVariant { price: number; label: string | null }
+
 interface Resolved {
   plan: number | null
   status: Status
@@ -407,6 +424,7 @@ interface Resolved {
   isAssortment: boolean  // фасовка может иметь значение (см. buildKnownFlatIndex) — считаем ровно тут же, где строится pairKey, чтобы не разъезжаться с computeRows
   resolvedProduct: string  // товар (норм.), который resolveRowPlan реально использовал для сопоставления — после productLink, НЕ b.product0 напрямую. Нужен снаружи (buildRows), чтобы подсказка цены у "заказ не по матрице" искала план по ТОЙ ЖЕ строке матрицы, что дала designatedSuppliers, а не заново по сырому iiko-названию
   resolvedPack: string  // фасовка (норм.), аналогично — после packAlias/curatedTarget
+  ambiguousOptions: AmbiguousVariant[] | null  // см. AmbiguousVariant — непустой только когда matchedKey реально неоднозначен в самой таблице (>1 варианта цены/названия)
 }
 
 const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
@@ -946,8 +964,8 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // руками (Roti Azik 10шт/5шт получили одну и ту же цену).
   const isAssortment = !knownFlatPairs.has(pairKey)
 
-  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey' | 'isAssortment' | 'resolvedProduct' | 'resolvedPack'> =
-    { candidateNote: null, availableFasovki: [], packFixKey: null, isAssortment, resolvedProduct: product, resolvedPack: pack }
+  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey' | 'isAssortment' | 'resolvedProduct' | 'resolvedPack' | 'ambiguousOptions'> =
+    { candidateNote: null, availableFasovki: [], packFixKey: null, isAssortment, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
 
   // Ручной план цены из Справочников (Товары → «План») — самая свежая,
   // осознанно введённая цена для этой ровно позиции, побеждает всё
@@ -962,10 +980,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
-    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false, matchedKey: tripleKey, ...NONE }
+    if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[tripleKey]), unpricedMatch: false, matchedKey: tripleKey, ...NONE, ambiguousOptions: matching.ambiguous?.[tripleKey] ?? null }
   }
   const plan = matching.planPairs[pairKey]
-  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, ...NONE }
+  if (plan != null) return { plan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[pairKey]), unpricedMatch: false, matchedKey: pairKey, ...NONE, ambiguousOptions: matching.ambiguous?.[pairKey] ?? null }
 
   // Фасовка самой закупки почти никогда не должна мешать сопоставлению
   // поставщик+товар (подтверждено человеком явно, дважды: "мы не должны по
@@ -989,7 +1007,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
       for (const p of sortedPacks) {
         const key = `${pairKey}::${p}`
         const loosePlan = matching.planPairsByPack[key]
-        if (loosePlan != null) return { plan: loosePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[key]), unpricedMatch: false, matchedKey: key, ...NONE }
+        if (loosePlan != null) return { plan: loosePlan, status: 'ok', designatedSuppliers: [], productLabel: safeLabel(b.product0, matching.productLabels[key]), unpricedMatch: false, matchedKey: key, ...NONE, ambiguousOptions: matching.ambiguous?.[key] ?? null }
       }
     }
     const noPriceVariants = designatedIndex.bySupplierProductNoPrice.get(pairKey)
@@ -1066,9 +1084,9 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const fixKeyIfAny = availableFasovki.length > 0 ? packFixKey : null
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, resolvedProduct: product, resolvedPack: pack }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, resolvedProduct: product, resolvedPack: pack }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
 }
 
 export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
@@ -1115,6 +1133,7 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
     planPairsByPack: filterKeys(matching.planPairsByPack),
     productLabels: filterKeys(matching.productLabels),
     noPriceExact: filterKeys(matching.noPriceExact),
+    ambiguous: matching.ambiguous ? filterKeys(matching.ambiguous) : undefined,
   }
   scopedMatchingCache.set(matching, result)
   return result
@@ -1196,7 +1215,22 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     const supplierDisplay = edits.supplierRenames[b.supplier0] ?? supplierCanonical
     const supplierLabel = supplierDisplay && norm(supplierDisplay) !== norm(supplier) ? supplierDisplay : null
     const venue = edits.venueOverrides[b.restaurant]
-    const { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, resolvedProduct, resolvedPack } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
+    const rowKey = buildRowKey(b)
+    let { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, resolvedProduct, resolvedPack, ambiguousOptions } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
+    // Неоднозначный ключ матрицы (см. AmbiguousVariant) с уже сделанным
+    // выбором именно для ЭТОЙ закупки (edits.ambiguousChoices по rowKey, не
+    // по matchedKey — выбор не должен молча переноситься на другую закупку
+    // той же пары в другом месяце) — подставляем выбранную цену/название
+    // вместо того, что реально "выиграло" при синке (последняя строка
+    // таблицы, см. sheets.js), и больше не считаем строку неоднозначной.
+    if (ambiguousOptions && ambiguousOptions.length > 0) {
+      const choice = edits.ambiguousChoices[rowKey]
+      if (choice) {
+        plan = choice.price
+        matrixLabel = safeLabel(b.product0, choice.label)
+        ambiguousOptions = null
+      }
+    }
     if (matchedKey) consumed.add(matchedKey)
     if (matchedKey && status === 'ok') {
       const matchedPairKey = matchedKey.split('::').slice(0, 3).join('::')
@@ -1295,13 +1329,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       }
     }
     const note: string | null = parts.length ? parts.join(' ') : null
-    const rowKey = buildRowKey(b)
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers, designatedPlan: designatedPlanPrice, note, availableFasovki, packFixKey, matchedKey, isTotalRow: b.isTotalRow,
-      rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null,
+      rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null, ambiguousOptions,
     }
   })
 
@@ -1352,7 +1385,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       // null. rowKey всё равно даём (по ключу матрицы) — на случай если
       // понадобится где-то ещё, но edits.rowComments/rowColors на неё не
       // смотрят.
-      rowKey: `np::${key}`, userComment: null, rowColor: null,
+      rowKey: `np::${key}`, userComment: null, rowColor: null, ambiguousOptions: null,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
