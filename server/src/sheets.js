@@ -178,6 +178,12 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   const planPairsByPack = {}
   const productLabels = {}
   const noPriceExact = {}
+  // "ресторан::поставщик" (норм.) -> порядковый номер, по которому этот
+  // поставщик впервые встретился на вкладке ЭТОГО ресторана (сверху вниз,
+  // как в самой таблице) — попросили показывать "Проверку цен" в том же
+  // порядке, что и сама матрица (все позиции одного поставщика подряд, как
+  // на вкладке), а не вразнобой по алфавиту. См. Row.matrixOrder в lib/data.ts.
+  const supplierOrder = {}
   let rowsSeen = 0
   // Одна и та же пара поставщик+товар+фасовка иногда встречается в
   // таблице НЕСКОЛЬКО раз под одним и тем же iiko-названием — это не
@@ -197,11 +203,16 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   sheets.forEach((title, i) => {
     const restaurant = norm(sheetToRestaurant[title])
     const rows = valueRanges[i]?.values || []
+    // Свой счётчик на каждую вкладку/ресторан — "первый поставщик этой
+    // вкладки" получает 0, следующий новый — 1, и т.д.
+    let nextSupplierOrder = 0
     for (const row of rows) {
       const [supplierCanonRaw, iikoCompanyRaw, iikoNameRaw, packRaw, , priceRaw, labelRaw] = row
       if (!iikoNameRaw || !supplierCanonRaw) continue
       rowsSeen++
       const supplierCanon = norm(supplierCanonRaw)
+      const orderKey = `${restaurant}::${supplierCanon}`
+      if (!(orderKey in supplierOrder)) supplierOrder[orderKey] = nextSupplierOrder++
       // Значение — текст С КАК ОН НАПИСАН в колонке C (пробелы схлопнуты,
       // регистр не трогаем), а не supplierCanon (уже lowercase) — иначе
       // любой код, который показывает это значение человеку как "красивое"
@@ -258,7 +269,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   for (const [key, variants] of ambiguousVariants) if (variants.length > 1) ambiguous[key] = variants
 
   return {
-    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous },
+    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder },
     summary: { sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
@@ -305,5 +316,6 @@ export function mergeMatching(a, b, restaurantNames) {
     productLabels: replaceScoped(a.productLabels, b.productLabels),
     noPriceExact: replaceScoped(a.noPriceExact, b.noPriceExact),
     ambiguous: replaceScoped(a.ambiguous ?? {}, b.ambiguous ?? {}),
+    supplierOrder: replaceScoped(a.supplierOrder ?? {}, b.supplierOrder ?? {}),
   }
 }

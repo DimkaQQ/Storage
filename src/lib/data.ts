@@ -29,6 +29,16 @@ export interface MatchingTable {
   noPriceExact: Record<string, true>          // same keys as planPairs/planPairsByPack -> связь с iiko прописана точно, но цены (H) просто нет
   // same keys as planPairs/planPairsByPack -> ВСЕ различимые варианты цена+название, что реально встретились в таблице под этим ключом, когда их больше одного (см. syncMatrix в server/src/sheets.js) — опционально, старые вшитые демо-матрицы (src/data/matching-*.json) его не содержат вовсе.
   ambiguous?: Record<string, { price: number; label: string | null }[]>
+  // "restaurant::supplier" (norm) -> порядковый номер, по которому этот
+  // поставщик впервые встретился на вкладке ЭТОГО ресторана в самой
+  // Google-таблице (сверху вниз) — см. syncMatrix в server/src/sheets.js.
+  // Нужен только для сортировки "Проверки цен" в том же порядке, что и
+  // сама матрица (попросили явно: так проще сверять вручную, когда все
+  // позиции одного поставщика идут подряд, как в таблице, а не вразнобой
+  // по алфавиту). Опционально — старые вшитые демо-матрицы (src/data/
+  // matching-*.json) его не содержат, тогда сортировка по этому полю
+  // просто не работает (все поставщики равны между собой), без ошибок.
+  supplierOrder?: Record<string, number>
 }
 const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
   '2026-05': matchingMay as MatchingTable,
@@ -250,6 +260,7 @@ export interface Row {
   userComment: string | null  // свой комментарий пользователя к этой закупке (Проверка цен) — отдельно от note/b.comment (их же комментарий из iiko)
   rowColor: RowColor | null  // цветовая метка строки, если поставили вручную
   ambiguousOptions: AmbiguousVariant[] | null  // см. AmbiguousVariant — непустой, когда эта строка притянула неоднозначный ключ матрицы и выбор ещё не сделан (edits.ambiguousChoices[rowKey])
+  matrixOrder: number  // порядок поставщика на вкладке этого ресторана в самой матрице (см. MatchingTable.supplierOrder) — Infinity, если поставщик в матрице для этого ресторана не встретился вовсе (сортировка просто кидает такие в конец)
 }
 
 /**
@@ -1134,6 +1145,7 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
     productLabels: filterKeys(matching.productLabels),
     noPriceExact: filterKeys(matching.noPriceExact),
     ambiguous: matching.ambiguous ? filterKeys(matching.ambiguous) : undefined,
+    supplierOrder: matching.supplierOrder ? filterKeys(matching.supplierOrder) : undefined,
   }
   scopedMatchingCache.set(matching, result)
   return result
@@ -1142,16 +1154,19 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = []): Row[] {
   const matching = scopedMatching(matchingIn)
-  // Поставщики свежих овощей/фруктов (логистика "привезти то, что созрело
-  // сегодня") — подтверждено человеком явно: такие закупки фиксируют, но
-  // по матрице никогда не сверяют, и попросили убрать их из "Проверки
-  // цен" ЦЕЛИКОМ (не просто статусом "Нет в матрице") — иначе они
-  // захламляют сортировку по сумме и счётчик "нет в матрице" позициями,
-  // которые и не должны были туда попадать. Список — только вручную
-  // проверенные названия (как и IGNORED_BRAND_CODES в server/src/iiko.js),
-  // не угадывается по слову в названии товара.
-  const EXCLUDED_PRODUCE_SUPPLIERS = new Set(
-    ['ип асип назир фрукты овощи', 'ип "асип"', 'ип "фруктовый рай"', 'ип "фруктовый рай" / зеленый мир'].map(norm),
+  // Поставщики, которых попросили убрать из "Проверки цен" ЦЕЛИКОМ (не
+  // просто статусом "Нет в матрице") — иначе они захламляют сортировку по
+  // сумме и счётчик "нет в матрице" позициями, которые и не должны были
+  // туда попадать. Список — только вручную проверенные названия (как и
+  // IGNORED_BRAND_CODES в server/src/iiko.js), не угадывается по слову в
+  // названии поставщика/товара.
+  // — свежие овощи/фрукты (логистика "привезти то, что созрело сегодня") —
+  //   такие закупки фиксируют, но по матрице никогда не сверяют;
+  // — "Магазин / Супер маркет" — разовые покупки в случайном магазине за
+  //   наличные, не настоящий договорной поставщик из матрицы, сверять
+  //   не с чем в принципе.
+  const EXCLUDED_SUPPLIERS = new Set(
+    ['ип асип назир фрукты овощи', 'ип "асип"', 'ип "фруктовый рай"', 'ип "фруктовый рай" / зеленый мир', 'магазин / супер маркет'].map(norm),
   )
   // Не еда (расходники бара — см. EXCLUDED_CATEGORIES в server/src/iiko.js,
   // категория "Расходные материалы") и не закупка вовсе ("Ввод остатков" —
@@ -1163,7 +1178,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   const EXCLUDED_PRODUCTS = new Set(['балончики для сифона'].map(norm))
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
-    if (EXCLUDED_PRODUCE_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_PRODUCE_SUPPLIERS.has(canon)) return false
+    if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) return false
     if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
     return true
   })
@@ -1216,6 +1231,12 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     const supplierLabel = supplierDisplay && norm(supplierDisplay) !== norm(supplier) ? supplierDisplay : null
     const venue = edits.venueOverrides[b.restaurant]
     const rowKey = buildRowKey(b)
+    // См. MatchingTable.supplierOrder — порядок, в котором этот поставщик
+    // впервые встретился на вкладке ЭТОГО ресторана в самой матрице; нет
+    // данных (demo-матрица без supplierOrder, либо поставщик в матрице
+    // этого ресторана вообще не прайсован) — Infinity, такие строки просто
+    // уходят в конец при сортировке "по матрице".
+    const matrixOrder = matching.supplierOrder?.[`${norm(b.restaurant)}::${norm(supplierCanonical ?? b.supplier0)}`] ?? Infinity
     let { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, resolvedProduct, resolvedPack, ambiguousOptions } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
     // Неоднозначный ключ матрицы (см. AmbiguousVariant) с уже сделанным
     // выбором именно для ЭТОЙ закупки (edits.ambiguousChoices по rowKey, не
@@ -1334,7 +1355,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers, designatedPlan: designatedPlanPrice, note, availableFasovki, packFixKey, matchedKey, isTotalRow: b.isTotalRow,
-      rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null, ambiguousOptions,
+      rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null, ambiguousOptions, matrixOrder,
     }
   })
 
@@ -1364,9 +1385,16 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     const pairKey = key.split('::').slice(0, 3).join('::')
     if (!isPackSensitiveProduct(product) && consumedPairs.has(pairKey)) return
     const [, supplierNorm] = key.split('::')
+    // Тот же список, что и выше для реальных закупок (EXCLUDED_SUPPLIERS) —
+    // без этой проверки убранный поставщик всё равно всплывал бы тут как
+    // "Не закупали" (строка берётся прямо из матрицы, а не из base, тот
+    // фильтр её не касается) — "Магазин/Супер маркет" молча возвращался бы
+    // в список, просто под другим статусом.
+    if (EXCLUDED_SUPPLIERS.has(supplierNorm)) return
     const supplierDisplay = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
     const label = matching.productLabels[key] ?? null
     const isAssortment = !knownFlatPairs.has(key.split('::').slice(0, 3).join('::'))
+    const matrixOrder = matching.supplierOrder?.[`${restaurantNorm}::${supplierNorm}`] ?? Infinity
     rows.push({
       id: 'np' + seq++, restaurant: venueRow.restaurant,
       brand: venueRow.brand, city: venueRow.city, entity: venueRow.entity, category: venueRow.category,
@@ -1385,7 +1413,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       // null. rowKey всё равно даём (по ключу матрицы) — на случай если
       // понадобится где-то ещё, но edits.rowComments/rowColors на неё не
       // смотрят.
-      rowKey: `np::${key}`, userComment: null, rowColor: null, ambiguousOptions: null,
+      rowKey: `np::${key}`, userComment: null, rowColor: null, ambiguousOptions: null, matrixOrder,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {

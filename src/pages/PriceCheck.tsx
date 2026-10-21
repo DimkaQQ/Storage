@@ -4,7 +4,7 @@ import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
-import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '../components/icons'
+import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose, IChevron } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'sum' | 'diff'
 
@@ -22,14 +22,16 @@ function planMoneyOf(r: Row): number | null {
   if (r.plan == null) return null
   return r.unit != null ? r.plan * r.qty : r.plan
 }
+// Δ = План − Факт (попросили явно развернуть знак): положительная разница —
+// заплатили МЕНЬШЕ плана (экономия), отрицательная — БОЛЬШЕ плана (переплата).
 function diffMoneyOf(r: Row): number | null {
   const f = factMoneyOf(r), p = planMoneyOf(r)
-  return f != null && p != null ? f - p : null
+  return f != null && p != null ? p - f : null
 }
 function factUnitOf(r: Row): number | null { return r.unit }
 function planUnitOf(r: Row): number | null { return r.plan }
 function diffUnitOf(r: Row): number | null {
-  return r.unit != null && r.plan != null ? r.unit - r.plan : null
+  return r.unit != null && r.plan != null ? r.plan - r.unit : null
 }
 
 const STATUS_FILTERS: { id: Status; label: string }[] = [
@@ -47,6 +49,20 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // метка (любая из них, не обе сразу) — быстро найти то, что уже
   // разбирали/помечали вручную, без поиска по тексту.
   const [onlyNoted, setOnlyNoted] = useState(false)
+  // «Только расхождения» — скрыть строки, где факт==план (Δ ровно 0): их
+  // объективно не нужно проверять, а по сумме они только засоряют список
+  // между настоящими расхождениями (прямой запрос — "убрать 0, чтобы
+  // проверять только расхождения"). Строки БЕЗ плана/факта (Δ === null —
+  // "Нет в матрице", "Заказ не по матрице", "Не закупали") не трогаем —
+  // это не "ноль", а отдельная, самостоятельная проблема, прятать её сюда
+  // не просили.
+  const [onlyDiff, setOnlyDiff] = useState(false)
+  // Поставщик/Товар — отдельные фильтры по ТОЧНОМУ значению (не по
+  // подстроке, как общий поиск) — выбрать ровно одного поставщика/товар из
+  // выпадающего списка, а не печатать текст вручную. Пустая строка —
+  // фильтр не применяется.
+  const [supplierFilter, setSupplierFilter] = useState('')
+  const [productFilter, setProductFilter] = useState('')
   // По умолчанию — сумма закупки по убыванию, как в их собственном "Отчёте
   // о закупках по складам" из iiko (крупнейшие позиции сверху), а не
   // алфавит по ресторану/товару.
@@ -63,11 +79,28 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   const [openNoteFor, setOpenNoteFor] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
 
+  // Варианты для выпадающих списков Поставщик/Товар — то же отображаемое
+  // название, что и в самой таблице (их собственное из матрицы, если есть,
+  // иначе как в iiko), без дублей, по алфавиту. Считаем по ВСЕМ rows (не по
+  // filtered) — иначе список вариантов сужался бы вместе с результатом, и
+  // снять уже выбранный фильтр, чтобы найти другой, было бы неочевидно.
+  const supplierOptions = useMemo(
+    () => [...new Set(rows.map((r) => r.supplierLabel ?? r.supplier))].sort((a, b) => a.localeCompare(b)),
+    [rows],
+  )
+  const productOptions = useMemo(
+    () => [...new Set(rows.map((r) => r.productLabel ?? r.product))].sort((a, b) => a.localeCompare(b)),
+    [rows],
+  )
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let r = rows
     if (active.size) r = r.filter((x) => active.has(x.status))
     if (onlyNoted) r = r.filter((x) => x.userComment || x.rowColor)
+    if (onlyDiff) r = r.filter((x) => diffOf(x) !== 0)
+    if (supplierFilter) r = r.filter((x) => (x.supplierLabel ?? x.supplier) === supplierFilter)
+    if (productFilter) r = r.filter((x) => (x.productLabel ?? x.product) === productFilter)
     if (needle) {
       r = r.filter((x) =>
         x.product.toLowerCase().includes(needle) || x.supplier.toLowerCase().includes(needle) ||
@@ -83,10 +116,24 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       if (key === 'sum') return ((factOf(a) ?? 0) - (factOf(b) ?? 0)) * dir
       if (key === 'plan') return ((planOf(a) ?? -Infinity) - (planOf(b) ?? -Infinity)) * dir
       if (key === 'diff') return ((diffOf(a) ?? -Infinity) - (diffOf(b) ?? -Infinity)) * dir
+      // Поставщик — не просто алфавит: сортируем так, чтобы все позиции
+      // одного поставщика шли подряд в том же порядке, что и на вкладке
+      // этого ресторана в самой матрице (Row.matrixOrder), а не вразнобой —
+      // прямой запрос, упрощает ручную сверку с таблицей построчно.
+      // Группировка по ресторану — всегда по алфавиту, направление (dir)
+      // меняет только порядок поставщиков внутри ресторана, не сам список
+      // ресторанов, иначе "перевернуть сортировку" путало бы ещё и их.
+      if (key === 'supplier') {
+        const rCmp = a.restaurant.localeCompare(b.restaurant)
+        if (rCmp !== 0) return rCmp
+        const oCmp = (a.matrixOrder - b.matrixOrder) * dir
+        if (oCmp !== 0) return oCmp
+        return a.supplier.localeCompare(b.supplier) * dir
+      }
       const av = a[key], bv = b[key]
       return av.localeCompare(bv) * dir
     })
-  }, [rows, q, active, sort, moneyMode, onlyNoted])
+  }, [rows, q, active, sort, moneyMode, onlyNoted, onlyDiff, supplierFilter, productFilter])
 
   // Звёздочки — тот же товар у того же поставщика в том же ресторане может
   // встретиться несколько раз под разной фасовкой (банка 400гр и банка
@@ -126,7 +173,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // клика.
   const PAGE_SIZE = 80
   const [limit, setLimit] = useState(PAGE_SIZE)
-  useEffect(() => { setLimit(PAGE_SIZE) }, [q, active, onlyNoted])
+  useEffect(() => { setLimit(PAGE_SIZE) }, [q, active, onlyNoted, onlyDiff, supplierFilter, productFilter])
   const shown = filtered.slice(0, limit)
   // root — сам скроллящийся div (см. ниже), а не окно браузера. Таблица
   // скроллится ВНУТРИ своего бокса (max-h-[70vh] overflow-auto), а не
@@ -220,6 +267,31 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
+          {/* Отдельные фильтры по точному значению — в отличие от общего
+              поиска выше (тот ищет по подстроке сразу везде), тут выбирается
+              ровно один поставщик/товар из уже известных в этом срезе. */}
+          <div className="relative">
+            <select
+              value={supplierFilter}
+              onChange={(e) => setSupplierFilter(e.target.value)}
+              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-3 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
+            >
+              <option value="">Все поставщики</option>
+              {supplierOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
+          </div>
+          <div className="relative">
+            <select
+              value={productFilter}
+              onChange={(e) => setProductFilter(e.target.value)}
+              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-3 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
+            >
+              <option value="">Все товары</option>
+              {productOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
+          </div>
           <button
             onClick={() => setMoneyMode((m) => !m)}
             title="Переключить, как считаются План/Факт/Δ: реальные деньги за закупку, или цена за единицу матрицы (кг и т.п.)"
@@ -255,8 +327,19 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
             С заметкой
           </button>
-          {(active.size > 0 || onlyNoted) && (
-            <button onClick={() => { setActive(new Set()); setOnlyNoted(false) }} className="chip border-ink-600 text-fg-500 hover:text-fg-300">
+          <button
+            onClick={() => setOnlyDiff((v) => !v)}
+            title="Скрыть строки, где факт точно совпал с планом (Δ = 0) — проверять только реальные расхождения"
+            className={`chip transition-colors ${onlyDiff ? 'border-brand-400 bg-ink-750 text-brand-300' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
+            Только расхождения
+          </button>
+          {(active.size > 0 || onlyNoted || onlyDiff || supplierFilter || productFilter) && (
+            <button
+              onClick={() => { setActive(new Set()); setOnlyNoted(false); setOnlyDiff(false); setSupplierFilter(''); setProductFilter('') }}
+              className="chip border-ink-600 text-fg-500 hover:text-fg-300"
+            >
               сбросить
             </button>
           )}
