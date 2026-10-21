@@ -1306,31 +1306,21 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   })
 
   // Matrix slots nobody bought this period — the flip side of the table:
-  // "what's priced for this restaurant that just didn't get ordered". Where
-  // a product has BOTH a flat planPairs price AND per-pack breakdowns, the
-  // flat entry is skipped ONLY when it's genuinely the same item as the
-  // pack-specific ones (knownFlatPairs — same productLabels everywhere,
-  // see buildKnownFlatIndex) — there the flat price really is just the
-  // fallback resolveRowPlan would use once no pack-specific price exists,
-  // and listing both would double-count it.
+  // "what's priced for this restaurant that just didn't get ordered".
   //
-  // Подтверждено реальными данными (аудит сентябрьской матрицы): несколько
-  // поставщиков используют ровно эту форму записи — ОДНО общее iiko-
-  // название на ДВА по-настоящему разных товара, различая их только
-  // наличием/отсутствием фасовки (напр. "Сыр дорблю" у Меркуловой: плоская
-  // строка без фасовки — это "Extra blu 2кг", отдельная строка с фасовкой
-  // "пач. 100гр." — это "Friendship 100гр", два разных бренда/SKU, не один
-  // и тот же товар с уточнённой фасовкой). Старое правило "раз есть
-  // фасовочная строка — плоскую прячем" в этом случае просто стирало с
-  // радаров целый отдельный товар: ни "не закупали", ни тем более покупку
-  // под ним никогда не покажет никто, пока он прайсован только плоской
-  // строкой. Если лейблы разные (это и есть то же самое, что isAssortment)
-  // — прятать плоскую строку нельзя, она не дубль, а отдельная позиция.
-  const packBrokenDownPairKeys = new Set(
-    Object.keys(matching.planPairsByPack)
-      .map((k) => k.split('::').slice(0, 3).join('::'))
-      .filter((pairKey) => knownFlatPairs.has(pairKey)),
-  )
+  // Раньше тут была логика "если у пары есть и плоская цена, и фасовочная
+  // — плоскую прячем, это просто дубль/fallback". Подтверждено реальными
+  // данными (аудит сентябрьской матрицы), что это ломает полноту списка:
+  // несколько поставщиков прайсуют под одним общим iiko-названием ДВА
+  // по-настоящему разных товара, различая их только наличием/отсутствием
+  // фасовки (напр. "Сыр дорблю" у Меркуловой: плоская строка без фасовки —
+  // это "Extra blu 2кг", отдельная строка с фасовкой "пач. 100гр." — это
+  // "Friendship 100гр", два разных бренда/SKU). Сначала это пробовали
+  // чинить точечно (прятать плоскую, только если подпись реально та же) —
+  // но попросили явно: полнота важнее, список товаров у ресторана должен
+  // быть ПОЛНЫМ, даже если это иногда покажет лишнюю строку для настоящего
+  // дубля — решили не прятать вообще ничего, выбор между "лишняя строка" и
+  // "пропавший товар" сделан в пользу первого.
   let seq = 0
   const addPlanOnlyRow = (key: string, restaurantNorm: string, product: string, pack: string, plan: number | null) => {
     const venueRow = venueByRestaurant.get(restaurantNorm)
@@ -1371,7 +1361,6 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     addPlanOnlyRow(key, restaurant, product, pack, plan)
   }
   for (const [key, plan] of Object.entries(matching.planPairs)) {
-    if (packBrokenDownPairKeys.has(key)) continue
     const [restaurant, , product] = key.split('::')
     if (!venueByRestaurant.has(restaurant)) continue
     addPlanOnlyRow(key, restaurant, product, '', plan)
@@ -1387,7 +1376,6 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     if (parts.length === 4) {
       addPlanOnlyRow(key, restaurant, product, pack, null)
     } else {
-      if (packBrokenDownPairKeys.has(key)) continue
       addPlanOnlyRow(key, restaurant, product, '', null)
     }
   }
