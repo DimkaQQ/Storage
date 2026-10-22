@@ -96,30 +96,52 @@ function coreSupplierText(s: string): string {
 // PELAGIA KZ" — для одних точек в матрице записан iiko-алиас "Семь морей",
 // для других — "Pelagia KZ", сама канонiческая строка содержит оба).
 // Кэш различных канонических значений — тот же принцип, что у
-// designatedIndexCache ниже: строится один раз на объект matching
-// (неизменяемый), а не на каждый вызов fuzzySupplierMatch.
-const canonicalValuesCache = new WeakMap<MatchingTable, string[]>()
-function canonicalValues(matching: MatchingTable): string[] {
-  const cached = canonicalValuesCache.get(matching)
+// designatedIndexCache ниже: строится один раз на пару (matching, restaurant)
+// (сам matching неизменяемый), а не на каждый вызов fuzzySupplierMatch.
+//
+// Скоуп строго по ресторану (ключи supplierAlias теперь "ресторан::..." —
+// см. комментарий у MatchingTable) — ЖИВОЙ случай: "Токуев Руслан" из
+// закупки одного ресторана однозначно фуззи-матчился на "ИП Токуев...", а
+// добавление в матрицу СОВСЕМ ДРУГОГО ресторана канона, чей кусок тоже
+// содержал похожий текст, делало matches.size > 1 — подошли бы ОБА, и
+// находка откатывалась на null ("не сопоставлено") для ОБОИХ ресторанов,
+// хотя для каждого по отдельности совпадение было однозначным. Раньше тут
+// бралось Object.values() по всей сети сразу, без разбора ресторана.
+const canonicalValuesCache = new WeakMap<MatchingTable, Map<string, string[]>>()
+function canonicalValues(matching: MatchingTable, restaurant: string): string[] {
+  let byRestaurant = canonicalValuesCache.get(matching)
+  if (!byRestaurant) { byRestaurant = new Map(); canonicalValuesCache.set(matching, byRestaurant) }
+  const cached = byRestaurant.get(restaurant)
   if (cached) return cached
-  const result = [...new Set(Object.values(matching.supplierAlias))]
-  canonicalValuesCache.set(matching, result)
+  const prefix = `${restaurant}::`
+  const scoped = Object.entries(matching.supplierAlias).filter(([k]) => k.startsWith(prefix)).map(([, v]) => v)
+  // Вшитые демо-датасеты (src/data/matching-*.json) собраны ДО того, как
+  // ключи supplierAlias стали "ресторан::..." — там ключ плоский (без
+  // ресторана вообще), scoped всегда будет пуст, и различить своё/чужое
+  // нечем — используем все значения как раньше, иначе демо-режим вообще
+  // перестал бы фуззи-матчить.
+  const result = scoped.length > 0
+    ? [...new Set(scoped)]
+    : [...new Set(Object.entries(matching.supplierAlias).filter(([k]) => !k.includes('::')).map(([, v]) => v))]
+  byRestaurant.set(restaurant, result)
   return result
 }
 
 // Канонические строки — это "/"-разделённый список альтернативных имён
 // одного и того же поставщика (их же колонка C) — разбиваем на отдельные
-// содержательные куски (без ИП/ТОО/кавычек) один раз на matching, тот же
-// принцип кэша, что у canonicalValues выше.
-const canonicalPartsCache = new WeakMap<MatchingTable, Map<string, string[]>>()
-function canonicalParts(matching: MatchingTable): Map<string, string[]> {
-  const cached = canonicalPartsCache.get(matching)
+// содержательные куски (без ИП/ТОО/кавычек) один раз на (matching,
+// restaurant), тот же принцип кэша, что у canonicalValues выше.
+const canonicalPartsCache = new WeakMap<MatchingTable, Map<string, Map<string, string[]>>>()
+function canonicalParts(matching: MatchingTable, restaurant: string): Map<string, string[]> {
+  let byRestaurant = canonicalPartsCache.get(matching)
+  if (!byRestaurant) { byRestaurant = new Map(); canonicalPartsCache.set(matching, byRestaurant) }
+  const cached = byRestaurant.get(restaurant)
   if (cached) return cached
   const result = new Map<string, string[]>()
-  for (const c of canonicalValues(matching)) {
+  for (const c of canonicalValues(matching, restaurant)) {
     result.set(c, c.split('/').map(coreSupplierText).filter((p) => p.length >= 3))
   }
-  canonicalPartsCache.set(matching, result)
+  byRestaurant.set(restaurant, result)
   return result
 }
 
@@ -136,22 +158,25 @@ function canonicalParts(matching: MatchingTable): Map<string, string[]> {
  *    записана только фамилия).
  * Совпадение засчитывается только если оно ОДНОЗНАЧНО (ровно один канон
  * подошёл) — та же осторожность, что и везде в этом файле: лучше оставить
- * "не сопоставлено", чем угадать неверно.
+ * "не сопоставлено", чем угадать неверно. Канонические варианты берутся
+ * строго из матрицы ЭТОГО ресторана (restaurant уже норм'нут вызывающим
+ * кодом) — см. комментарий у canonicalValues про риск чужого ресторана.
  */
-function fuzzySupplierMatch(matching: MatchingTable, rawSupplier: string): string | null {
+function fuzzySupplierMatch(matching: MatchingTable, restaurant: string, rawSupplier: string): string | null {
   const core = coreSupplierText(rawSupplier)
   if (core.length < 3) return null // слишком короткий кусок — риск случайных совпадений
   const matches = new Set<string>()
-  for (const [canonical, parts] of canonicalParts(matching)) {
+  for (const [canonical, parts] of canonicalParts(matching, restaurant)) {
     if (parts.some((p) => core.includes(p) || p.includes(core))) matches.add(canonical)
   }
   return matches.size === 1 ? [...matches][0] : null
 }
 
 export function supplierAliasFor(matching: MatchingTable, restaurant: string, rawSupplier: string): string | null {
-  return matching.supplierAlias[`${norm(restaurant)}::${norm(rawSupplier)}`]
+  const r = norm(restaurant)
+  return matching.supplierAlias[`${r}::${norm(rawSupplier)}`]
     ?? matching.supplierAlias[norm(rawSupplier)]
-    ?? fuzzySupplierMatch(matching, rawSupplier)
+    ?? fuzzySupplierMatch(matching, r, rawSupplier)
     ?? null
 }
 
@@ -165,12 +190,37 @@ export function supplierAliasFor(matching: MatchingTable, restaurant: string, ra
  * рестораном). Тот же фолбэк на плоский ключ для вшитых демо-датасетов,
  * что и в supplierAliasFor.
  */
+// Глобальный (без скоупа по ресторану) фуззи-поиск — только для
+// anySupplierAlias, которая сознательно не различает рестораны (см. её
+// комментарий выше). fuzzySupplierMatch (restaurant-scoped) тут не
+// подходит: один общий кэш на весь matching, без привязки к конкретному
+// ресторану.
+const canonicalPartsAnyCache = new WeakMap<MatchingTable, Map<string, string[]>>()
+function canonicalPartsAny(matching: MatchingTable): Map<string, string[]> {
+  const cached = canonicalPartsAnyCache.get(matching)
+  if (cached) return cached
+  const values = [...new Set(Object.values(matching.supplierAlias))]
+  const result = new Map<string, string[]>()
+  for (const c of values) result.set(c, c.split('/').map(coreSupplierText).filter((p) => p.length >= 3))
+  canonicalPartsAnyCache.set(matching, result)
+  return result
+}
+function fuzzySupplierMatchAny(matching: MatchingTable, rawSupplier: string): string | null {
+  const core = coreSupplierText(rawSupplier)
+  if (core.length < 3) return null
+  const matches = new Set<string>()
+  for (const [canonical, parts] of canonicalPartsAny(matching)) {
+    if (parts.some((p) => core.includes(p) || p.includes(core))) matches.add(canonical)
+  }
+  return matches.size === 1 ? [...matches][0] : null
+}
+
 export function anySupplierAlias(matching: MatchingTable, rawSupplier: string): string | null {
   const flat = norm(rawSupplier)
   if (matching.supplierAlias[flat] != null) return matching.supplierAlias[flat]
   const suffix = `::${flat}`
   for (const k in matching.supplierAlias) if (k.endsWith(suffix)) return matching.supplierAlias[k]
-  return fuzzySupplierMatch(matching, rawSupplier)
+  return fuzzySupplierMatchAny(matching, rawSupplier)
 }
 
 /**
@@ -1179,6 +1229,23 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   const EXCLUDED_SUPPLIERS = new Set(
     ['ип асип назир фрукты овощи', 'ип "асип"', 'ип "фруктовый рай"', 'ип "фруктовый рай" / зеленый мир', 'магазин / супер маркет'].map(norm),
   )
+  // Живой случай (подтверждено человеком): "ИП Асип" у Tangirs перестал
+  // быть ТОЛЬКО свежими овощами/фруктами — в матрице у него теперь
+  // прайсованные мясные позиции (Щечки гов, Говядина вырезка и т.п.), а
+  // блок выше исключал этого поставщика ЦЕЛИКОМ — такие закупки тихо
+  // пропадали из «Проверки цен» вообще, хотя матрица явно про них знает.
+  // Раз для конкретной пары поставщик+товар в матрице ЕСТЬ хоть что-то
+  // (цена, назначенная фасовка или точное совпадение без цены) — значит
+  // именно ЭТУ позицию всё-таки попросили сверять, несмотря на то что
+  // остальные позиции того же поставщика (голое "Фрукты, овощи" без
+  // названия и цены) по-прежнему ad-hoc и должны оставаться скрытыми.
+  // Поэтому исключаем не поставщика целиком, а только те его закупки, для
+  // которых в матрице и правда нет совпадения ни по одному товару.
+  const pairKeyOf = (key: string) => key.split('::').slice(0, 3).join('::')
+  const pairKeysWithMatrix = new Set<string>()
+  for (const k of Object.keys(matching.planPairs)) pairKeysWithMatrix.add(k)
+  for (const k of Object.keys(matching.planPairsByPack)) pairKeysWithMatrix.add(pairKeyOf(k))
+  for (const k of Object.keys(matching.noPriceExact)) pairKeysWithMatrix.add(pairKeyOf(k))
   // Не еда (расходники бара — см. EXCLUDED_CATEGORIES в server/src/iiko.js,
   // категория "Расходные материалы") и не закупка вовсе ("Ввод остатков" —
   // ручная коррекция остатка в iiko, не реальная покупка у поставщика) —
@@ -1189,7 +1256,10 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   const EXCLUDED_PRODUCTS = new Set(['балончики для сифона'].map(norm))
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
-    if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) return false
+    if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) {
+      const pairKey = `${norm(b.restaurant)}::${canon}::${norm(b.product0)}`
+      if (!pairKeysWithMatrix.has(pairKey)) return false
+    }
     if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
     return true
   })
