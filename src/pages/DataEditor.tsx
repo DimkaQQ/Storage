@@ -140,6 +140,8 @@ export default function DataEditor() {
   // (десятки закупок), а внимания требует не постоянно, только когда
   // реально нужно кого-то привязать.
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
+  // «Без названия в iiko» — тоже свёрнута по умолчанию, по тем же причинам.
+  const [noIikoNameOpen, setNoIikoNameOpen] = useState(false)
   const [filterSection, setFilterSection] = useState<'restaurant' | 'name' | 'pack' | null>(null)
   const [excludedRestaurant, setExcludedRestaurant] = useState<Set<string>>(new Set())
   const [excludedName, setExcludedName] = useState<Set<string>>(new Set())
@@ -529,6 +531,32 @@ export default function DataEditor() {
     }
     return [...groups.values()]
   }, [rows, matching, editorRestaurant, needle])
+
+  // Строки матрицы без названия в iiko (столбец E пуст) — попросили прямо:
+  // не гадать молча (см. nameBasis в server/src/sheets.js — строка всё
+  // равно подтягивается под их собственным описанием, I), а явно показать
+  // "тут чего-то не хватает, впишите" — мы не можем писать обратно в саму
+  // Google-таблицу (сервисный аккаунт только читает), это вправе
+  // исправить только тот, кто ведёт таблицу.
+  interface NoNameRow { key: string; restaurant: string; supplier: string; description: string; pack: string; price: number | null }
+  const noIikoNameRows = useMemo(() => {
+    const m = scopedMatching(matching)
+    if (!m.noIikoName) return []
+    const out: NoNameRow[] = []
+    for (const key of Object.keys(m.noIikoName)) {
+      const [restaurantNorm, supplierNorm, , pack] = key.split('::')
+      const restaurant = restaurantDisplayByNorm.get(restaurantNorm)
+      if (!restaurant) continue
+      if (editorRestaurant && restaurant !== editorRestaurant) continue
+      const supplier = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
+      const description = m.productLabels[key] ?? ''
+      if (needle && !restaurant.toLowerCase().includes(needle) && !supplier.toLowerCase().includes(needle) &&
+        !description.toLowerCase().includes(needle)) continue
+      const price = m.planPairsByPack[key] ?? m.planPairs[key] ?? null
+      out.push({ key, restaurant, supplier, description, pack: pack || '', price })
+    }
+    return out
+  }, [matching, restaurantDisplayByNorm, supplierDisplayByNorm, editorRestaurant, needle])
 
   // Черновик, не применяется к rows сразу (см. Ctx.pendingProductLinks) —
   // строка остаётся в «Нет в матрице», пока не нажата общая «Сохранить»
@@ -925,6 +953,46 @@ export default function DataEditor() {
                       </tr>
                     )
                   })}
+                </tbody>
+              </table>
+            </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'products' && noIikoNameRows.length > 0 && (
+          <div className="mb-4 overflow-hidden rounded-xl border border-amber-500/30 bg-amber-500/[0.04]">
+            <button
+              onClick={() => setNoIikoNameOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 border-b border-amber-500/20 px-3 py-2 text-left"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              <span className="text-xs font-medium text-amber-400">Без названия в iiko ({fmt(noIikoNameRows.length)})</span>
+              <InfoTip text="В самой Google-таблице («Сырьё F») у этих строк пустая колонка «Наименования как в iiko» — мы не выдумываем название сами и не можем вписать его туда (сервисный аккаунт только читает таблицу), поэтому строка временно подтягивается под их собственным описанием товара. Поправить может только тот, кто ведёт таблицу — впишите туда реальное название из iiko." align="left" />
+              <IChevron width={13} height={13} className={`ml-auto shrink-0 text-amber-500/70 transition-transform duration-150 ${noIikoNameOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {noIikoNameOpen && (
+            <div className="max-h-[50vh] overflow-auto">
+              <table className="w-full table-fixed">
+                <thead className="sticky top-0 z-10 bg-ink-850">
+                  <tr>
+                    <th className="th w-[16%]">Ресторан</th>
+                    <th className="th w-[22%]">Поставщик</th>
+                    <th className="th w-[40%]">Описание (из таблицы)</th>
+                    <th className="th w-[12%]">Фасовка</th>
+                    <th className="th w-[10%] text-right">Цена</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {noIikoNameRows.map((n) => (
+                    <tr key={n.key} className="row-hover hover:bg-ink-800/40">
+                      <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={n.restaurant} /></td>
+                      <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={n.supplier} /></td>
+                      <td className="td overflow-hidden text-fg-100"><HoverName text={n.description || '—'} /></td>
+                      <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={n.pack || '—'} /></td>
+                      <td className="td text-right tabnum text-fg-500">{n.price != null ? fmt(n.price) : '—'}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

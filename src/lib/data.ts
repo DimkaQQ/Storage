@@ -39,6 +39,16 @@ export interface MatchingTable {
   // matching-*.json) его не содержат, тогда сортировка по этому полю
   // просто не работает (все поставщики равны между собой), без ошибок.
   supplierOrder?: Record<string, number>
+  // same keys as planPairs/planPairsByPack -> true, если у этой строки
+  // матрицы пустая колонка E ("Наименования как в iiko") — строку всё
+  // равно не пропускаем (см. syncMatrix в server/src/sheets.js, nameBasis),
+  // вместо E временно используется их собственное описание (I), но это
+  // НАШЕ решение за них, не факт, что потом совпадёт с тем, что реально
+  // пришлёт iiko. Явно помечаем такие ключи — прямой запрос: не гадать
+  // молча, а показать в Справочниках "допишите название в iiko", раз мы
+  // не можем писать обратно в саму Google-таблицу (сервисный аккаунт —
+  // только чтение).
+  noIikoName?: Record<string, true>
 }
 const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
   '2026-05': matchingMay as MatchingTable,
@@ -1146,6 +1156,7 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
     noPriceExact: filterKeys(matching.noPriceExact),
     ambiguous: matching.ambiguous ? filterKeys(matching.ambiguous) : undefined,
     supplierOrder: matching.supplierOrder ? filterKeys(matching.supplierOrder) : undefined,
+    noIikoName: matching.noIikoName ? filterKeys(matching.noIikoName) : undefined,
   }
   scopedMatchingCache.set(matching, result)
   return result

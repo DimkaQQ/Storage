@@ -199,6 +199,14 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   // в data.ts покажет их все на КОНКРЕТНОЙ закупке этого периода, чтобы
   // человек выбрал подходящий прямо там, а не гадать за него синком.
   const ambiguousVariants = new Map()
+  // Строки, где E (Наименования как в iiko) пустая — используем I как
+  // временную замену, чтобы строка не пропадала вовсе (см. nameBasis
+  // ниже), но это ЧУЖОЕ решение за них, не факт, что совпадёт с тем, что
+  // реально пришлёт iiko. Явно помечаем такой ключ — см. MatchingTable.
+  // noIikoName в lib/data.ts — Справочники показывают его отдельным
+  // списком "допишите название в iiko" вместо того, чтобы делать вид,
+  // что сопоставление уже надёжное.
+  const noIikoName = {}
 
   sheets.forEach((title, i) => {
     const restaurant = norm(sheetToRestaurant[title])
@@ -254,6 +262,12 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       const pack = packRaw ? normPack(packRaw) : ''
       const flatKey = `${restaurant}::${supplierCanon}::${product}`
       const key = pack ? `${flatKey}::${pack}` : flatKey
+      if (!iikoNameRaw) noIikoName[key] = true
+      // Их собственное описание (I) — записываем независимо от того, есть
+      // ли у строки цена: иначе строка без цены И без названия в iiko
+      // (см. noIikoName выше) показывалась бы в Справочниках вообще без
+      // единой зацепки, по какой именно строке таблицы её искать.
+      if (labelRaw) productLabels[key] = String(labelRaw)
       const hasPrice = priceRaw !== undefined && priceRaw !== null && priceRaw !== ''
       if (hasPrice) {
         const price = Number(priceRaw)
@@ -264,7 +278,6 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
           ambiguousVariants.set(key, variants)
           if (pack) planPairsByPack[key] = price
           else planPairs[key] = price
-          if (labelRaw) productLabels[key] = label
         }
       } else {
         noPriceExact[key] = true
@@ -279,7 +292,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   for (const [key, variants] of ambiguousVariants) if (variants.length > 1) ambiguous[key] = variants
 
   return {
-    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder },
+    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName },
     summary: { sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
@@ -327,5 +340,6 @@ export function mergeMatching(a, b, restaurantNames) {
     noPriceExact: replaceScoped(a.noPriceExact, b.noPriceExact),
     ambiguous: replaceScoped(a.ambiguous ?? {}, b.ambiguous ?? {}),
     supplierOrder: replaceScoped(a.supplierOrder ?? {}, b.supplierOrder ?? {}),
+    noIikoName: replaceScoped(a.noIikoName ?? {}, b.noIikoName ?? {}),
   }
 }
