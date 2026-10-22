@@ -208,7 +208,17 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
     let nextSupplierOrder = 0
     for (const row of rows) {
       const [supplierCanonRaw, iikoCompanyRaw, iikoNameRaw, packRaw, , priceRaw, labelRaw] = row
-      if (!iikoNameRaw || !supplierCanonRaw) continue
+      // E (iiko-название) иногда пустая, хотя поставщик и их собственное
+      // описание (I) заполнены — черновая строка, название под iiko ещё не
+      // решили. Раньше такую строку целиком пропускали — она ни разу не
+      // попадала в приложение, даже как "Не закупали", хотя цена (H) уже
+      // может быть указана. Подтверждено прямо на реальных строках клиента
+      // (Tangirs: "Бобы тонка...", "Стрипсы куриные...", "Крылья куриные
+      // по домашнему...") — используем I как временную замену E, лучше
+      // показать строку под их же описанием, чем молчать о ней вовсе;
+      // как только E заполнят, сопоставление само переключится на него.
+      const nameBasis = iikoNameRaw || labelRaw
+      if (!nameBasis || !supplierCanonRaw) continue
       rowsSeen++
       const supplierCanon = norm(supplierCanonRaw)
       const orderKey = `${restaurant}::${supplierCanon}`
@@ -240,7 +250,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       // (ключ supplierCanon туда никогда не попадал). Добавляем самоссылку,
       // если её ещё нет — тот же эффект, не перетирает уже заданную.
       if (!supplierAlias[`${restaurant}::${supplierCanon}`]) supplierAlias[`${restaurant}::${supplierCanon}`] = supplierDisplay
-      const product = norm(iikoNameRaw)
+      const product = norm(nameBasis)
       const pack = packRaw ? normPack(packRaw) : ''
       const flatKey = `${restaurant}::${supplierCanon}::${product}`
       const key = pack ? `${flatKey}::${pack}` : flatKey
