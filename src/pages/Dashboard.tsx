@@ -219,12 +219,12 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                           <thead className="sticky top-0 bg-ink-900/90">
                             <tr>
                               <th className="w-full px-2 py-1.5 text-left font-medium text-fg-500">Наименование/сырьё</th>
-                              <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Кол-во, кг</th>
-                              <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">План, цена за кг</th>
-                              <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Факт, цена за кг</th>
-                              <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Итого план</th>
-                              <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Итого факт</th>
-                              <th className="whitespace-nowrap px-3 py-1.5 text-right font-medium text-fg-500">Разница</th>
+                              <th className="max-w-[110px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">закуплено за 1 месяц, количество в кг/шт</th>
+                              <th className="max-w-[100px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">цена за 1кг из матрицы</th>
+                              <th className="max-w-[100px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">цена за 1кг из iiko</th>
+                              <th className="max-w-[120px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">Итого в тенге должно быть по цене указанной в матрице</th>
+                              <th className="max-w-[120px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">Итого в тенге по факту закупленно из отчета iiko</th>
+                              <th className="max-w-[90px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">Разница в тенге</th>
                             </tr>
                           </thead>
                           <tbody>
