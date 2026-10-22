@@ -140,6 +140,65 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label) || a.sublabel!.localeCompare(b.sublabel!))
   }, [rows])
 
+  // Звёздочки — тот же товар у того же поставщика в том же ресторане может
+  // встретиться несколько раз под разной фасовкой (банка 400гр и банка
+  // 250гр и т.п.) — без отметки такие строки выглядели бы как случайно
+  // задвоенные. По всем статусам сразу (не только "Нет в матрице"/"Заказ не
+  // по матрице" — попросили везде), считаем по ВСЕМ rows (не по filtered) —
+  // чтобы номер звезды не прыгал при поиске/фильтрах, и по тому же
+  // принципу, что и в Обзоре (см. Dashboard.tsx): номер — по алфавиту
+  // фасовки, стабильно. Вынесено НАД filtered — groupStarsAdjacent ниже
+  // использует эту же карту при сортировке.
+  const starGroupKey = (r: Row) => `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.productLabel ?? r.product)}`
+  const starByRowKey = useMemo(() => {
+    const map = new Map<string, number>()
+    const groups = new Map<string, Row[]>()
+    for (const r of rows) {
+      const k = starGroupKey(r)
+      if (!groups.has(k)) groups.set(k, [])
+      groups.get(k)!.push(r)
+    }
+    for (const group of groups.values()) {
+      // Звезда — за РАЗЛИЧНУЮ фасовку, не за отдельную строку: если этот же
+      // товар+поставщик+фасовку купили дважды отдельными закупками за
+      // период, это не два разных "варианта", это одна и та же позиция —
+      // им обеим достаётся один и тот же номер.
+      const packs = [...new Set(group.map((r) => norm(r.pack)))].sort((a, b) => a.localeCompare(b))
+      if (packs.length < 2) continue
+      const starByPack = new Map(packs.map((p, i) => [p, i + 1]))
+      for (const r of group) map.set(r.rowKey, starByPack.get(norm(r.pack))!)
+    }
+    return map
+  }, [rows])
+
+  // Строки одной "звёздной" группы (тот же товар+поставщик+ресторан, разные
+  // фасовки — например "Табаско 60мл ★1" и "Табаско 150мл ★2") попросили
+  // держать РЯДОМ друг с другом, а не вразнобой там, где их поставит
+  // основная сортировка (по факту/плану/разнице — у разных фасовок обычно
+  // разные суммы). Группа встаёт на место своего первого (по основной
+  // сортировке) представителя, а внутри — по номеру звезды; порядок строк
+  // без звезды не трогаем вообще.
+  function groupStarsAdjacent(sorted: Row[]): Row[] {
+    const groups = new Map<string, Row[]>()
+    for (const r of sorted) {
+      if (!starByRowKey.has(r.rowKey)) continue
+      const k = starGroupKey(r)
+      if (!groups.has(k)) groups.set(k, [])
+      groups.get(k)!.push(r)
+    }
+    for (const list of groups.values()) list.sort((a, b) => starByRowKey.get(a.rowKey)! - starByRowKey.get(b.rowKey)!)
+    const placed = new Set<string>()
+    const out: Row[] = []
+    for (const r of sorted) {
+      if (!starByRowKey.has(r.rowKey)) { out.push(r); continue }
+      const k = starGroupKey(r)
+      if (placed.has(k)) continue
+      placed.add(k)
+      out.push(...groups.get(k)!)
+    }
+    return out
+  }
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let r = rows
@@ -159,7 +218,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     }
     const dir = sort.dir
     const key = sort.key
-    return [...r].sort((a, b) => {
+    const sorted = [...r].sort((a, b) => {
       if (key === 'sum') return ((factOf(a) ?? 0) - (factOf(b) ?? 0)) * dir
       if (key === 'plan') return ((planOf(a) ?? -Infinity) - (planOf(b) ?? -Infinity)) * dir
       if (key === 'diff') return ((diffOf(a) ?? -Infinity) - (diffOf(b) ?? -Infinity)) * dir
@@ -180,37 +239,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       const av = a[key], bv = b[key]
       return av.localeCompare(bv) * dir
     })
-  }, [rows, q, active, sort, moneyMode, onlyNoted, onlyDiff, supplierFilter, productFilter])
-
-  // Звёздочки — тот же товар у того же поставщика в том же ресторане может
-  // встретиться несколько раз под разной фасовкой (банка 400гр и банка
-  // 250гр и т.п.) — без отметки такие строки выглядели бы как случайно
-  // задвоенные. По всем статусам сразу (не только "Нет в матрице"/"Заказ не
-  // по матрице" — попросили везде), считаем по ВСЕМ rows (не по filtered) —
-  // чтобы номер звезды не прыгал при поиске/фильтрах, и по тому же
-  // принципу, что и в Обзоре (см. Dashboard.tsx): номер — по алфавиту
-  // фасовки, стабильно.
-  const starByRowKey = useMemo(() => {
-    const map = new Map<string, number>()
-    const groupKey = (r: Row) => `${norm(r.restaurant)}::${norm(r.supplier)}::${norm(r.productLabel ?? r.product)}`
-    const groups = new Map<string, Row[]>()
-    for (const r of rows) {
-      const k = groupKey(r)
-      if (!groups.has(k)) groups.set(k, [])
-      groups.get(k)!.push(r)
-    }
-    for (const group of groups.values()) {
-      // Звезда — за РАЗЛИЧНУЮ фасовку, не за отдельную строку: если этот же
-      // товар+поставщик+фасовку купили дважды отдельными закупками за
-      // период, это не два разных "варианта", это одна и та же позиция —
-      // им обеим достаётся один и тот же номер.
-      const packs = [...new Set(group.map((r) => norm(r.pack)))].sort((a, b) => a.localeCompare(b))
-      if (packs.length < 2) continue
-      const starByPack = new Map(packs.map((p, i) => [p, i + 1]))
-      for (const r of group) map.set(r.rowKey, starByPack.get(norm(r.pack))!)
-    }
-    return map
-  }, [rows])
+    return groupStarsAdjacent(sorted)
+  }, [rows, q, active, sort, moneyMode, onlyNoted, onlyDiff, supplierFilter, productFilter, starByRowKey])
 
   const s = useMemo(() => summarize(filtered), [filtered])
   // Раньше была ручная кнопка "Показать ещё" (убрана — не работала как
@@ -268,7 +298,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     // имя файла легко потерять/переименовать при скачивании нескольких
     // периодов подряд (ровно так один раз перепутали июнь/июль), а строка
     // внутри самой таблицы остаётся видна, даже если файл переименовали.
-    const modeLabel = moneyMode ? 'деньги' : '₸ за кг'
+    const modeLabel = moneyMode ? 'деньги' : 'тенге за 1кг'
     const title = [`Проверка цен — ${period} (${modeLabel})`]
     const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Количество', `План (${modeLabel})`, `Факт (${modeLabel})`, 'Δ', 'Статус', 'Должны у', 'Заметка']
     const lines = filtered.map((r) => [
@@ -329,7 +359,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             className={`btn border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
-            {moneyMode ? 'Общ. сумма закупки' : '₸ за кг'}
+            {moneyMode ? 'Общ. сумма закупки' : 'тенге за 1кг'}
           </button>
           <button onClick={exportExcel} title="Скачать в Excel" className="btn !px-2.5 border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
             <IDownload width={16} height={16} />
@@ -387,11 +417,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <thead className="sticky top-0 z-10 bg-ink-850">
               <tr>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[15%]" tight center>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[17%]" tight center>Товар</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[9%]">План</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[10%]">Факт</Th>
-                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[10%]">Δ</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[13%]" tight center>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[16%]" tight center>Наименование/сырьё</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[11%]">Цена в тенге из матрицы сырья</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[11%]">Цена в тенге отчёт о закупках из iiko</Th>
+                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[10%]">Дельта</Th>
                 <th className="th w-[11%] text-center">Статус</th>
                 <th className="th w-[6%] pl-[6px] pr-2">Заметка</th>
               </tr>

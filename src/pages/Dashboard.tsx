@@ -59,7 +59,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
         if (!packsByGroup.has(k)) packsByGroup.set(k, new Set())
         packsByGroup.get(k)!.add(norm(it.pack))
       }
-      const items: WrongSupplierItem[] = rawItems
+      const sortedItems = rawItems
         .map((it) => {
           const packs = [...(packsByGroup.get(groupKey(it)) ?? [])].sort((a, b) => a.localeCompare(b))
           if (packs.length < 2) return it
@@ -70,6 +70,29 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
         // ОТРИЦАТЕЛЬНОЕ число, а не самое большое; "худшее — сверху" теперь
         // значит сортировать по возрастанию.
         .sort((a, b) => a.delta - b.delta)
+      // Звёздную группу (тот же товар+поставщик, разные фасовки — "Табаско
+      // 60мл ★1"/"Табаско 150мл ★2") попросили держать РЯДОМ друг с другом,
+      // а не вразнобой там, где их поставит сортировка по разнице — у
+      // разных фасовок обычно разная переплата. Группа встаёт на место
+      // своего первого (по сортировке выше) представителя, внутри — по
+      // номеру звезды; строки без звезды не трогаем.
+      const starGroups = new Map<string, WrongSupplierItem[]>()
+      for (const it of sortedItems) {
+        if (it.star == null) continue
+        const k = groupKey(it)
+        if (!starGroups.has(k)) starGroups.set(k, [])
+        starGroups.get(k)!.push(it)
+      }
+      for (const list of starGroups.values()) list.sort((a, b) => a.star! - b.star!)
+      const placedStarGroups = new Set<string>()
+      const items: WrongSupplierItem[] = []
+      for (const it of sortedItems) {
+        if (it.star == null) { items.push(it); continue }
+        const k = groupKey(it)
+        if (placedStarGroups.has(k)) continue
+        placedStarGroups.add(k)
+        items.push(...starGroups.get(k)!)
+      }
       const fact = items.reduce((sum, it) => sum + it.fact, 0)
       const plan = items.reduce((sum, it) => sum + it.plan, 0)
       return { name: r.name, fact, plan, delta: plan - fact, items }
@@ -139,7 +162,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
           единицу, как было раньше). */}
       <Section
         delay={240}
-        title="Переплата не по матрице"
+        title="Закупили позиции не по матрице"
         subtitle="Закупки у поставщика, которого не назначила матрица — сколько вышло и сколько должно было выйти"
       >
         <div className="mb-4 grid grid-cols-3 gap-3">
