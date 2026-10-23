@@ -650,6 +650,48 @@ export async function fetchAssortmentIndex(settings) {
   }
 }
 
+/**
+ * «Проверить категорию товара» — прямой ответ "в какой категории товар
+ * заведён в номенклатуре iiko", без догадок и без пересинка. Нужен для
+ * диагностики EXCLUDED_CATEGORIES: подозрение, что "Батат фри"/"Картофель
+ * фри..." заведены в категории "Овощи/Зелень/Фрукты/Ягоды" (та же, что
+ * свежие овощи/фрукты) и поэтому их закупки целиком выпадают из "Проверки
+ * цен" по всей сети — ни разу не видели факта ни по одной точке за месяц,
+ * хотя матрица их прайсует у нескольких поставщиков (живой разбор,
+ * см. CLAUDE.md). Дешёвый прямой запрос к /resto/api/products (без
+ * накладных/OLAP) — та же выгрузка, что и fetchAssortmentIndex, просто
+ * отдаём имя+категорию по текстовому поиску, вместо того чтобы строить по
+ * ней карту для синка.
+ */
+export async function iikoServerProductCategorySample(settings, search) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const res = await withTimeout(`${base}/resto/api/products?key=${token}&includeDeleted=false`, {}, 60000)
+    if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const needle = norm(search)
+    // Пустой/однобуквенный needle (после norm — например одни пробелы)
+    // совпал бы с ЛЮБЫМ товаром — вся номенклатура сети в одном JSON,
+    // без той защиты, что есть у остальных sample-эндпоинтов этого файла
+    // (olap-sample режет на 50 строк, product/stores-sample вообще отдают
+    // один текстовый window, а не список). Короткий needle тут так же
+    // бессмыслен, как и пустой — просто честно отказываем, не угадывая.
+    if (needle.length < 2) return { ok: false, message: 'Текст поиска слишком короткий (минимум 2 символа)' }
+    const items = []
+    await streamExtractBlocks(res, '<productDto>', '</productDto>', (seg) => {
+      if (items.length >= 50) return
+      const rawName = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
+      if (!rawName) return
+      const name = unescapeXml(rawName)
+      if (!norm(name).includes(needle)) return
+      const category = unescapeXml(/<productCategory>([^<]*)<\/productCategory>/.exec(seg)?.[1] || '')
+      items.push({ name, category, excluded: EXCLUDED_CATEGORIES.has(norm(category)) })
+    })
+    return { ok: true, items }
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
 /** Разбирает строки накладных ПОТОКОВО, документ за документом (см. streamExtractBlocks). onDocument получает сырой XML одного <document>...</document> целиком. */
 async function streamInvoiceDocuments(res, onDocument) {
   return streamExtractBlocks(res, '<document>', '</document>', onDocument)

@@ -151,6 +151,15 @@ export async function fetchStoresSample(search: string): Promise<{ ok: boolean; 
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+export interface ProductCategoryItem { name: string; category: string; excluded: boolean }
+/** «Проверить категорию товара» — прямой ответ номенклатуры iiko "в какой категории заведён товар", без догадок и без пересинка — для диагностики EXCLUDED_CATEGORIES. */
+export async function fetchProductCategorySample(search: string): Promise<{ ok: boolean; items?: ProductCategoryItem[]; message?: string }> {
+  try {
+    const r = await fetch(`/api/iiko/product-category-sample?search=${encodeURIComponent(search)}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 export interface AssortmentDebugItem {
   product: string; storeId: string; storeName: string; restaurant: string | null; supplier: string; pack: string; containerId: string | null; qty: number; sum: number
 }

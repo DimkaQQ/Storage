@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, fetchProductCategorySample, ProductCategoryItem, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -83,6 +83,8 @@ export default function IikoSettings() {
   const [datasetResult, setDatasetResult] = useState<{ ok: boolean; items?: DatasetDebugItem[]; message?: string } | null>(null)
   const [invoiceLoading, setInvoiceLoading] = useState(false)
   const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
+  const [categoryLoading, setCategoryLoading] = useState(false)
+  const [categoryResult, setCategoryResult] = useState<{ ok: boolean; items?: ProductCategoryItem[]; message?: string } | null>(null)
 
   useEffect(() => { fetchSettings().then((s) => s && setForm(s)) }, [])
 
@@ -181,6 +183,18 @@ export default function IikoSettings() {
     setStoresLoading(true); setStoresResult(null)
     setStoresResult(await fetchStoresSample(sampleSearch))
     setStoresLoading(false)
+  }
+
+  // «Проверить категорию товара» — прямой ответ номенклатуры iiko: в какой
+  // категории заведён товар. Диагностика EXCLUDED_CATEGORIES (см.
+  // CLAUDE.md) — подозрение, что "Батат фри"/"Картофель фри..." заведены в
+  // категории "Овощи/Зелень/Фрукты/Ягоды" и поэтому их закупки целиком не
+  // доходят до Проверки цен, хотя матрица их прайсует. Не трогает сам синк
+  // и ничего не пересчитывает — только читает номенклатуру.
+  const showCategory = async () => {
+    setCategoryLoading(true); setCategoryResult(null)
+    setCategoryResult(await fetchProductCategorySample(sampleSearch))
+    setCategoryLoading(false)
   }
 
   // «Проверить разброс по ресторанам» — та же логика, что настоящий синк
@@ -472,6 +486,9 @@ export default function IikoSettings() {
               <button onClick={showStores} disabled={storesLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {storesLoading ? 'Спрашиваю…' : 'Проверить склад (GUID)'}
               </button>
+              <button onClick={showCategory} disabled={categoryLoading} title="В какой категории товар заведён в номенклатуре iiko — чтобы проверить, не из-за категории ли закупка выпадает из Проверки цен" className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {categoryLoading ? 'Спрашиваю…' : 'Проверить категорию товара'}
+              </button>
               <button onClick={showAssortmentDebug} disabled={assortmentLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {assortmentLoading ? 'Спрашиваю…' : 'Проверить разброс по ресторанам'}
               </button>
@@ -564,6 +581,40 @@ export default function IikoSettings() {
               </pre>
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{storesResult.message}</span>
+            )}
+          </div>
+        )}
+        {categoryResult && (
+          <div className="mt-3">
+            {categoryResult.ok ? (
+              categoryResult.items && categoryResult.items.length > 0 ? (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-fg-500">
+                      <th className="px-2 py-1 font-medium">Товар</th>
+                      <th className="px-2 py-1 font-medium">Категория в iiko</th>
+                      <th className="px-2 py-1 font-medium">Исключена из Проверки цен?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categoryResult.items.map((it, i) => (
+                      <tr key={i} className="border-t border-ink-700/40">
+                        <td className="px-2 py-1 text-fg-200">{it.name}</td>
+                        <td className="px-2 py-1 text-fg-300">{it.category || '—'}</td>
+                        <td className="px-2 py-1">
+                          {it.excluded
+                            ? <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />да — не дойдёт до Проверки цен</span>
+                            : <span className="chip border-good/30 bg-good/10 text-good"><ICheck width={13} height={13} />нет</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <span className="chip border-ink-600 bg-ink-800/60 text-fg-400">Ничего не нашлось по «{sampleSearch}» в номенклатуре</span>
+              )
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{categoryResult.message}</span>
             )}
           </div>
         )}

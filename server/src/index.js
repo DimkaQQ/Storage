@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerProductCategorySample } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -405,6 +405,23 @@ app.get('/api/iiko/stores-sample', requireAuth, requireAdmin, async (req, res) =
     const search = String(req.query.search || '')
     if (!search) return res.status(400).json({ ok: false, message: 'Нужен текст поиска (search)' })
     res.json({ ok: true, xml: await iikoServerStoresSample(s, search) })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+/**
+ * «Проверить категорию товара» — прямой ответ iiko "в какой категории
+ * заведён товар" (см. iikoServerProductCategorySample) — диагностика
+ * EXCLUDED_CATEGORIES, без пересинка и без риска временно замусорить
+ * живую "Проверку цен" у всех остальных.
+ */
+app.get('/api/iiko/product-category-sample', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    const search = String(req.query.search || '')
+    if (!search) return res.status(400).json({ ok: false, message: 'Нужен текст поиска (search)' })
+    res.json(await iikoServerProductCategorySample(s, search))
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
