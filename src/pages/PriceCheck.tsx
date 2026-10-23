@@ -1,6 +1,6 @@
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt, summarize, isPrecisePack, norm, capitalize } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt, summarize, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -415,16 +415,16 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       <div className="card overflow-hidden p-0">
         <div ref={containerRef} className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
           <table className="w-full max-w-[1060px] table-fixed">
-            <thead className="sticky top-0 z-10 bg-ink-850">
+            <thead className="sticky top-0 z-10 border-b border-brand-500/20 bg-ink-850">
               <tr>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight center>Ресторан</Th>
                 <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[13%]" tight center>Поставщик</Th>
                 <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[16%]" tight center longLabel>Наименование/сырьё</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[11%]" longLabel>Цена в тенге из матрицы сырья</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[11%]" longLabel>Цена в тенге отчёт о закупках из iiko</Th>
-                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[10%]">Дельта</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" center width="w-[11%]" longLabel>Цена в тенге из матрицы сырья</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" center width="w-[11%]" longLabel>Цена в тенге отчёт о закупках из iiko</Th>
+                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" center width="w-[10%]">Дельта</Th>
                 <th className="th w-[11%] text-center">Статус</th>
-                <th className="th w-[6%] pl-[6px] pr-2">Заметка</th>
+                <th className="th w-[6%] pl-[6px] pr-2 text-center">Заметка</th>
               </tr>
             </thead>
             <tbody>
@@ -468,7 +468,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                           <HoverName text={r.product} className="min-w-0 flex-1" />
                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
                         </span>
-                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
+                        {r.isPackSensitive && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
                       </>
                     ) : r.productLabel || r.product !== r.productRaw ? (
                       // Крупным — название из матрицы, если товар с ней совпал,
@@ -477,10 +477,12 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       // до этой правки тут ошибочно не показывалось вообще
                       // ничего, кроме самого переименования, без исходного
                       // iiko-имени под ним. Под названием мелким — как называется
-                      // в iiko, и через тире фасовка (та же логика, что и в двух
-                      // других ветках ниже: голая единица "кг"/"шт" ничего не
-                      // уточняет, не показываем её отдельно; для ассортимента —
-                      // всегда, там сама фасовка и есть разница между товарами).
+                      // в iiko, и через тире фасовка — только для настоящих
+                      // ассортиментов (isPackSensitive, пюре/ягоды в асс), где
+                      // фасовка и есть разница между вариантами; для обычных
+                      // товаров (например "Бобы Эдамаме фасоль") фасовку в этой
+                      // строке не показываем вовсе — она тут просто упаковка,
+                      // не различающий признак, попросили явно убрать такой шум.
                       <>
                         <span className="flex items-center gap-1">
                           <HoverName text={r.productLabel ?? r.product} className="min-w-0 flex-1" />
@@ -490,7 +492,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                           )}
                         </span>
                         <HoverName
-                          text={(isPrecisePack(r.pack) || r.isAssortment) && r.pack ? `${r.productRaw} - ${r.pack}` : r.productRaw}
+                          text={r.isPackSensitive && r.pack ? `${r.productRaw} - ${r.pack}` : r.productRaw}
                           className="mt-0.5 block text-[11px] font-normal text-fg-500"
                         />
                       </>
@@ -511,13 +513,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                             <AmbiguousPicker options={r.ambiguousOptions} onPick={(v) => setAmbiguousChoice(r.rowKey, v)} />
                           )}
                         </span>
-                        {(isPrecisePack(r.pack) || r.isAssortment) && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
+                        {r.isPackSensitive && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
                       </>
                     )}
                   </td>
-                  <td className="td overflow-hidden whitespace-nowrap text-right text-xs tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
-                  <td className="td overflow-hidden whitespace-nowrap text-right text-xs tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
-                  <td className="td overflow-hidden whitespace-nowrap text-right text-xs tabnum font-semibold text-fg-300">
+                  <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
+                  <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
+                  <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum font-semibold text-fg-300">
                     {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
                   {/* Статус — всегда одна строка (бейдж, без второй строки с

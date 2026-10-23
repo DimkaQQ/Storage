@@ -625,7 +625,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   }, [updateEdits])
 
   // Ручной override того, важна ли фасовка для сопоставления этого товара —
-  // null возвращает к автоматике (см. resolveRowPlan/isPrecisePack).
+  // null возвращает к автоматике (см. resolveRowPlan/isPackSensitiveProduct).
   const setProductPackOverride = useCallback((product: string, value: boolean | null) => {
     updateEdits((e) => {
       const next = { ...e.productPackOverride }

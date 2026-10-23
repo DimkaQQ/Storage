@@ -239,15 +239,6 @@ export const normPack = (s: string) => {
   return p
 }
 
-// Голая единица измерения ("кг", "шт", "л"…) ничего не уточняет — ни для
-// показа (не выносим её отдельной строкой под товаром), ни для сопоставления
-// (см. bare-unit fallback в resolveRowPlan ниже).
-const BARE_UNITS = new Set(['кг', 'шт', 'л', 'г', 'мл', 'гр', 'уп', 'кор', 'бан', 'пач'])
-export const isPrecisePack = (pack: string) => {
-  const p = normPack(pack)
-  return p.length > 0 && !BARE_UNITS.has(p)
-}
-
 /**
  * Их же описание товара (столбец I) — просто человекочитаемый текст и
  * иногда расходится по формулировке с названием из iiko (D/E): например
@@ -303,6 +294,7 @@ export interface Row {
   productRaw: string  // название товара как в iiko, без переименований/подмены — нужно для setPackAlias (Row.product может быть подменён на их название)
   productLabel: string | null  // их собственное "Наименование товара" из матрицы (только когда status === 'ok')
   isAssortment: boolean  // true, если под этим iiko-названием у этого поставщика в матрице реально несколько разных товаров (категория-ассортимент, например "Пюре в асс") — различить их можно только по фасовке
+  isPackSensitive: boolean  // true только для реальных категорий-ассортиментов (пюре/ягоды в асс, см. isPackSensitiveProduct) — НЕ то же самое, что isAssortment: тот становится true у любой пары, которая в матрице прайсована только с фасовкой и ни разу без (живой случай — "Бобы Эдамаме фасоль" никогда не продаётся россыпью, но это один конкретный товар, а не "вкус из нескольких"). Явно просили не показывать мелкую подпись с фасовкой под названием для таких обычных товаров — только там, где фасовка и есть разница между вариантами.
   pack: string
   qty: number
   unit: number | null  // null для позиции из матрицы, которую в этом периоде вообще не покупали (status при этом всё ещё 'ok' — она есть в плане)
@@ -493,6 +485,7 @@ interface Resolved {
   availableFasovki: FasovkaOption[]  // все прайсованные варианты фасовки у ЭТОГО поставщика для этого товара, ни один не совпал с фактом — предлагаем выбрать вручную
   packFixKey: string | null  // ключ для edits.packAliases, если выбрать один из availableFasovki
   isAssortment: boolean  // фасовка может иметь значение (см. buildKnownFlatIndex) — считаем ровно тут же, где строится pairKey, чтобы не разъезжаться с computeRows
+  isPackSensitive: boolean  // см. комментарий у Row.isPackSensitive — только реальные ассортименты (isPackSensitiveProduct), не любая пара без плоской цены
   resolvedProduct: string  // товар (норм.), который resolveRowPlan реально использовал для сопоставления — после productLink, НЕ b.product0 напрямую. Нужен снаружи (buildRows), чтобы подсказка цены у "заказ не по матрице" искала план по ТОЙ ЖЕ строке матрицы, что дала designatedSuppliers, а не заново по сырому iiko-названию
   resolvedPack: string  // фасовка (норм.), аналогично — после packAlias/curatedTarget
   ambiguousOptions: AmbiguousVariant[] | null  // см. AmbiguousVariant — непустой только когда matchedKey реально неоднозначен в самой таблице (>1 варианта цены/названия)
@@ -1034,9 +1027,10 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // фасовки этого же iiko-названия — ровно баг, который уже один раз нашли
   // руками (Roti Azik 10шт/5шт получили одну и ту же цену).
   const isAssortment = !knownFlatPairs.has(pairKey)
+  const isPackSensitive = isPackSensitiveProduct(product)
 
-  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey' | 'isAssortment' | 'resolvedProduct' | 'resolvedPack' | 'ambiguousOptions'> =
-    { candidateNote: null, availableFasovki: [], packFixKey: null, isAssortment, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
+  const NONE: Pick<Resolved, 'candidateNote' | 'availableFasovki' | 'packFixKey' | 'isAssortment' | 'isPackSensitive' | 'resolvedProduct' | 'resolvedPack' | 'ambiguousOptions'> =
+    { candidateNote: null, availableFasovki: [], packFixKey: null, isAssortment, isPackSensitive, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
 
   // Ручной план цены из Справочников (Товары → «План») — самая свежая,
   // осознанно введённая цена для этой ровно позиции, побеждает всё
@@ -1155,9 +1149,9 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const fixKeyIfAny = availableFasovki.length > 0 ? packFixKey : null
   if (designated && designated.size > 0) {
     const others = [...designated].filter((s) => s !== supplierCanon)
-    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
+    if (others.length > 0) return { plan: null, status: 'wrongSupplier', designatedSuppliers: others, productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, isPackSensitive, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
   }
-  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
+  return { plan: null, status: 'nomatrix', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: null, candidateNote, availableFasovki, packFixKey: fixKeyIfAny, isAssortment, isPackSensitive, resolvedProduct: product, resolvedPack: pack, ambiguousOptions: null }
 }
 
 export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
@@ -1318,7 +1312,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // этого ресторана вообще не прайсован) — Infinity, такие строки просто
     // уходят в конец при сортировке "по матрице".
     const matrixOrder = matching.supplierOrder?.[`${norm(b.restaurant)}::${norm(supplierCanonical ?? b.supplier0)}`] ?? Infinity
-    let { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, resolvedProduct, resolvedPack, ambiguousOptions } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
+    let { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, isPackSensitive, resolvedProduct, resolvedPack, ambiguousOptions } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
     // Неоднозначный ключ матрицы (см. AmbiguousVariant) с уже сделанным
     // выбором именно для ЭТОЙ закупки (edits.ambiguousChoices по rowKey, не
     // по matchedKey — выбор не должен молча переноситься на другую закупку
@@ -1434,7 +1428,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     return {
       id: b.id, restaurant: b.restaurant,
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
-      supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, pack: b.pack, qty: b.qty, unit: b.unit, plan,
+      supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, isPackSensitive, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers, designatedPlan: designatedPlanPrice, note, availableFasovki, packFixKey, matchedKey, isTotalRow: b.isTotalRow,
       rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null, ambiguousOptions, matrixOrder,
     }
@@ -1490,12 +1484,13 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     const supplierDisplay = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
     const label = matching.productLabels[key] ?? null
     const isAssortment = !knownFlatPairs.has(key.split('::').slice(0, 3).join('::'))
+    const isPackSensitive = isPackSensitiveProduct(product)
     const matrixOrder = matching.supplierOrder?.[`${restaurantNorm}::${supplierNorm}`] ?? Infinity
     rows.push({
       id: 'np' + seq++, restaurant: venueRow.restaurant,
       brand: venueRow.brand, city: venueRow.city, entity: venueRow.entity, category: venueRow.category,
       supplier: supplierDisplay, supplierLabel: null,
-      product: label ?? capitalize(product), productRaw: '', productLabel: pack || null, isAssortment,
+      product: label ?? capitalize(product), productRaw: '', productLabel: pack || null, isAssortment, isPackSensitive,
       pack, qty: 0, unit: null, plan,
       // Раньше тут был status: 'ok' — та же метка "По матрице", что у
       // реально купленной и совпавшей позиции. При фильтре "По матрице" эти
