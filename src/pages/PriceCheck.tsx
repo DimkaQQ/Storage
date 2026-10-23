@@ -418,9 +418,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               <tr>
                 <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight>Ресторан</Th>
                 <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[13%]" tight center>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[16%]" tight center>Наименование/сырьё</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[11%]">Цена в тенге из матрицы сырья</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[11%]">Цена в тенге отчёт о закупках из iiko</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[16%]" tight center longLabel>Наименование/сырьё</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" right width="w-[11%]" longLabel>Цена в тенге из матрицы сырья</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" right width="w-[11%]" longLabel>Цена в тенге отчёт о закупках из iiko</Th>
                 <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" right width="w-[10%]">Дельта</Th>
                 <th className="th w-[11%] text-center">Статус</th>
                 <th className="th w-[6%] pl-[6px] pr-2">Заметка</th>
@@ -728,13 +728,24 @@ function NoteHoverTip({ text, children }: { text: string | null; children: React
   )
 }
 
-function Th({ children, onClick, sort, k, right, center, width, tight }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; center?: boolean; width?: string; tight?: boolean }) {
+// longLabel — для заголовков-фраз в несколько слов (не просто "Товар"/
+// "План", а "Цена в тенге из матрицы сырья" и т.п.): сплошные ЗАГЛАВНЫЕ +
+// широкий трекинг (обычный .th) на трёх свёрнутых строках читаются плохо и
+// выглядят неряшливо — попросили сделать "красивее". Для таких заголовков
+// отключаем uppercase/tracking-wider и даём более плотный межстрочный
+// интервал, оставляя обычным коротким подписям (Ресторан, Статус…) прежний
+// вид без изменений.
+function Th({ children, onClick, sort, k, right, center, width, tight, longLabel }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; center?: boolean; width?: string; tight?: boolean; longLabel?: boolean }) {
   const on = sort.key === k
   return (
-    <th className={`th hover:text-fg-300 ${right ? 'text-right' : center ? 'text-center' : ''} ${tight ? 'px-2' : ''} ${width ?? ''}`}>
-      <span className={`inline-flex cursor-pointer items-center gap-1 ${right ? 'flex-row-reverse' : ''}`} onClick={onClick}>
+    <th className={`th hover:text-fg-300 ${right ? 'text-right' : center ? 'text-center' : ''} ${tight ? 'px-2' : ''} ${longLabel ? 'normal-case tracking-normal leading-snug' : ''} ${width ?? ''}`}>
+      <span className={`inline-flex cursor-pointer items-start gap-1.5 ${right ? 'flex-row-reverse' : ''}`} onClick={onClick}>
         {children}
-        {on ? (sort.dir === 1 ? <IArrowUp width={12} height={12} className="text-brand-300" /> : <IArrowDown width={12} height={12} className="text-brand-300" />) : <ISort width={12} height={12} className="text-fg-600" />}
+        {on ? (
+          sort.dir === 1
+            ? <IArrowUp width={15} height={15} className="mt-px shrink-0 text-brand-300" />
+            : <IArrowDown width={15} height={15} className="mt-px shrink-0 text-brand-300" />
+        ) : <ISort width={15} height={15} className="mt-px shrink-0 text-fg-400" />}
       </span>
     </th>
   )
