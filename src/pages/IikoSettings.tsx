@@ -716,7 +716,7 @@ export default function IikoSettings() {
       </Section>
 
       {/* matrix (plan prices from Google Sheet) */}
-      <Section title="Матрица (план-цены)" subtitle="Читается прямо из Google-таблицы Сырьё Ф через сервисный аккаунт — это отдельный источник от iiko, iiko про договорные цены ничего не знает. Одна актуальная матрица на всю организацию, без привязки к месяцу.">
+      <Section title="Матрица — Алматы" subtitle="Читается прямо из Google-таблицы Сырьё Ф (Алматы) через сервисный аккаунт — это отдельный источник от iiko, iiko про договорные цены ничего не знает. Без привязки к месяцу — всегда актуальная версия, хранится вместе с матрицей Астаны ниже.">
         <div className="grid grid-cols-2 gap-3">
           <Field
             label="ID или ссылка на таблицу"
@@ -746,7 +746,7 @@ export default function IikoSettings() {
             <IPlug width={16} height={16} /> {matrixTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
           </button>
           <button onClick={doSyncMatrix} disabled={matrixSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Синхронизировать план сейчас'}
+            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Обновить'}
           </button>
           {matrixTestResult && (
             <span className={`chip ${matrixTestResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
@@ -777,7 +777,7 @@ export default function IikoSettings() {
             <IPlug width={16} height={16} /> {astanaTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
           </button>
           <button onClick={doSyncAstana} disabled={astanaSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Синхронизировать план сейчас'}
+            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Обновить'}
           </button>
           {astanaTestResult && (
             <span className={`chip ${astanaTestResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
