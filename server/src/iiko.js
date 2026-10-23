@@ -610,6 +610,25 @@ async function streamExtractBlocks(res, openTag, closeTag, onBlock) {
 // исключить его по тексту на клиенте, отсюда и переход на категорию).
 const EXCLUDED_CATEGORIES = new Set(['Овощи/Зелень/Фрукты/Ягоды', 'Расходные материалы (кухня,бар,кальян)'].map(norm))
 
+/**
+ * Человеком подтверждённые исключения ИЗ EXCLUDED_CATEGORIES — товары,
+ * которые в номенклатуре iiko почему-то заведены в категории
+ * "Овощи/Зелень/Фрукты/Ягоды" вместе со свежими овощами/фруктами, хотя на
+ * самом деле это обычный замороженный/фасованный товар с договорной ценой
+ * у конкретного поставщика, который как раз и нужно сверять с матрицей.
+ * Живой случай (проверено кнопкой "Проверить категорию товара"): "Батат",
+ * "Батат фри", "Батат фри с/м." — все три в этой категории, но матрица
+ * прайсует именно "Батат фри"/"Батат фри с/м." (картофель фри из батата)
+ * у нескольких поставщиков по сети — закупки этого товара ни разу не
+ * показывались в Проверке цен за целый месяц, хотя "Жир фритюрный"
+ * (масло для фритюра) закупался почти везде. Голый "Батат" (сырой
+ * корнеплод, без "фри") сюда не входит — это обычный овощ, цена на него
+ * действительно скачет день в день, как и было задумано у этого фильтра.
+ * Список — только руками подтверждённые названия, тот же принцип, что у
+ * IGNORED_BRAND_CODES/EXCLUDED_SUPPLIERS — не угадывается по слову.
+ */
+const CATEGORY_EXCLUSION_OVERRIDES = new Set(['батат фри', 'батат фри с/м.'].map(norm))
+
 export async function fetchAssortmentIndex(settings) {
   const { base, token } = await iikoServerAuth(settings)
   try {
@@ -623,7 +642,7 @@ export async function fetchAssortmentIndex(settings) {
       if (!rawName) return
       const name = unescapeXml(rawName)
       const category = unescapeXml(/<productCategory>([^<]*)<\/productCategory>/.exec(seg)?.[1] || '')
-      if (EXCLUDED_CATEGORIES.has(norm(category))) produceNames.add(norm(name))
+      if (EXCLUDED_CATEGORIES.has(norm(category)) && !CATEGORY_EXCLUSION_OVERRIDES.has(norm(name))) produceNames.add(norm(name))
 
       const containers = new Map()
       const containerRe = /<container>([\s\S]*?)<\/container>/g
@@ -684,7 +703,7 @@ export async function iikoServerProductCategorySample(settings, search) {
       const name = unescapeXml(rawName)
       if (!norm(name).includes(needle)) return
       const category = unescapeXml(/<productCategory>([^<]*)<\/productCategory>/.exec(seg)?.[1] || '')
-      items.push({ name, category, excluded: EXCLUDED_CATEGORIES.has(norm(category)) })
+      items.push({ name, category, excluded: EXCLUDED_CATEGORIES.has(norm(category)) && !CATEGORY_EXCLUSION_OVERRIDES.has(norm(name)) })
     })
     return { ok: true, items }
   } finally {
