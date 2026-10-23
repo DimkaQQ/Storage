@@ -58,6 +58,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // это не "ноль", а отдельная, самостоятельная проблема, прятать её сюда
   // не просили.
   const [onlyDiff, setOnlyDiff] = useState(false)
+  // "Скрыть пустые" — прямой запрос: отдельная, самостоятельная кнопка для
+  // строк без факта вообще ("Не закупали" — ни Факта, ни Δ, сравнивать не
+  // с чем) — ровно то, что "Только расхождения" сознательно НЕ трогает
+  // (см. комментарий выше). Было бы и так уже возможно через чипы статуса
+  // (снять "Не закупали"), но отдельная кнопка быстрее для частого случая
+  // "просто сократить список до того, что реально закупили".
+  const [hideEmpty, setHideEmpty] = useState(false)
   // Поставщик/Товар — отдельные фильтры с множественным выбором и поиском
   // внутри самого списка (см. MultiSelectFilter) — прямой запрос: обычный
   // <select> не позволял ни выбрать несколько значений сразу, ни набрать
@@ -206,6 +213,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     if (active.size) r = r.filter((x) => active.has(x.status))
     if (onlyNoted) r = r.filter((x) => x.userComment || x.rowColor)
     if (onlyDiff) r = r.filter((x) => diffOf(x) !== 0)
+    if (hideEmpty) r = r.filter((x) => x.status !== 'notPurchased')
     if (supplierFilter.size) r = r.filter((x) => supplierFilter.has(supplierKeyOf(x)))
     if (productFilter.size) r = r.filter((x) => productFilter.has(productKeyOf(x)))
     if (needle) {
@@ -241,7 +249,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       return av.localeCompare(bv) * dir
     })
     return groupStarsAdjacent(sorted)
-  }, [rows, q, active, sort, moneyMode, onlyNoted, onlyDiff, supplierFilter, productFilter, starByRowKey])
+  }, [rows, q, active, sort, moneyMode, onlyNoted, onlyDiff, hideEmpty, supplierFilter, productFilter, starByRowKey])
 
   const s = useMemo(() => summarize(filtered), [filtered])
   // Раньше была ручная кнопка "Показать ещё" (убрана — не работала как
@@ -336,7 +344,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       {/* toolbar */}
       <div className="card p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[240px]">
+          <div className="relative w-56 shrink-0">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
             <input
               value={q}
@@ -397,9 +405,17 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
             Только расхождения
           </button>
-          {(active.size > 0 || onlyNoted || onlyDiff || supplierFilter.size > 0 || productFilter.size > 0) && (
+          <button
+            onClick={() => setHideEmpty((v) => !v)}
+            title="Скрыть позиции без факта вообще — «Не закупали» (сравнивать не с чем) — чтобы сократить список до того, что реально закупили"
+            className={`chip transition-colors ${hideEmpty ? 'border-brand-400 bg-ink-750 text-brand-300' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
+            Скрыть пустые
+          </button>
+          {(active.size > 0 || onlyNoted || onlyDiff || hideEmpty || supplierFilter.size > 0 || productFilter.size > 0) && (
             <button
-              onClick={() => { setActive(new Set()); setOnlyNoted(false); setOnlyDiff(false); setSupplierFilter(new Set()); setProductFilter(new Set()) }}
+              onClick={() => { setActive(new Set()); setOnlyNoted(false); setOnlyDiff(false); setHideEmpty(false); setSupplierFilter(new Set()); setProductFilter(new Set()) }}
               className="chip border-ink-600 text-fg-500 hover:text-fg-300"
             >
               сбросить
