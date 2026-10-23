@@ -65,10 +65,11 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // применяется.
   const [supplierFilter, setSupplierFilter] = useState<Set<string>>(new Set())
   const [productFilter, setProductFilter] = useState<Set<string>>(new Set())
-  // По умолчанию — сумма закупки по убыванию, как в их собственном "Отчёте
-  // о закупках по складам" из iiko (крупнейшие позиции сверху), а не
-  // алфавит по ресторану/товару.
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'sum', dir: -1 })
+  // По умолчанию — по поставщику (см. key === 'supplier' в filtered ниже:
+  // ресторан по алфавиту, внутри — порядок поставщиков как на вкладке
+  // этого ресторана в самой матрице) — попросили явно: открывается список
+  // уже сгруппированным по поставщику, а не раскиданным по сумме закупки.
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'supplier', dir: 1 })
   // Переключатель двух версий расчёта Плана/Факта/Δ (см. комментарий у
   // factMoneyOf выше) — временно, чтобы показать заказчику обе сразу без
   // пересборки/переключения веток. По умолчанию — новая (деньги).
