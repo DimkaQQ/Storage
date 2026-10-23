@@ -215,16 +215,16 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                         </button>
                       </div>
                       <div className="max-h-96 overflow-y-auto rounded-lg border border-ink-700/40">
-                        <table className="w-full text-xs">
+                        <table className="w-full table-fixed text-xs">
                           <thead className="sticky top-0 bg-ink-900/90">
                             <tr>
-                              <th className="w-full px-2 py-1.5 text-left font-medium text-fg-500">Наименование/сырьё</th>
-                              <th className="max-w-[110px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">закуплено за 1 месяц, количество в кг/шт</th>
-                              <th className="max-w-[100px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">цена за 1кг из матрицы</th>
-                              <th className="max-w-[100px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">цена за 1кг из iiko</th>
-                              <th className="max-w-[120px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">Итого в тенге должно быть по цене указанной в матрице</th>
-                              <th className="max-w-[120px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">Итого в тенге по факту закупленно из отчета iiko</th>
-                              <th className="max-w-[90px] px-3 py-1.5 text-right font-medium leading-tight text-fg-500">Разница в тенге</th>
+                              <th className="w-[20%] px-2 py-1.5 text-left font-medium text-fg-500">Наименование/сырьё</th>
+                              <th className="w-[12%] px-2 py-1.5 text-center font-medium leading-tight text-fg-500">закуплено за 1 месяц, количество в кг/шт</th>
+                              <th className="w-[12%] px-2 py-1.5 text-center font-medium leading-tight text-fg-500">цена за 1кг из матрицы</th>
+                              <th className="w-[12%] px-2 py-1.5 text-center font-medium leading-tight text-fg-500">цена за 1кг из iiko</th>
+                              <th className="w-[15%] px-2 py-1.5 text-center font-medium leading-tight text-fg-500">Итого в тенге должно быть по цене указанной в матрице</th>
+                              <th className="w-[15%] px-2 py-1.5 text-center font-medium leading-tight text-fg-500">Итого в тенге по факту закупленно из отчета iiko</th>
+                              <th className="w-[14%] px-2 py-1.5 text-center font-medium leading-tight text-fg-500">Разница в тенге</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -239,12 +239,12 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                                   </div>
                                   <div className="truncate text-[10px] font-normal text-fg-500">{it.supplier}</div>
                                 </td>
-                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{fmt(it.qty)}</td>
-                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{money(it.planUnit)}</td>
-                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-200">{money(it.unit)}</td>
-                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-400">{money(it.plan)}</td>
-                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum text-fg-200">{money(it.fact)}</td>
-                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabnum font-semibold text-warn">
+                                <td className="truncate px-2 py-1.5 text-center tabnum text-fg-400" title={fmt(it.qty)}>{fmt(it.qty)}</td>
+                                <td className="truncate px-2 py-1.5 text-center tabnum text-fg-400" title={money(it.planUnit)}>{money(it.planUnit)}</td>
+                                <td className="truncate px-2 py-1.5 text-center tabnum text-fg-200" title={money(it.unit)}>{money(it.unit)}</td>
+                                <td className="truncate px-2 py-1.5 text-center tabnum text-fg-400" title={money(it.plan)}>{money(it.plan)}</td>
+                                <td className="truncate px-2 py-1.5 text-center tabnum text-fg-200" title={money(it.fact)}>{money(it.fact)}</td>
+                                <td className="truncate px-2 py-1.5 text-center tabnum font-semibold text-warn" title={(it.delta >= 0 ? '+' : '') + money(it.delta)}>
                                   {(it.delta >= 0 ? '+' : '') + money(it.delta)}
                                 </td>
                               </tr>
