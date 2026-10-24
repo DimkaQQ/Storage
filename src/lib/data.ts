@@ -1500,11 +1500,13 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       // summarize() их и так не учитывает (там отдельная отсечка по unit).
       diffPct: null, status: 'notPurchased', designatedSuppliers: [], designatedPlan: null, note: null, availableFasovki: [], packFixKey: null, matchedKey: key, isTotalRow: false,
       // Не настоящая закупка (просто "вот что прайсовано, но не купили в
-      // этом периоде") — комментарий/цвет тут не про что вешать, оставляем
-      // null. rowKey всё равно даём (по ключу матрицы) — на случай если
-      // понадобится где-то ещё, но edits.rowComments/rowColors на неё не
-      // смотрят.
-      rowKey: `np::${key}`, userComment: null, rowColor: null, ambiguousOptions: null, matrixOrder,
+      // этом периоде"), но заметку/цвет на неё всё равно вешают — живой
+      // случай: "Картофель фри" в Акку ни разу не красился, потому что
+      // тут раньше было жёстко null независимо от того, что реально
+      // сохранено в edits.rowColors — клик по цвету молча пропадал на
+      // следующий же пересчёт. rowKey стабильный (по ключу матрицы), так
+      // что читаем ровно как у настоящих закупок ниже.
+      rowKey: `np::${key}`, userComment: edits.rowComments[`np::${key}`] ?? null, rowColor: edits.rowColors[`np::${key}`] ?? null, ambiguousOptions: null, matrixOrder,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
