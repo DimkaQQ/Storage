@@ -28,3 +28,26 @@ export function useCountUp(value: number, duration = 900) {
 
   return display
 }
+
+/**
+ * Закрывает выпадающее меню по клику вне ref — общая логика для всех
+ * дропдаунов (MultiSelectFilter, FiltersMenu и т.п.), чтобы не дублировать
+ * один и тот же mousedown-хендлер в каждом. onOutside держим в ref, а не в
+ * зависимостях эффекта — вызывающая сторона почти всегда передаёт новую
+ * инлайн-стрелку на каждый рендер, и с ней в зависимостях слушатель на
+ * document пересоздавался бы на каждый ре-рендер/нажатие клавиши в поиске,
+ * а не только при реальном открытии/закрытии.
+ */
+export function useClickOutside(onOutside: () => void) {
+  const ref = useRef<HTMLDivElement>(null)
+  const onOutsideRef = useRef(onOutside)
+  onOutsideRef.current = onOutside
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onOutsideRef.current()
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  return ref
+}

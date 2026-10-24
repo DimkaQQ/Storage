@@ -2,10 +2,11 @@ import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, u
 import { createPortal } from 'react-dom'
 import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt, summarize, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
+import { useClickOutside } from '../lib/hooks'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
 import MultiSelectFilter, { FilterOption } from '../components/MultiSelectFilter'
-import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose } from '../components/icons'
+import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose, ICheck, IChevron } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'sum' | 'diff'
 
@@ -362,6 +363,17 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
               в матрице) ничего не говорит сам по себе. */}
           <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supplierFilter} onChange={setSupplierFilter} />
           <MultiSelectFilter allLabel="Все товары" options={productOptions} selected={productFilter} onChange={setProductFilter} />
+          <FiltersMenu
+            active={active}
+            onToggleStatus={toggle}
+            onResetStatuses={() => setActive(new Set())}
+            onlyNoted={onlyNoted}
+            setOnlyNoted={setOnlyNoted}
+            onlyDiff={onlyDiff}
+            setOnlyDiff={setOnlyDiff}
+            hideEmpty={hideEmpty}
+            setHideEmpty={setHideEmpty}
+          />
           <button
             onClick={() => setMoneyMode((m) => !m)}
             title="Переключить, как считаются План/Факт/Δ: реальные деньги за закупку, или цена за единицу матрицы (кг и т.п.)"
@@ -375,44 +387,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          {STATUS_FILTERS.map((f) => {
-            const on = active.has(f.id)
-            const m = STATUS_META[f.id]
-            return (
-              <button
-                key={f.id}
-                onClick={() => toggle(f.id)}
-                className={`chip transition-colors ${on ? `${m.color} border-current bg-ink-750` : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
-                {f.label}
-              </button>
-            )
-          })}
-          <button
-            onClick={() => setOnlyNoted((v) => !v)}
-            title="Только строки, где уже есть свой комментарий или цветовая метка"
-            className={`chip transition-colors ${onlyNoted ? 'border-brand-400 bg-ink-750 text-brand-300' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
-            С заметкой
-          </button>
-          <button
-            onClick={() => setOnlyDiff((v) => !v)}
-            title="Скрыть строки, где факт точно совпал с планом (Δ = 0) — проверять только реальные расхождения"
-            className={`chip transition-colors ${onlyDiff ? 'border-brand-400 bg-ink-750 text-brand-300' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
-            Только расхождения
-          </button>
-          <button
-            onClick={() => setHideEmpty((v) => !v)}
-            title="Скрыть позиции без факта вообще — «Не закупали» (сравнивать не с чем) — чтобы сократить список до того, что реально закупили"
-            className={`chip transition-colors ${hideEmpty ? 'border-brand-400 bg-ink-750 text-brand-300' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />
-            Скрыть пустые
-          </button>
           {(active.size > 0 || onlyNoted || onlyDiff || hideEmpty || supplierFilter.size > 0 || productFilter.size > 0) && (
             <button
               onClick={() => { setActive(new Set()); setOnlyNoted(false); setOnlyDiff(false); setHideEmpty(false); setSupplierFilter(new Set()); setProductFilter(new Set()) }}
@@ -626,6 +600,102 @@ function MiniStat({ label, value, tone, delay = 0 }: { label: string; value: str
     <div className="card card-hover animate-fade-up px-4 py-3" style={{ animationDelay: `${delay}ms` }}>
       <div className="text-[11px] text-fg-500">{label}</div>
       <div className={`mt-1 text-lg font-bold tabnum ${cls}`}>{value}</div>
+    </div>
+  )
+}
+
+/**
+ * «Фильтры» — статусы (По матрице/Заказ не по матрице/Нет в матрице/Не
+ * закупали) и три переключателя (С заметкой/Только расхождения/Скрыть
+ * пустые), раньше всегда видимые отдельными чипами, прямой запрос — убрать
+ * их из вечно занятого места под поиском и вызывать из одного выпадающего
+ * меню, как и Поставщика/Товар (MultiSelectFilter) рядом, именно под этим
+ * названием.
+ */
+function FilterCheckRow({ on, onClick, dot, label, title }: { on: boolean; onClick: () => void; dot: string; label: string; title?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-ink-800 ${on ? 'text-fg-50' : 'text-fg-300'}`}
+    >
+      <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${on ? 'border-brand-400 bg-brand-500/20' : 'border-ink-600'}`}>
+        {on && <ICheck className="text-brand-300" width={11} height={11} />}
+      </span>
+      <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+      <span className="min-w-0 flex-1 text-sm">{label}</span>
+    </button>
+  )
+}
+
+function FiltersMenu({
+  active, onToggleStatus, onResetStatuses, onlyNoted, setOnlyNoted, onlyDiff, setOnlyDiff, hideEmpty, setHideEmpty,
+}: {
+  active: Set<Status>
+  onToggleStatus: (s: Status) => void
+  onResetStatuses: () => void
+  onlyNoted: boolean
+  setOnlyNoted: (v: boolean) => void
+  onlyDiff: boolean
+  setOnlyDiff: (v: boolean) => void
+  hideEmpty: boolean
+  setHideEmpty: (v: boolean) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useClickOutside(() => setOpen(false))
+
+  const count = active.size + (onlyNoted ? 1 : 0) + (onlyDiff ? 1 : 0) + (hideEmpty ? 1 : 0)
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`btn justify-between gap-2 border text-sm ${count > 0 ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100'} hover:border-ink-500`}
+      >
+        <span className="truncate">{count > 0 ? `Фильтры: ${count}` : 'Фильтры'}</span>
+        <IChevron width={13} height={13} className={`shrink-0 text-fg-500 transition-transform ${open ? 'rotate-90' : '-rotate-90'}`} />
+      </button>
+
+      {open && (
+        <div className="animate-scale-in absolute left-0 z-30 mt-2 w-72 origin-top-left overflow-hidden rounded-xl border border-ink-700 bg-ink-850 shadow-card">
+          {count > 0 && (
+            <button
+              onClick={() => { onResetStatuses(); setOnlyNoted(false); setOnlyDiff(false); setHideEmpty(false) }}
+              className="flex w-full items-center gap-1.5 border-b border-ink-700/60 px-3 py-2 text-left text-xs text-brand-300 hover:bg-ink-800"
+            >
+              <IClose width={12} height={12} /> сбросить ({count})
+            </button>
+          )}
+          <div className="py-1">
+            {STATUS_FILTERS.map((f) => (
+              <FilterCheckRow key={f.id} on={active.has(f.id)} onClick={() => onToggleStatus(f.id)} dot={STATUS_META[f.id].dot} label={f.label} />
+            ))}
+          </div>
+          <div className="border-t border-ink-700/60 py-1">
+            <FilterCheckRow
+              on={onlyNoted}
+              onClick={() => setOnlyNoted(!onlyNoted)}
+              dot="bg-brand-400"
+              label="С заметкой"
+              title="Только строки, где уже есть свой комментарий или цветовая метка"
+            />
+            <FilterCheckRow
+              on={onlyDiff}
+              onClick={() => setOnlyDiff(!onlyDiff)}
+              dot="bg-brand-400"
+              label="Только расхождения"
+              title="Скрыть строки, где факт точно совпал с планом (Δ = 0) — проверять только реальные расхождения"
+            />
+            <FilterCheckRow
+              on={hideEmpty}
+              onClick={() => setHideEmpty(!hideEmpty)}
+              dot="bg-brand-400"
+              label="Скрыть пустые"
+              title="Скрыть позиции без факта вообще — «Не закупали» (сравнивать не с чем) — чтобы сократить список до того, что реально закупили"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

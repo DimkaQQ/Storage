@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ISearch, IChevron, ICheck, IClose } from './icons'
+import { useClickOutside } from '../lib/hooks'
 
 export interface FilterOption {
   key: string
@@ -32,15 +33,7 @@ export default function MultiSelectFilter({
 }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ('') }
-    }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [])
+  const ref = useClickOutside(() => { setOpen(false); setQ('') })
 
   const toggle = (key: string) => {
     const next = new Set(selected)
