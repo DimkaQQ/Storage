@@ -345,12 +345,13 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       {/* toolbar */}
       <div className="card p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-56 shrink-0">
+          <div className="relative w-36 shrink-0">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Поиск: товар, поставщик, ресторан…"
+              placeholder="Поиск"
+              title="Поиск: товар, поставщик, ресторан…"
               className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
@@ -653,7 +654,7 @@ function FiltersMenu({
         className={`btn justify-between gap-2 border text-sm ${count > 0 ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100'} hover:border-ink-500`}
       >
         <span className="truncate">{count > 0 ? `Фильтры: ${count}` : 'Фильтры'}</span>
-        <IChevron width={13} height={13} className={`shrink-0 text-fg-500 transition-transform ${open ? 'rotate-90' : '-rotate-90'}`} />
+        <IChevron width={13} height={13} className={`shrink-0 text-fg-500 transition-transform ${open ? '-rotate-90' : 'rotate-90'}`} />
       </button>
 
       {open && (
