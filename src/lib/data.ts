@@ -1138,8 +1138,21 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // Пакетный разбор нужен только для ассортимента с известной фасовкой —
   // в обоих остальных случаях (не ассортимент, либо фасовки в факте просто
   // нет) берём широкий byProduct без разбора по фасовке.
+  // Важно: тут именно isPackSensitive (пюре/ягода-асс), а не isAssortment.
+  // isAssortment — это "матрица никогда не видела ИМЕННО ЭТОГО поставщика
+  // с этим товаром под одной фасовкой" (по умолчанию true для нового/не
+  // того поставщика, см. buildKnownFlatIndex) — безопасный дефолт для
+  // схлопывания ★-фасовок на экране, но для вопроса "кто вообще назначен
+  // на этот товар" он не подходит: именно он и был причиной бага (Акку,
+  // огурцы корнишоны маринованные у ИП Azik Trade) — закупка не у того
+  // поставщика, кого матрица назначила (Коженков), с другой фасовкой чем
+  // в матрице, показывалась как "Нет в матрице" вместо "Заказ не по
+  // матрице", потому что byPack/byProductFlatOnly не нашли точного
+  // совпадения по фасовке, а широкий byProduct даже не смотрели. Фасовка
+  // должна сужать назначенных поставщиков только для реально
+  // pack-sensitive товаров (isPackSensitive), как и везде в этой функции.
   let designated: Set<string> | undefined
-  if (isAssortment && pack) {
+  if (isPackSensitive && pack) {
     const packSpecific = designatedIndex.byPack.get(`${restaurant}::${product}::${pack}`)
     const flatOnly = designatedIndex.byProductFlatOnly.get(`${restaurant}::${product}`)
     if (packSpecific || flatOnly) designated = new Set([...(packSpecific ?? []), ...(flatOnly ?? [])])
