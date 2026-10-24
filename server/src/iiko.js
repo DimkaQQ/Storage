@@ -627,7 +627,7 @@ const EXCLUDED_CATEGORIES = new Set(['Овощи/Зелень/Фрукты/Яг�
  * Список — только руками подтверждённые названия, тот же принцип, что у
  * IGNORED_BRAND_CODES/EXCLUDED_SUPPLIERS — не угадывается по слову.
  */
-const CATEGORY_EXCLUSION_OVERRIDES = new Set(['батат фри', 'батат фри с/м.'].map(norm))
+const CATEGORY_EXCLUSION_OVERRIDES = new Set(['батат фри', 'батат фри с/м.', 'пюре в асс'].map(norm))
 
 export async function fetchAssortmentIndex(settings) {
   const { base, token } = await iikoServerAuth(settings)
