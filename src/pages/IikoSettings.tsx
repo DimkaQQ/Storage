@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, fetchProductCategorySample, ProductCategoryItem, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, fetchProductCategorySample, ProductCategoryItem, fetchExcludedCategoryList, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -85,6 +85,8 @@ export default function IikoSettings() {
   const [invoiceResult, setInvoiceResult] = useState<{ ok: boolean; xml?: string; message?: string } | null>(null)
   const [categoryLoading, setCategoryLoading] = useState(false)
   const [categoryResult, setCategoryResult] = useState<{ ok: boolean; items?: ProductCategoryItem[]; message?: string } | null>(null)
+  const [categoryListExporting, setCategoryListExporting] = useState(false)
+  const [categoryListError, setCategoryListError] = useState<string | null>(null)
 
   useEffect(() => { fetchSettings().then((s) => s && setForm(s)) }, [])
 
@@ -280,6 +282,31 @@ export default function IikoSettings() {
       XLSX.writeFile(wb, `syroy-otchet-${safe(period)}-${todayStr}.xlsx`)
     } finally {
       setRawExporting(false)
+    }
+  }
+
+  // «Список исключённых категорий» — живой случай ("Батат фри" тоже был
+  // заведён в категории свежих овощей/фруктов, хотя это фасованный
+  // замороженный товар с договорной ценой, см. CATEGORY_EXCLUSION_OVERRIDES
+  // в iiko.js) показал, что искать по одному названию за раз недостаточно —
+  // нужно разобрать ВЕСЬ список товаров в этих категориях и руками решить,
+  // что из него реально нужно сверять с матрицей, а что нет.
+  const exportExcludedCategoryList = async () => {
+    setCategoryListExporting(true); setCategoryListError(null)
+    try {
+      const r = await fetchExcludedCategoryList()
+      if (!r.ok || !r.items) { setCategoryListError(r.message ?? 'Не удалось получить список'); return }
+      const XLSX = await import('xlsx')
+      const head = ['Товар', 'Категория в iiko', 'Уже сделано исключение?']
+      const lines = r.items.map((it) => [it.name, it.category, it.overridden ? 'да' : ''])
+      const ws = XLSX.utils.aoa_to_sheet([['Товары в исключённых из Проверки цен категориях'], head, ...lines])
+      ws['!cols'] = [{ wch: 40 }, { wch: 28 }, { wch: 22 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Исключённые категории')
+      const todayStr = new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(wb, `isklyuchennye-kategorii-${todayStr}.xlsx`)
+    } finally {
+      setCategoryListExporting(false)
     }
   }
 
@@ -489,6 +516,9 @@ export default function IikoSettings() {
               <button onClick={showCategory} disabled={categoryLoading} title="В какой категории товар заведён в номенклатуре iiko — чтобы проверить, не из-за категории ли закупка выпадает из Проверки цен" className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {categoryLoading ? 'Спрашиваю…' : 'Проверить категорию товара'}
               </button>
+              <button onClick={exportExcludedCategoryList} disabled={categoryListExporting} title="Весь список товаров, которые сейчас не попадают в Проверку цен из-за категории в номенклатуре — чтобы разобрать его целиком и руками решить, что из него на самом деле нужно сверять" className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+                <ISync width={16} height={16} className={categoryListExporting ? 'animate-spin' : ''} /> {categoryListExporting ? 'Готовлю файл…' : 'Скачать список исключённых категорий'}
+              </button>
               <button onClick={showAssortmentDebug} disabled={assortmentLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {assortmentLoading ? 'Спрашиваю…' : 'Проверить разброс по ресторанам'}
               </button>
@@ -616,6 +646,11 @@ export default function IikoSettings() {
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{categoryResult.message}</span>
             )}
+          </div>
+        )}
+        {categoryListError && (
+          <div className="mt-3">
+            <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{categoryListError}</span>
           </div>
         )}
         {assortmentResult && (

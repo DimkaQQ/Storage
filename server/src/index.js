@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerProductCategorySample } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -422,6 +422,22 @@ app.get('/api/iiko/product-category-sample', requireAuth, requireAdmin, async (r
     const search = String(req.query.search || '')
     if (!search) return res.status(400).json({ ok: false, message: 'Нужен текст поиска (search)' })
     res.json(await iikoServerProductCategorySample(s, search))
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+/**
+ * «Список исключённых категорий» — весь список товаров, которые сейчас
+ * вообще не попадают в Проверку цен из-за категории в номенклатуре (см.
+ * iikoServerExcludedCategoryList) — чтобы разобрать его целиком и руками
+ * решить, что из этого на самом деле нужно сверять, а не искать по
+ * одному названию за раз.
+ */
+app.get('/api/iiko/excluded-category-list', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    res.json(await iikoServerExcludedCategoryList(s))
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }

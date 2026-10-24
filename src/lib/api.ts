@@ -160,6 +160,15 @@ export async function fetchProductCategorySample(search: string): Promise<{ ok: 
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+export interface ExcludedCategoryItem { name: string; category: string; overridden: boolean }
+/** «Список исключённых категорий» — весь список товаров, которых сейчас категория не пускает в Проверку цен — чтобы разобрать целиком, а не искать по одному названию. */
+export async function fetchExcludedCategoryList(): Promise<{ ok: boolean; items?: ExcludedCategoryItem[]; message?: string }> {
+  try {
+    const r = await fetch('/api/iiko/excluded-category-list', { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 export interface AssortmentDebugItem {
   product: string; storeId: string; storeName: string; restaurant: string | null; supplier: string; pack: string; containerId: string | null; qty: number; sum: number
 }

@@ -711,6 +711,39 @@ export async function iikoServerProductCategorySample(settings, search) {
   }
 }
 
+/**
+ * «Скачать список исключённых категорий» — живой запрос подтвердил, что
+ * клиент сам кладёт в категорию "Овощи/Зелень/Фрукты/Ягоды" не только
+ * настоящие свежие овощи/фрукты (для них фильтр и задуман — цена скачет
+ * день в день), но и другие товары, которых там быть не должно (первый
+ * живой случай — "Батат фри", см. CATEGORY_EXCLUSION_OVERRIDES выше).
+ * Раз угадывать по одному названию за раз больше нельзя — отдаём СРАЗУ
+ * весь список товаров в этих категориях (без текстового фильтра, без
+ * ограничения в 50 строк, как у iikoServerProductCategorySample — то
+ * ограничение было против случайного запроса всей номенклатуры по
+ * пустому поиску, тут это и есть цель), чтобы разобрать его целиком и
+ * руками решить, что действительно убирать, а что нет.
+ */
+export async function iikoServerExcludedCategoryList(settings) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const res = await withTimeout(`${base}/resto/api/products?key=${token}&includeDeleted=false`, {}, 60000)
+    if (!res.ok) throw new Error(`Номенклатура недоступна (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const items = []
+    await streamExtractBlocks(res, '<productDto>', '</productDto>', (seg) => {
+      const rawName = /<name>([^<]*)<\/name>/.exec(seg)?.[1]
+      if (!rawName) return
+      const name = unescapeXml(rawName)
+      const category = unescapeXml(/<productCategory>([^<]*)<\/productCategory>/.exec(seg)?.[1] || '')
+      if (!EXCLUDED_CATEGORIES.has(norm(category))) return
+      items.push({ name, category, overridden: CATEGORY_EXCLUSION_OVERRIDES.has(norm(name)) })
+    })
+    return { ok: true, items }
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
 /** Разбирает строки накладных ПОТОКОВО, документ за документом (см. streamExtractBlocks). onDocument получает сырой XML одного <document>...</document> целиком. */
 async function streamInvoiceDocuments(res, onDocument) {
   return streamExtractBlocks(res, '<document>', '</document>', onDocument)
