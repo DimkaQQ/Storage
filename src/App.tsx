@@ -50,7 +50,7 @@ export default function App() {
     if (mainRef.current) mainRef.current.scrollTop = scrollPositions.current.get(page) ?? 0
   }, [page])
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
-  const [cityFilter, setCityFilter] = useState<Set<string>>(new Set()) // empty = all cities (мультивыбор)
+  const [cityFilter, setCityFilter] = useState<string | null>(null) // null = все города (выбор одного)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
   const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError } = useEdits()
   const { user, logout } = useAuth()
@@ -59,32 +59,28 @@ export default function App() {
   const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city))].sort(), [restaurants])
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
   const venuesInCity = useMemo(
-    () => (cityFilter.size > 0 ? restaurants.filter((r) => cityFilter.has(r.city)) : restaurants),
+    () => (cityFilter ? restaurants.filter((r) => r.city === cityFilter) : restaurants),
     [restaurants, cityFilter],
   )
 
   const rows = useMemo(() => {
     let r = allRows
     if (categoryFilter) r = r.filter((x) => x.category === categoryFilter)
-    if (cityFilter.size > 0) r = r.filter((x) => cityFilter.has(x.city))
+    if (cityFilter) r = r.filter((x) => x.city === cityFilter)
     if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
     return r
   }, [allRows, categoryFilter, cityFilter, scope])
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
-  // Смена городов чистит выбор точек — иначе в наборе могли бы остаться
+  // Смена города чистит выбор точек — иначе в наборе могли бы остаться
   // точки из снятого с фильтра города.
-  const pickCities = (s: Set<string>) => { setCityFilter(s); setScope(new Set()) }
-  // Обзор — специально НЕ использует общий фильтр по городу/точкам (ниже
-  // передаём туда allRows, а не отфильтрованный rows): иначе переключение
-  // точки/города ради Обзора молча ломало то, что уже было выбрано на
-  // Проверке цен (общее состояние — одна и та же точка там и тут), и
-  // наоборот. Обзор всегда про всю сеть целиком, Проверка цен — про
-  // текущий выбор сверху.
-  const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users' && page !== 'dashboard'
+  const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
+  // Фильтры (период/категория/город/точки) теперь общие для Обзора и
+  // Проверки цен: обе страницы получают одинаковый набор `rows`.
+  const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
   // Тема — слева от фильтров, когда они есть (рядом с заголовком), и в конце
-  // ряда на страницах без фильтров (Справочники/Обзор), чтобы не висела одна.
+  // ряда на страницах без фильтров (Справочники), чтобы не висела одна.
   const themeBeforeFilters = showFilters
 
   return (
@@ -162,10 +158,9 @@ export default function App() {
                 <h1 className="text-lg font-bold text-fg-50">{nav.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
-                  {page !== 'dashboard' && (
-                    <> · Город: <span className="text-fg-300">{cityFilter.size > 0 ? [...cityFilter].join(', ') : (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span></>
+                  {showFilters && (
+                    <> · Город: <span className="text-fg-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span></>
                   )}
-                  {page === 'dashboard' && <> · <span className="text-fg-300">вся сеть</span></>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -177,7 +172,7 @@ export default function App() {
                   <FilterDropdown label="Категория закупок" icon={ILayers} value={categoryFilter} options={categories} onChange={setCategoryFilter} />
                 )}
                 {showFilters && cities.length > 1 && (
-                  <CityPicker options={cities} selected={cityFilter} onChange={pickCities} />
+                  <CityPicker options={cities} selected={cityFilter} onChange={pickCity} />
                 )}
                 {showFilters && (
                   <ScopePicker
@@ -199,7 +194,7 @@ export default function App() {
             {visited.map((id) => (
               <div key={id} style={{ display: page === id ? 'block' : 'none' }} className={page === id ? 'animate-fade-in' : undefined}>
                 <Suspense fallback={<PageLoading />}>
-                  {id === 'dashboard' && <Dashboard rows={allRows} onNav={(p) => goTo(p as PageId)} />}
+                  {id === 'dashboard' && <Dashboard rows={rows} onNav={(p) => goTo(p as PageId)} />}
                   {id === 'pricecheck' && <PriceCheck rows={rows} />}
                   {id === 'data' && <DataEditor />}
                   {id === 'iiko' && <IikoSettings />}

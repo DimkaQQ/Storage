@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { IPin, IChevron, ICheck, IClose } from './icons'
 
 /**
- * Выбор городов — мультивыбор в точности по образцу ScopePicker (точки):
- * пустой набор = все города, выбранные подсвечиваются синим (brand).
+ * Выбор города — ОДИН город (radio-поведение), но визуально точно как
+ * ScopePicker (выбор точек): та же кнопка, панель со списком, синяя
+ * подсветка выбранного. Пустое значение = «Все города».
  */
 export default function CityPicker({
   options, selected, onChange,
 }: {
   options: string[]
-  selected: Set<string>
-  onChange: (s: Set<string>) => void
+  selected: string | null // null = все города
+  onChange: (city: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -23,23 +24,14 @@ export default function CityPicker({
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  const toggle = (name: string) => {
-    const next = new Set(selected)
-    next.has(name) ? next.delete(name) : next.add(name)
-    onChange(next)
-  }
-
-  const label =
-    selected.size === 0 ? 'Все города' :
-    selected.size === 1 ? [...selected][0] :
-    `${selected.size} города выбрано`
+  const label = selected ?? 'Все города'
 
   return (
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
         className={`btn w-[200px] justify-between border bg-ink-800/80 hover:bg-ink-750 ${
-          selected.size > 0
+          selected
             ? 'border-brand-500/60 text-fg-50'
             : 'border-ink-600 text-fg-200 hover:border-ink-600/80'
         }`}
@@ -54,31 +46,31 @@ export default function CityPicker({
       {open && (
         <div className="animate-scale-in absolute right-0 z-30 mt-2 w-64 origin-top-right overflow-hidden rounded-xl border border-ink-700 bg-ink-850 shadow-card">
           <div className="flex items-center justify-between border-b border-ink-700/60 px-3 py-2">
-            <span className="text-xs font-semibold text-fg-400">Выбор городов</span>
-            {selected.size > 0 && (
-              <button onClick={() => onChange(new Set())} className="flex items-center gap-1 text-[11px] text-brand-300 hover:text-brand-200">
+            <span className="text-xs font-semibold text-fg-400">Выбор города</span>
+            {selected && (
+              <button onClick={() => onChange(null)} className="flex items-center gap-1 text-[11px] text-brand-300 hover:text-brand-200">
                 <IClose width={12} height={12} /> сбросить
               </button>
             )}
           </div>
           <button
-            onClick={() => onChange(new Set())}
+            onClick={() => onChange(null)}
             className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-800 ${
-              selected.size === 0 ? 'text-fg-50' : 'text-fg-300'
+              !selected ? 'text-fg-50' : 'text-fg-300'
             }`}
           >
             <span className="grid h-4 w-4 place-items-center rounded border border-ink-600">
-              {selected.size === 0 && <ICheck className="text-brand-300" width={12} height={12} />}
+              {!selected && <ICheck className="text-brand-300" width={12} height={12} />}
             </span>
             Все города
           </button>
           <div className="max-h-72 overflow-y-auto py-1">
             {options.map((o) => {
-              const on = selected.has(o)
+              const on = selected === o
               return (
                 <button
                   key={o}
-                  onClick={() => toggle(o)}
+                  onClick={() => onChange(o)}
                   className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-800 ${on ? 'text-fg-50' : 'text-fg-300'}`}
                 >
                   <span className={`grid h-4 w-4 place-items-center rounded border ${on ? 'border-brand-400 bg-brand-500/20' : 'border-ink-600'}`}>
