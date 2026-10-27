@@ -1271,13 +1271,20 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   // добавлен вариант «ИП "Фруктовый рай" / Зеленый мир» — оставляем оба).
   // Кавычки нормализатор не убирает, поэтому сравниваем по канону без них.
   const stripQuotes = (s: string) => s.replace(/["«»"'`]/g, '')
-  const exclPair = (s: string, p: string) => `${stripQuotes(norm(s))}::${norm(p)}`
+  // И ключ (список ниже), и значение (строка закупки) нормализуются одинаково:
+  // кавычки убираем с ОБЕИХ сторон. Без этого «ИП "Фруктовый рай" / Зеленый
+  // мир» в списке никогда не совпадалось с реальным именем из iiko — фильтр
+  // молча не срабатывал (живой баг: строка оставалась видна).
+  // Товар нормализуем жёстче ключа: запятые тоже выкидываем и сжимаем
+  // пробелы — иначе «Фрукты, овощи» и «Фрукты овощи» это два разных ключа,
+  // и малейшее расхождение пунктуации в iiko ломает совпадение.
+  const exclProduct = (p: string) => stripQuotes(norm(p)).replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
   const EXCLUDED_PAIRS = new Set([
-    ['ип "фруктовый рай" / зеленый мир', 'фрукты, овощи'],
     ['ип "фруктовый рай" / зеленый мир', 'фрукты овощи'],
-    ['ип лайм / зеленый мир', 'фрукты, овощи'],
+    ['ип "фруктовый рай" / зеленый мир', 'фрукты овощи зелень'],
     ['ип лайм / зеленый мир', 'фрукты овощи'],
-  ].map(([s, p]) => exclPair(s, p)))
+    ['ип лайм / зеленый мир', 'фрукты овощи зелень'],
+  ].map(([s, p]) => `${stripQuotes(norm(s))}::${exclProduct(p)}`))
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
     if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) {
@@ -1285,7 +1292,8 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       if (!pairKeysWithMatrix.has(pairKey)) return false
     }
     if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
-    if (EXCLUDED_PAIRS.has(exclPair(b.supplier0, b.product0)) || EXCLUDED_PAIRS.has(exclPair(canon, b.product0))) return false
+    const exclKey = (s: string) => `${stripQuotes(norm(s))}::${exclProduct(b.product0)}`
+    if (EXCLUDED_PAIRS.has(exclKey(b.supplier0)) || EXCLUDED_PAIRS.has(exclKey(canon))) return false
     return true
   })
   const designatedIndex = buildDesignatedIndex(matching)
