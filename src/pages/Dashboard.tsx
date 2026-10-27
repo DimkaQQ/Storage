@@ -176,7 +176,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
           </div>
           <div className="rounded-lg bg-warn/10 px-3 py-2.5">
             <div className="text-[11px] text-fg-500">Разница в тенге</div>
-            <div className="text-lg font-semibold text-warn tabnum">{(totals.delta >= 0 ? '+' : '') + money(totals.delta)}</div>
+            <div className="text-lg font-semibold text-warn tabnum">{money(totals.delta)}</div>
           </div>
         </div>
 
@@ -196,7 +196,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                       <IChevron width={12} height={12} className={`text-fg-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                       {r.name}
                     </span>
-                    <span className="text-sm font-semibold text-warn tabnum">{(r.delta >= 0 ? '+' : '') + money(r.delta)}</span>
+                    <span className="text-sm font-semibold text-warn tabnum">{money(r.delta)}</span>
                   </button>
                   {isOpen && (
                     <div className="border-t border-ink-700/60 px-3 py-2.5">
@@ -204,7 +204,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                         <div className="flex gap-4 text-xs">
                           <div><div className="text-fg-500">Итого закупили не по матрице</div><div className="font-medium text-fg-200 tabnum">{money(r.fact)}</div></div>
                           <div><div className="text-fg-500">Итого если бы по матрице</div><div className="font-medium text-fg-200 tabnum">{money(r.plan)}</div></div>
-                          <div><div className="text-fg-500">Разница</div><div className="font-medium text-warn tabnum">{(r.delta >= 0 ? '+' : '') + money(r.delta)}</div></div>
+                          <div><div className="text-fg-500">Разница</div><div className="font-medium text-warn tabnum">{money(r.delta)}</div></div>
                         </div>
                         <button
                           onClick={() => exportRestaurant(r)}
@@ -244,8 +244,8 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                                 <td className="truncate px-2 py-1.5 text-center tabnum text-fg-200" title={money(it.unit)}>{money(it.unit)}</td>
                                 <td className="truncate px-2 py-1.5 text-center tabnum text-fg-400" title={money(it.plan)}>{money(it.plan)}</td>
                                 <td className="truncate px-2 py-1.5 text-center tabnum text-fg-200" title={money(it.fact)}>{money(it.fact)}</td>
-                                <td className="truncate px-2 py-1.5 text-center tabnum font-semibold text-warn" title={(it.delta >= 0 ? '+' : '') + money(it.delta)}>
-                                  {(it.delta >= 0 ? '+' : '') + money(it.delta)}
+                                <td className="truncate px-2 py-1.5 text-center tabnum font-semibold text-warn" title={money(it.delta)}>
+                                  {money(it.delta)}
                                 </td>
                               </tr>
                             ))}
