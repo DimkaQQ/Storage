@@ -2,8 +2,9 @@ import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from 'reac
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
-import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, IPin, ILayers } from './components/icons'
+import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, ILayers } from './components/icons'
 import ScopePicker from './components/ScopePicker'
+import CityPicker from './components/CityPicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
 import PeriodPicker from './components/PeriodPicker'
@@ -49,7 +50,7 @@ export default function App() {
     if (mainRef.current) mainRef.current.scrollTop = scrollPositions.current.get(page) ?? 0
   }, [page])
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
-  const [cityFilter, setCityFilter] = useState<string | null>(null) // null = all cities
+  const [cityFilter, setCityFilter] = useState<Set<string>>(new Set()) // empty = all cities (мультивыбор)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
   const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError } = useEdits()
   const { user, logout } = useAuth()
@@ -58,20 +59,22 @@ export default function App() {
   const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city))].sort(), [restaurants])
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
   const venuesInCity = useMemo(
-    () => (cityFilter ? restaurants.filter((r) => r.city === cityFilter) : restaurants),
+    () => (cityFilter.size > 0 ? restaurants.filter((r) => cityFilter.has(r.city)) : restaurants),
     [restaurants, cityFilter],
   )
 
   const rows = useMemo(() => {
     let r = allRows
     if (categoryFilter) r = r.filter((x) => x.category === categoryFilter)
-    if (cityFilter) r = r.filter((x) => x.city === cityFilter)
+    if (cityFilter.size > 0) r = r.filter((x) => cityFilter.has(x.city))
     if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
     return r
   }, [allRows, categoryFilter, cityFilter, scope])
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
-  const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
+  // Смена городов чистит выбор точек — иначе в наборе могли бы остаться
+  // точки из снятого с фильтра города.
+  const pickCities = (s: Set<string>) => { setCityFilter(s); setScope(new Set()) }
   // Обзор — специально НЕ использует общий фильтр по городу/точкам (ниже
   // передаём туда allRows, а не отфильтрованный rows): иначе переключение
   // точки/города ради Обзора молча ломало то, что уже было выбрано на
@@ -80,6 +83,9 @@ export default function App() {
   // текущий выбор сверху.
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users' && page !== 'dashboard'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
+  // Тема — слева от фильтров, когда они есть (рядом с заголовком), и в конце
+  // ряда на страницах без фильтров (Справочники/Обзор), чтобы не висела одна.
+  const themeBeforeFilters = showFilters
 
   return (
     <>
@@ -157,20 +163,22 @@ export default function App() {
                 <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
                   {page !== 'dashboard' && (
-                    <> · Город: <span className="text-fg-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span></>
+                    <> · Город: <span className="text-fg-300">{cityFilter.size > 0 ? [...cityFilter].join(', ') : (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span></>
                   )}
                   {page === 'dashboard' && <> · <span className="text-fg-300">вся сеть</span></>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
+                {/* Выбор цветовой схемы — рядом с заголовком страницы (слева от
+                    фильтров), чтобы не мешался в одном ряду с выбором точек. */}
+                {themeBeforeFilters && <ThemePicker />}
                 {showPeriodPicker && <PeriodPicker periods={periods} value={periodKey} onChange={setPeriod} />}
                 {showFilters && categories.length > 1 && (
                   <FilterDropdown label="Категория закупок" icon={ILayers} value={categoryFilter} options={categories} onChange={setCategoryFilter} />
                 )}
                 {showFilters && cities.length > 1 && (
-                  <FilterDropdown label="Город" icon={IPin} value={cityFilter} options={cities} onChange={pickCity} />
+                  <CityPicker options={cities} selected={cityFilter} onChange={pickCities} />
                 )}
-                <ThemePicker />
                 {showFilters && (
                   <ScopePicker
                     options={venuesInCity.map((r) => r.name)}
@@ -178,6 +186,7 @@ export default function App() {
                     onChange={setScope}
                   />
                 )}
+                {!themeBeforeFilters && <ThemePicker />}
               </div>
             </div>
           </header>
