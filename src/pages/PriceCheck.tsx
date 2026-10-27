@@ -26,13 +26,20 @@ function planMoneyOf(r: Row): number | null {
 }
 // Δ = План − Факт (попросили явно развернуть знак): положительная разница —
 // заплатили МЕНЬШЕ плана (экономия), отрицательная — БОЛЬШЕ плана (переплата).
+// «Нет в матрице» тоже минусует: плана нет (0), факт есть — Δ = 0 − факт,
+// например купили пюре на 3500₸, которого вообще нет в матрице → −3500.
+// (Позиции «не по матрице» не трогаем: у них план есть в designatedPlan и
+// дельта считается на Обзоре; здесь бы считалась от нуля и зашумляла.)
 function diffMoneyOf(r: Row): number | null {
-  const f = factMoneyOf(r), p = planMoneyOf(r)
+  const f = factMoneyOf(r)
+  if (r.status === 'nomatrix') return f != null ? -f : null
+  const p = planMoneyOf(r)
   return f != null && p != null ? p - f : null
 }
 function factUnitOf(r: Row): number | null { return r.unit }
 function planUnitOf(r: Row): number | null { return r.plan }
 function diffUnitOf(r: Row): number | null {
+  if (r.status === 'nomatrix') return r.unit != null ? -r.unit : null
   return r.unit != null && r.plan != null ? r.plan - r.unit : null
 }
 
@@ -51,13 +58,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
   // метка (любая из них, не обе сразу) — быстро найти то, что уже
   // разбирали/помечали вручную, без поиска по тексту.
   const [onlyNoted, setOnlyNoted] = useState(false)
-  // «Только расхождения» — скрыть строки, где факт==план (Δ ровно 0): их
-  // объективно не нужно проверять, а по сумме они только засоряют список
-  // между настоящими расхождениями (прямой запрос — "убрать 0, чтобы
-  // проверять только расхождения"). Строки БЕЗ плана/факта (Δ === null —
-  // "Нет в матрице", "Заказ не по матрице", "Не закупали") не трогаем —
-  // это не "ноль", а отдельная, самостоятельная проблема, прятать её сюда
-  // не просили.
+  // «Только расхождения» (фильтр нулей) — скрыть строки, где Δ ровно 0:
+  // факт точно совпал с планом, проверять там нечего, а по сумме такие
+  // строки только засоряют список между настоящими расхождениями (прямой
+  // запрос — "убрать нули, чтобы видеть только расхождения"). Строки БЕЗ
+  // дельты вообще (Δ === null — "Заказ не по матрице", "Не закупали") не
+  // трогаем — это не "ноль", а отдельная проблема. "Нет в матрице" теперь
+  // минусует (Δ = −факт), поэтому под этот фильтр попадает только случай
+  // с нулевой закупкой.
   const [onlyDiff, setOnlyDiff] = useState(false)
   // "Скрыть пустые" — прямой запрос: отдельная, самостоятельная кнопка для
   // строк без факта вообще ("Не закупали" — ни Факта, ни Δ, сравнивать не
@@ -511,7 +519,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
                   <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
                   <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum font-semibold text-fg-300">
-                    {diffVal != null ? (diffVal >= 0 ? '+' : '') + money(diffVal) : <span className="text-fg-600">—</span>}
+                    {diffVal != null ? money(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
                   {/* Статус — всегда одна строка (бейдж, без второй строки с
                       подсказкой под ним, как было раньше): высота строки

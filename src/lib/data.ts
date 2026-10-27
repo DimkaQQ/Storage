@@ -1261,6 +1261,23 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   // без пересинка. "Балончики" — именно так, с одной "л", как реально
   // написано в iiko (опечатка в их названии, не в нашем списке).
   const EXCLUDED_PRODUCTS = new Set(['балончики для сифона'].map(norm))
+  // Конкретная позиция убрана по просьбе человека: "ИП \"Фруктовый рай\" /
+  // Зеленый мир" — Фрукты/овощи/зелень. У этого поставщика в матрице есть
+  // прайсованные мясные позиции, поэтому он сам по себе НЕ в
+  // EXCLUDED_SUPPLIERS и его ad-hoc закупки (голое "Фрукты, овощи")
+  // проходили через фильтр выше как «Нет в матрице». Здесь убирается ровно
+  // эта одна строка — остальные позиции того же поставщика не трогаем.
+  // Название в программе — «ИП Лайм / Зеленый мир» (в прошлый раз был
+  // добавлен вариант «ИП "Фруктовый рай" / Зеленый мир» — оставляем оба).
+  // Кавычки нормализатор не убирает, поэтому сравниваем по канону без них.
+  const stripQuotes = (s: string) => s.replace(/["«»"'`]/g, '')
+  const exclPair = (s: string, p: string) => `${stripQuotes(norm(s))}::${norm(p)}`
+  const EXCLUDED_PAIRS = new Set([
+    ['ип "фруктовый рай" / зеленый мир', 'фрукты, овощи'],
+    ['ип "фруктовый рай" / зеленый мир', 'фрукты овощи'],
+    ['ип лайм / зеленый мир', 'фрукты, овощи'],
+    ['ип лайм / зеленый мир', 'фрукты овощи'],
+  ].map(([s, p]) => exclPair(s, p)))
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
     if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) {
@@ -1268,6 +1285,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       if (!pairKeysWithMatrix.has(pairKey)) return false
     }
     if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
+    if (EXCLUDED_PAIRS.has(exclPair(b.supplier0, b.product0)) || EXCLUDED_PAIRS.has(exclPair(canon, b.product0))) return false
     return true
   })
   const designatedIndex = buildDesignatedIndex(matching)
