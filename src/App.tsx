@@ -63,19 +63,16 @@ export default function App() {
     [restaurants, cityFilter],
   )
 
-  // Город и точки — фильтры ТОЛЬКО «Проверки цен»: Обзор всегда считается
-  // по всей сети (на нём эти пикеры не показываем, см. шапку ниже), поэтому
-  // здесь они применяются только когда открыта страница pricecheck.
-  const scoped = page === 'pricecheck'
+  // Пикиры города и точек показываются только на «Проверке цен» (см. шапку
+  // ниже), но выбранные там значения действуют на обе страницы: Обзор
+  // пересчитывается по тем же городу/точкам.
   const rows = useMemo(() => {
     let r = allRows
     if (categoryFilter) r = r.filter((x) => x.category === categoryFilter)
-    if (scoped) {
-      if (cityFilter) r = r.filter((x) => x.city === cityFilter)
-      if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
-    }
+    if (cityFilter) r = r.filter((x) => x.city === cityFilter)
+    if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
     return r
-  }, [allRows, categoryFilter, cityFilter, scope, scoped])
+  }, [allRows, categoryFilter, cityFilter, scope])
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
   // Смена города чистит выбор точек — иначе в наборе могли бы остаться
