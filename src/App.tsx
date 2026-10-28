@@ -63,21 +63,28 @@ export default function App() {
     [restaurants, cityFilter],
   )
 
+  // Город и точки — фильтры ТОЛЬКО «Проверки цен»: Обзор всегда считается
+  // по всей сети (на нём эти пикеры не показываем, см. шапку ниже), поэтому
+  // здесь они применяются только когда открыта страница pricecheck.
+  const scoped = page === 'pricecheck'
   const rows = useMemo(() => {
     let r = allRows
     if (categoryFilter) r = r.filter((x) => x.category === categoryFilter)
-    if (cityFilter) r = r.filter((x) => x.city === cityFilter)
-    if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
+    if (scoped) {
+      if (cityFilter) r = r.filter((x) => x.city === cityFilter)
+      if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
+    }
     return r
-  }, [allRows, categoryFilter, cityFilter, scope])
+  }, [allRows, categoryFilter, cityFilter, scope, scoped])
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
   // Смена города чистит выбор точек — иначе в наборе могли бы остаться
   // точки из снятого с фильтра города.
   const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
-  // Фильтры (период/категория/город/точки) теперь общие для Обзора и
-  // Проверки цен: обе страницы получают одинаковый набор `rows`.
+  // Период и категория доступны на Обзоре и Проверке цен; город и точки —
+  // только на Проверке цен (просили убрать их с Обзора).
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
+  const showScopeFilters = page === 'pricecheck'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
   // Тема — слева от фильтров, когда они есть (рядом с заголовком), и в конце
   // ряда на страницах без фильтров (Справочники), чтобы не висела одна.
@@ -158,7 +165,7 @@ export default function App() {
                 <h1 className="text-lg font-bold text-fg-50">{nav.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
-                  {showFilters && (
+                  {showScopeFilters && (
                     <> · Город: <span className="text-fg-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span></>
                   )}
                 </p>
@@ -171,10 +178,10 @@ export default function App() {
                 {showFilters && categories.length > 1 && (
                   <FilterDropdown label="Категория закупок" icon={ILayers} value={categoryFilter} options={categories} onChange={setCategoryFilter} />
                 )}
-                {showFilters && cities.length > 1 && (
+                {showScopeFilters && cities.length > 1 && (
                   <CityPicker options={cities} selected={cityFilter} onChange={pickCity} />
                 )}
-                {showFilters && (
+                {showScopeFilters && (
                   <ScopePicker
                     options={venuesInCity.map((r) => r.name)}
                     selected={scope}
