@@ -4,7 +4,6 @@ import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
 import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, ILayers } from './components/icons'
 import ScopePicker from './components/ScopePicker'
-import CityPicker from './components/CityPicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
 import PeriodPicker from './components/PeriodPicker'
@@ -49,39 +48,50 @@ export default function App() {
   useLayoutEffect(() => {
     if (mainRef.current) mainRef.current.scrollTop = scrollPositions.current.get(page) ?? 0
   }, [page])
-  const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
-  const [cityFilter, setCityFilter] = useState<string | null>(null) // null = все города (выбор одного)
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
+  // Фильтры «точки» и «категория» — независимые для каждой вкладки:
+  // Обзор показывает свой срез, Проверка цен — свой. Период при этом
+  // общий (датасет грузится с сервера под период).
+  const [scopeByPage, setScopeByPage] = useState<{ dashboard: Set<string>; pricecheck: Set<string> }>({
+    dashboard: new Set(),
+    pricecheck: new Set(),
+  })
+  const [categoryByPage, setCategoryByPage] = useState<{ dashboard: string | null; pricecheck: string | null }>({
+    dashboard: null,
+    pricecheck: null,
+  })
   const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
-  const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city))].sort(), [restaurants])
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
-  const venuesInCity = useMemo(
-    () => (cityFilter ? restaurants.filter((r) => r.city === cityFilter) : restaurants),
-    [restaurants, cityFilter],
-  )
 
-  // Пикиры города и точек показываются только на «Проверке цен» (см. шапку
-  // ниже), но выбранные там значения действуют на обе страницы: Обзор
-  // пересчитывается по тем же городу/точкам.
-  const rows = useMemo(() => {
-    let r = allRows
-    if (categoryFilter) r = r.filter((x) => x.category === categoryFilter)
-    if (cityFilter) r = r.filter((x) => x.city === cityFilter)
+  const applySlice = (rows: typeof allRows, category: string | null, scope: Set<string>) => {
+    let r = rows
+    if (category) r = r.filter((x) => x.category === category)
     if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
     return r
-  }, [allRows, categoryFilter, cityFilter, scope])
+  }
+
+  const dashboardRows = useMemo(
+    () => applySlice(allRows, categoryByPage.dashboard, scopeByPage.dashboard),
+    [allRows, categoryByPage.dashboard, scopeByPage.dashboard],
+  )
+  const priceCheckRows = useMemo(
+    () => applySlice(allRows, categoryByPage.pricecheck, scopeByPage.pricecheck),
+    [allRows, categoryByPage.pricecheck, scopeByPage.pricecheck],
+  )
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
-  // Смена города чистит выбор точек — иначе в наборе могли бы остаться
-  // точки из снятого с фильтра города.
-  const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
-  // Период и категория доступны на Обзоре и Проверке цен; город и точки —
-  // только на Проверке цен (просили убрать их с Обзора).
+  // Пикеры в шапке читают/пишут состояние ТЕКУЩЕЙ открытой вкладки.
+  const activePage: 'dashboard' | 'pricecheck' = page === 'pricecheck' ? 'pricecheck' : 'dashboard'
+  const activeScope = scopeByPage[activePage]
+  const setActiveScope = (s: Set<string>) => setScopeByPage((prev) => ({ ...prev, [activePage]: s }))
+  const activeCategory = categoryByPage[activePage]
+  const setActiveCategory = (c: string | null) => setCategoryByPage((prev) => ({ ...prev, [activePage]: c }))
+
+  // Период и категория доступны на Обзоре и Проверке цен; точки —
+  // тоже на этих двух страницах (города больше не фильтруем нигде).
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
-  const showScopeFilters = page === 'pricecheck'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
   // Тема — слева от фильтров, когда они есть (рядом с заголовком), и в конце
   // ряда на страницах без фильтров (Справочники), чтобы не висела одна.
@@ -162,9 +172,6 @@ export default function App() {
                 <h1 className="text-lg font-bold text-fg-50">{nav.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
-                  {showScopeFilters && (
-                    <> · Город: <span className="text-fg-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span></>
-                  )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -173,16 +180,13 @@ export default function App() {
                 {themeBeforeFilters && <ThemePicker />}
                 {showPeriodPicker && <PeriodPicker periods={periods} value={periodKey} onChange={setPeriod} />}
                 {showFilters && categories.length > 1 && (
-                  <FilterDropdown label="Категория закупок" icon={ILayers} value={categoryFilter} options={categories} onChange={setCategoryFilter} />
+                  <FilterDropdown label="Категория закупок" icon={ILayers} value={activeCategory} options={categories} onChange={setActiveCategory} />
                 )}
-                {showScopeFilters && cities.length > 1 && (
-                  <CityPicker options={cities} selected={cityFilter} onChange={pickCity} />
-                )}
-                {showScopeFilters && (
+                {showFilters && (
                   <ScopePicker
-                    options={venuesInCity.map((r) => r.name)}
-                    selected={scope}
-                    onChange={setScope}
+                    options={restaurants.map((r) => r.name)}
+                    selected={activeScope}
+                    onChange={setActiveScope}
                   />
                 )}
                 {!themeBeforeFilters && <ThemePicker />}
@@ -198,8 +202,8 @@ export default function App() {
             {visited.map((id) => (
               <div key={id} style={{ display: page === id ? 'block' : 'none' }} className={page === id ? 'animate-fade-in' : undefined}>
                 <Suspense fallback={<PageLoading />}>
-                  {id === 'dashboard' && <Dashboard rows={rows} onNav={(p) => goTo(p as PageId)} />}
-                  {id === 'pricecheck' && <PriceCheck rows={rows} />}
+                  {id === 'dashboard' && <Dashboard rows={dashboardRows} onNav={(p) => goTo(p as PageId)} />}
+                  {id === 'pricecheck' && <PriceCheck rows={priceCheckRows} />}
                   {id === 'data' && <DataEditor />}
                   {id === 'iiko' && <IikoSettings />}
                   {id === 'users' && <UsersAdmin />}
