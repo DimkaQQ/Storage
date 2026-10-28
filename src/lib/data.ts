@@ -1809,6 +1809,9 @@ const nfMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 export const fmt = (n: number) => nf.format(Math.round(n))
 export const fmt1 = (n: number) => nf1.format(n)
 export const money = (n: number) => nfMoney.format(n) + ' ₸'
+// Дельты/разницы: у положительных явно ставим «+», чтобы при беглом взгляде
+// было видно знак (в ru-RU минус и так есть, плюс Intl не добавляет).
+export const signedMoney = (n: number) => (n > 0 ? '+' : '') + money(n)
 export const pct = (n: number) => (n >= 0 ? '+' : '') + nf1.format(n * 100) + '%'
 
 /** Russian plural selector: plural(n, 'правка', 'правки', 'правок'). */
