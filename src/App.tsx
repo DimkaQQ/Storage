@@ -4,7 +4,6 @@ import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
 import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, ILayers } from './components/icons'
 import ScopePicker from './components/ScopePicker'
-import CityPicker from './components/CityPicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
 import PeriodPicker from './components/PeriodPicker'
@@ -50,38 +49,26 @@ export default function App() {
     if (mainRef.current) mainRef.current.scrollTop = scrollPositions.current.get(page) ?? 0
   }, [page])
   const [scope, setScope] = useState<Set<string>>(new Set()) // empty = all (consolidated)
-  const [cityFilter, setCityFilter] = useState<string | null>(null) // null = все города (выбор одного)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null) // null = all categories
   const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
-  const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city))].sort(), [restaurants])
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
-  const venuesInCity = useMemo(
-    () => (cityFilter ? restaurants.filter((r) => r.city === cityFilter) : restaurants),
-    [restaurants, cityFilter],
-  )
 
-  // Пикиры города и точек показываются только на «Проверке цен» (см. шапку
-  // ниже), но выбранные там значения действуют на обе страницы: Обзор
-  // пересчитывается по тем же городу/точкам.
+  // Выбор точек доступен на Обзоре и Проверке цен; выбранные точки
+  // действуют на обе страницы: Обзор пересчитывается по тем же точкам.
   const rows = useMemo(() => {
     let r = allRows
     if (categoryFilter) r = r.filter((x) => x.category === categoryFilter)
-    if (cityFilter) r = r.filter((x) => x.city === cityFilter)
     if (scope.size > 0) r = r.filter((x) => scope.has(x.restaurant))
     return r
-  }, [allRows, categoryFilter, cityFilter, scope])
+  }, [allRows, categoryFilter, scope])
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
-  // Смена города чистит выбор точек — иначе в наборе могли бы остаться
-  // точки из снятого с фильтра города.
-  const pickCity = (c: string | null) => { setCityFilter(c); setScope(new Set()) }
-  // Период и категория доступны на Обзоре и Проверке цен; город и точки —
-  // только на Проверке цен (просили убрать их с Обзора).
+  // Период и категория доступны на Обзоре и Проверке цен; точки —
+  // тоже на этих двух страницах (города больше не фильтруем нигде).
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
-  const showScopeFilters = page === 'pricecheck'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
   // Тема — слева от фильтров, когда они есть (рядом с заголовком), и в конце
   // ряда на страницах без фильтров (Справочники), чтобы не висела одна.
@@ -162,9 +149,6 @@ export default function App() {
                 <h1 className="text-lg font-bold text-fg-50">{nav.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
-                  {showScopeFilters && (
-                    <> · Город: <span className="text-fg-300">{cityFilter ?? (cities.length > 1 ? 'все' : cities[0] ?? 'все')}</span></>
-                  )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -175,12 +159,9 @@ export default function App() {
                 {showFilters && categories.length > 1 && (
                   <FilterDropdown label="Категория закупок" icon={ILayers} value={categoryFilter} options={categories} onChange={setCategoryFilter} />
                 )}
-                {showScopeFilters && cities.length > 1 && (
-                  <CityPicker options={cities} selected={cityFilter} onChange={pickCity} />
-                )}
-                {showScopeFilters && (
+                {showFilters && (
                   <ScopePicker
-                    options={venuesInCity.map((r) => r.name)}
+                    options={restaurants.map((r) => r.name)}
                     selected={scope}
                     onChange={setScope}
                   />
