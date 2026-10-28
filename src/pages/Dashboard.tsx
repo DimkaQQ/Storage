@@ -147,7 +147,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
     <div className="space-y-6">
       {/* KPI row */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard delay={0} label="Позиций проверено" info="Все закупленные позиции за период по выбранным точкам." value={fmt(s.positions)} accent="brand" icon={<IStore width={16} height={16} />} />
+        <StatCard delay={0} label="Позиций проверено" info="Все закупленные позиции за период по всем точкам сети." value={fmt(s.positions)} accent="brand" icon={<IStore width={16} height={16} />} />
         <StatCard delay={60} label="По матрице" info="Доля позиций, для которых нашлась плановая цена у назначенного поставщика." value={pct(s.matchRate).replace('+', '')} sub={`${fmt(s.matched)} из ${fmt(s.positions)}`} accent="good" icon={<ICheck width={16} height={16} />} />
         <StatCard delay={120} label="Заказ не по матрице" info="Товар есть в матрице для этой точки, но куплен не у назначенного поставщика." value={fmt(s.wrongSupplierCount)} accent="warn" icon={<IScale width={16} height={16} />} />
         <StatCard delay={180} label="Нет в матрице" infoAlign="right" info="Товара нет в плановой матрице ни у одного поставщика для этой точки." value={fmt(s.noMatrixCount)} accent="warn" icon={<IScale width={16} height={16} />} />
