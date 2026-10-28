@@ -1,6 +1,6 @@
 import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, pct, fmt, summarize, norm, capitalize } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, signedMoney, pct, fmt, summarize, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { useClickOutside } from '../lib/hooks'
 import { StatusBadge, InfoTip } from '../components/ui'
@@ -518,8 +518,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                   </td>
                   <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
                   <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
-                  <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum font-semibold text-fg-300">
-                    {diffVal != null ? money(diffVal) : <span className="text-fg-600">—</span>}
+                  <td className={`td overflow-hidden whitespace-nowrap text-center text-xs tabnum font-semibold ${diffVal != null && diffVal > 0 ? 'text-good' : 'text-fg-300'}`}>
+                    {diffVal != null ? signedMoney(diffVal) : <span className="text-fg-600">—</span>}
                   </td>
                   {/* Статус — всегда одна строка (бейдж, без второй строки с
                       подсказкой под ним, как было раньше): высота строки
