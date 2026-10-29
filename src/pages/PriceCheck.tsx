@@ -43,6 +43,14 @@ function diffUnitOf(r: Row): number | null {
   return r.unit != null && r.plan != null ? r.plan - r.unit : null
 }
 
+// План и разница варианта (Row.variants) с той же закупкой — один расчёт для
+// экрана и для Excel, чтобы они не расходились.
+function variantPlanDiff(r: Row, price: number, moneyMode: boolean): { plan: number; diff: number | null } {
+  const plan = moneyMode && r.unit != null ? price * r.qty : price
+  const fact = moneyMode ? factMoneyOf(r) : factUnitOf(r)
+  return { plan, diff: fact != null ? plan - fact : null }
+}
+
 const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'ok', label: 'По матрице' },
   { id: 'wrongSupplier', label: 'Заказ не по матрице' },
@@ -319,13 +327,23 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     // периодов подряд (ровно так один раз перепутали июнь/июль), а строка
     // внутри самой таблицы остаётся видна, даже если файл переименовали.
     const modeLabel = moneyMode ? 'деньги' : 'тенге за 1кг'
-    const title = [`Проверка цен — ${period} (${modeLabel})`]
+    const title = [`Проверка цен — ${period} (${modeLabel}). Строки «└» — варианты из матрицы к строке выше, в итоги не входят`]
     const head = ['Ресторан', 'Поставщик', 'Товар', 'Фасовка', 'Количество', `План (${modeLabel})`, `Факт (${modeLabel})`, 'Δ', 'Статус', 'Должны у', 'Заметка']
-    const lines = filtered.map((r) => [
-      r.restaurant, r.supplier, r.product, r.pack, r.qty,
-      planOf(r) ?? '', factOf(r) ?? '', diffOf(r) ?? '',
-      STATUS_META[r.status].label, r.designatedSuppliers.join(', '), r.userComment ?? '',
-    ])
+    // Варианты одной пары (Row.variants) — отдельными строками "└" сразу под
+    // основной, как и на экране: тот же бренд/цена/разница, в итоги не входят.
+    const lines = filtered.flatMap((r) => {
+      const main = [
+        r.restaurant, r.supplier, r.product, r.pack, r.qty,
+        planOf(r) ?? '', factOf(r) ?? '', diffOf(r) ?? '',
+        STATUS_META[r.status].label, r.designatedSuppliers.join(', '), r.userComment ?? '',
+      ]
+      const vs = r.variants && r.variants.length > 1 ? r.variants : []
+      const sub = vs.map((v, i) => {
+        const { plan, diff } = variantPlanDiff(r, v.price, moneyMode)
+        return [r.restaurant, r.supplier, `└ ${v.label ?? 'вариант без описания'}`, '', '', plan, '', diff ?? '', `вариант ${i + 1} из ${vs.length}`, '', '']
+      })
+      return [main, ...sub]
+    })
     const ws = XLSX.utils.aoa_to_sheet([title, head, ...lines])
     ws['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 24 }, { wch: 28 }]
     const wb = XLSX.utils.book_new()
@@ -445,8 +463,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 // Это только отображение, в rows/итоги они не входят.
                 const vs = r.variants && r.variants.length > 1 ? r.variants : null
                 const variantRows = vs ? vs.map((v, i) => {
-                  const vPlan = moneyMode && r.unit != null ? v.price * r.qty : v.price
-                  const vDiff = factVal != null ? vPlan - factVal : null
+                  const { plan: vPlan, diff: vDiff } = variantPlanDiff(r, v.price, moneyMode)
                   return (
                     <tr key={`${r.id}-v${i}`} className={`text-fg-400 ${colorMeta ? colorMeta.rowBg : 'bg-ink-900/30'}`}>
                       <td className="td" />
