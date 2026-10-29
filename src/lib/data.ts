@@ -1219,6 +1219,31 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
   return result
 }
 
+const stripQuotes = (s: string) => s.replace(/["«»"'`]/g, '').replace(/ё/g, 'е')
+// И ключ (список ниже), и значение (строка закупки) нормализуются одинаково:
+// кавычки убираем с ОБЕИХ сторон. Без этого «ИП "Фруктовый рай" / Зеленый
+// мир» в списке никогда не совпадалось с реальным именем из iiko — фильтр
+// молча не срабатывал (живой баг: строка оставалась видна).
+// Товар нормализуем жёстче: запятые тоже выкидываем и сжимаем пробелы —
+// иначе «Фрукты, овощи» и «Фрукты овощи» это два разных ключа.
+const exclProduct = (p: string) => stripQuotes(norm(p)).replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
+// [часть названия поставщика, товар] — вручную подтверждённые голые строки
+// "Фрукты/овощи/зелень" без iiko-названия и цены (ad-hoc закупки). Поставщик
+// сравнивается по вхождению (канон бывает длинным, "ИП Азык Жасулан ИП Azik
+// Trade"), товар — точно после exclProduct. Используется и в Проверке цен
+// (computeRows), и в Справочниках → "Без названия в iiko".
+const EXCLUDED_PAIRS: [string, string][] = ([
+  ['ип "фруктовый рай" / зеленый мир', 'фрукты овощи'],
+  ['ип "фруктовый рай" / зеленый мир', 'фрукты овощи зелень'],
+  ['ип лайм / зеленый мир', 'фрукты овощи'],
+  ['ип лайм / зеленый мир', 'фрукты овощи зелень'],
+  ['азык жасулан', 'овощи фрукты зелень ягода свежая в ассортименте'],
+] as [string, string][]).map(([s, p]) => [stripQuotes(norm(s)), exclProduct(p)])
+export const isExcludedPair = (supplier: string, product: string) => {
+  const sup = stripQuotes(norm(supplier)), prod = exclProduct(product)
+  return EXCLUDED_PAIRS.some(([s, p]) => p === prod && sup.includes(s))
+}
+
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = []): Row[] {
   const matching = scopedMatching(matchingIn)
@@ -1269,23 +1294,8 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   // эта одна строка — остальные позиции того же поставщика не трогаем.
   // Название в программе — «ИП Лайм / Зеленый мир» (в прошлый раз был
   // добавлен вариант «ИП "Фруктовый рай" / Зеленый мир» — оставляем оба).
-  // Кавычки нормализатор не убирает, поэтому сравниваем по канону без них.
-  const stripQuotes = (s: string) => s.replace(/["«»"'`]/g, '')
-  // И ключ (список ниже), и значение (строка закупки) нормализуются одинаково:
-  // кавычки убираем с ОБЕИХ сторон. Без этого «ИП "Фруктовый рай" / Зеленый
-  // мир» в списке никогда не совпадалось с реальным именем из iiko — фильтр
-  // молча не срабатывал (живой баг: строка оставалась видна).
-  // Товар нормализуем жёстче ключа: запятые тоже выкидываем и сжимаем
-  // пробелы — иначе «Фрукты, овощи» и «Фрукты овощи» это два разных ключа,
-  // и малейшее расхождение пунктуации в iiko ломает совпадение.
-  const exclProduct = (p: string) => stripQuotes(norm(p)).replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
-  const EXCLUDED_PAIRS = new Set([
-    ['ип "фруктовый рай" / зеленый мир', 'фрукты овощи'],
-    ['ип "фруктовый рай" / зеленый мир', 'фрукты овощи зелень'],
-    ['ип лайм / зеленый мир', 'фрукты овощи'],
-    ['ип лайм / зеленый мир', 'фрукты овощи зелень'],
-  ].map(([s, p]) => `${stripQuotes(norm(s))}::${exclProduct(p)}`))
-  const isExcludedPair = (supplier: string, product: string) => EXCLUDED_PAIRS.has(`${stripQuotes(norm(supplier))}::${exclProduct(product)}`)
+  // Список пар и сравнение — EXCLUDED_PAIRS/isExcludedPair выше (module-level,
+  // общие с Справочниками); кавычки и ё там нормализуются с обеих сторон.
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
     if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) {

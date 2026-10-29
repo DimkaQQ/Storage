@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { fmt, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor } from '../lib/data'
+import { fmt, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { syncMatrix } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
@@ -550,6 +550,7 @@ export default function DataEditor() {
       if (editorRestaurant && restaurant !== editorRestaurant) continue
       const supplier = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
       const description = m.productLabels[key] ?? ''
+      if (isExcludedPair(supplier, description) || isExcludedPair(supplierNorm, description)) continue
       if (needle && !restaurant.toLowerCase().includes(needle) && !supplier.toLowerCase().includes(needle) &&
         !description.toLowerCase().includes(needle)) continue
       const price = m.planPairsByPack[key] ?? m.planPairs[key] ?? null
