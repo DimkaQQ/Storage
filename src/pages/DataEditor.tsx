@@ -217,6 +217,16 @@ export default function DataEditor() {
     }
     return out
   }, [realMatching, restaurants])
+  // Вкладки матрицы выбранного города (Алматы — основная таблица, Астана — отдельная):
+  // norm-имя -> название вкладки как на самой вкладке. Без tabsByTarget (матрицу ещё не
+  // синкали после обновления) — все известные вкладки.
+  const tabsOf = (city: string): Map<string, string> => {
+    const list = realMatching.tabsByTarget?.[city === 'Астана' ? 'astana' : 'almaty']
+    if (!list) return matrixNames
+    const out = new Map<string, string>()
+    for (const n of list) if (matrixNames.has(norm(n))) out.set(norm(n), matrixNames.get(norm(n)) as string)
+    return out
+  }
 
   // Товары — теперь строятся ОТ МАТРИЦЫ, а не от закупок iiko: раньше шли
   // от факта покупки и искали его в матрице по точному совпадению текста;
@@ -1002,10 +1012,10 @@ export default function DataEditor() {
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-[20%]">Основное название <InfoTip text="Название точки, по которому закупки из iiko сопоставлены с вкладкой матрицы. Это не сырое название склада в iiko (там, например, «Кухня склад Олово(Olovo1-Satpaeva)»): сервер сам приводит складские названия к основному по таблице в коде. Здесь не редактируется." /></th>
+                  <th className="th w-[20%]">Основное название <InfoTip text="Название склада точки ровно как оно пришло из iiko (никакого списка названий в коде нет). По нему закупки привязаны к точке; здесь не редактируется. Дальше выберите город и вкладку матрицы этой точки." /></th>
                   <th className="th w-[20%]">Название у нас <InfoTip text="Как точка будет называться в этом приложении (Обзор, Проверка цен, выбор точек, Excel). Влияет только на подпись — закупки и матрица по-прежнему привязаны к основному названию. Пока не задано — подписью служит название выбранной вкладки матрицы (или основное название, если вкладка не выбрана)." /></th>
-                  <th className="th w-[22%]">Вкладка матрицы <InfoTip text="С какой вкладкой Google-таблицы сверяются закупки этой точки. Если название точки из iiko совпало с названием вкладки — выбрана сама. Для нового ресторана выберите его вкладку из списка (все вкладки таблицы читаются при синке матрицы) — дальше закупки и план тянутся по ней, товары и поставщики проставляются во вкладке «Товары»." /></th>
-                  <th className="th w-[10%]">Город</th>
+                  <th className="th w-[12%]">Город <InfoTip text="Алматы или Астана — в списке вкладок справа показываются вкладки таблицы этого города (Алматы — основная таблица, Астана — отдельная)." /></th>
+                  <th className="th w-[22%]">Вкладка матрицы <InfoTip text="С какой вкладкой Google-таблицы сверяются закупки этой точки — названия ровно такие, как на вкладках загруженной матрицы. Если название точки совпало с названием вкладки — выбрана сама; иначе выберите вручную. Дальше закупки и план тянутся по этой вкладке, товары и поставщики проставляются во вкладке «Товары»." /></th>
                   <th className="th w-[14%]">Юрлицо</th>
                   <th className="th w-[10%]">Категория</th>
                 </tr>
@@ -1142,8 +1152,18 @@ export default function DataEditor() {
                         setVenue(r.name, { alias: next })
                       }} className="max-w-[220px]" /></td>
                       <td className="td">
+                        <select
+                          value={r.city === 'Астана' ? 'Астана' : 'Алматы'}
+                          onChange={(e) => setVenue(r.name, { city: e.target.value, matrix: '' })}
+                          className="w-full max-w-[110px] rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
+                        >
+                          <option value="Алматы">Алматы</option>
+                          <option value="Астана">Астана</option>
+                        </select>
+                      </td>
+                      <td className="td">
                         {(() => {
-                          const auto = matrixNames.get(norm(r.name))
+                          const auto = tabsOf(r.city).get(norm(r.name))
                           const value = r.matrix ?? auto ?? ''
                           return (
                             <select
@@ -1156,12 +1176,11 @@ export default function DataEditor() {
                               title={value ? undefined : 'Эта точка пока не привязана ни к одной вкладке матрицы — закупки будут «Нет в матрице»'}
                             >
                               {!value && <option value="">— выберите вкладку —</option>}
-                              {[...new Set([...matrixNames.values(), ...(value ? [value] : [])])].sort((a, b) => a.localeCompare(b)).map((n) => <option key={n} value={n}>{n}</option>)}
+                              {[...new Set([...tabsOf(r.city).values(), ...(value ? [value] : [])])].sort((a, b) => a.localeCompare(b)).map((n) => <option key={n} value={n}>{n}</option>)}
                             </select>
                           )
                         })()}
                       </td>
-                      <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[140px]" /></td>
                       <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[180px]" /></td>
                       <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[140px]" /></td>
                     </tr>

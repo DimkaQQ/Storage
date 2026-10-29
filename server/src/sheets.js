@@ -34,55 +34,6 @@ export const normPack = (s) => {
   return p
 }
 
-/**
- * Название вкладки в таблице -> название точки, как оно используется в
- * приложении (RESTAURANT_SCOPE/dataset). Ровно как у RESTAURANT_SCOPE в
- * lib/data.ts — соответствие "вкладка -> точка" пришлось сверять руками по
- * реальному файлу (сокращения на вкладках не однозначны, напр. "Pasta 1/2/3"
- * сами по себе не говорят, какой это адрес Pasta la vista). Новая точка —
- * новая строка здесь, руками.
- */
-export const SHEET_TO_RESTAURANT = {
-  'Сирена': 'Сирена',
-  'Olovo1': 'Олово 1 (Сатпаева)',
-  'Olovo2': 'Олово 2 (Достык)',
-  'Renee ': 'Рене',
-  'Pasta 1': 'Pasta la vista (Богенбай)',
-  'Pasta 2': 'Pasta la vista (Гагарина)',
-  'Pasta 3': 'Pasta la vista (Толе би)',
-  'Six 1': 'Six coffee&wine 1',
-  'Le Dome': 'Ле Дом',
-  'Акку': 'Акку',
-  'Six 2': 'Six coffee&wine 2',
-  'Tangirs': 'Tangirs',
-  'ЦФК': 'ЦФК',
-  // Камчатка и French bar — закрыты/не нужны вообще (подтверждено
-  // человеком), сюда их вкладки больше не читаем: их план-цены просто не
-  // нужны, раз сами точки никогда не попадут в датасет (см.
-  // IGNORED_BRAND_CODES в iiko.js).
-}
-
-/**
- * Отдельная таблица (свой googleSheetId, тот же сервисный аккаунт) для
- * точек Астаны — новый город, открылся под теми же брендами, что в Алматы
- * (Tangirs/Six coffee&wine/Pasta la vista), но под другими юрлицами и по
- * другим адресам, так что это отдельные точки, не то же самое, что
- * алматинские рестораны с этими же именами. Названия вкладок — внутренние
- * кодовые обозначения самой таблицы, не бренды; реальный бренд/адрес
- * подтверждён с человеком, а Танж1=Есиль/Танж2=Сарыарка — ещё раз
- * подтверждено реальными кодами складов из отчёта iiko (TNGEC2-Astana у
- * Танж1, TNGAT3-Astana у Танж2, см. resolveStoreRestaurant в iiko.js).
- * Вкладки один раз уже переименовали (были "ТанжEC"/"ТанжS") — если
- * таблица снова переименует вкладки, тут просто правится ключ, значение
- * (название ресторана) остаётся тем же.
- */
-export const SHEET_TO_RESTAURANT_ASTANA = {
-  'Танж1': 'Tangirs (Есиль, Астана)',
-  'Танж2': 'Tangirs (Сарыарка, Астана)',
-  'Сикс': 'Six coffee&wine (Астана)',
-  'Паста': 'Pasta la vista (Астана)',
-}
-
 function parseKey(raw) {
   const key = typeof raw === 'string' ? JSON.parse(raw) : raw
   if (!key?.private_key || !key?.client_email) throw new Error('Ключ сервисного аккаунта неполный (нет private_key/client_email)')
@@ -135,14 +86,13 @@ async function batchGetValues(token, spreadsheetId, ranges) {
   return data.valueRanges || []
 }
 
-export async function testConnection({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT) {
+export async function testConnection({ googleSheetId, googleServiceAccountKey }) {
   try {
     if (!googleSheetId) return { ok: false, message: 'Не указан ID таблицы' }
     if (!googleServiceAccountKey) return { ok: false, message: 'Не указан ключ сервисного аккаунта' }
     const token = await getAccessToken(googleServiceAccountKey)
     const titles = await fetchSheetTitles(token, googleSheetId)
-    const known = titles.filter((t) => sheetToRestaurant[t])
-    return { ok: true, message: `Подключение есть. Вкладок в таблице: ${titles.length}, из них с известным названием точки: ${known.length} (остальные тоже читаются под своим названием).` }
+    return { ok: true, message: `Подключение есть. Вкладок в таблице: ${titles.length} — каждая читается под своим названием.` }
   } catch (e) {
     return { ok: false, message: String(e.message || e) }
   }
@@ -155,25 +105,19 @@ export async function testConnection({ googleSheetId, googleServiceAccountKey },
  * (см. src/lib/data.ts): supplierAlias/planPairs/planPairsByPack/
  * productLabels/noPriceExact.
  *
- * sheetToRestaurant — какую книгу читаем: по умолчанию основная (Алматы,
- * "Сырьё Ф"), либо SHEET_TO_RESTAURANT_ASTANA для отдельной таблицы Астаны
+ * Книга задаётся googleSheetId: основная (Алматы, "Сырьё Ф") либо отдельная таблица Астаны
  * (свой googleSheetId, тот же сервисный аккаунт) — вызывающая сторона
- * (index.js) сама решает, какой googleSheetId и какой маппинг сюда подать.
+ * (index.js) решает, какой googleSheetId сюда подать.
  */
-export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT) {
+export async function syncMatrix({ googleSheetId, googleServiceAccountKey }) {
   const token = await getAccessToken(googleServiceAccountKey)
   const titles = await fetchSheetTitles(token, googleSheetId)
-  // Сканируем ВСЕ вкладки, а не только узнанные по списку: вкладка, которой
-  // нет в sheetToRestaurant (новый ресторан), попадает в матрицу под своим же
-  // названием — дальше в Справочниках → Точки её привязывают к ресторану из
-  // iiko, без правки кода. Узнанные вкладки по-прежнему получают своё
-  // "красивое" основное название из sheetToRestaurant.
-  // Защита от не той таблицы: хотя бы одна вкладка должна быть узнана по
-  // списку (как раньше) — иначе скорее всего указан чужой ID, и каждая его
-  // вкладка стала бы "рестораном". Вкладки с "::" в названии пропускаем —
-  // двоеточия в ключах матрицы зарезервированы.
-  if (!titles.some((t) => sheetToRestaurant[t])) throw new Error('Ни одна вкладка таблицы не узнана — проверьте ID таблицы (ожидаются вкладки с названиями точек, см. SHEET_TO_RESTAURANT в sheets.js)')
+  // Читаем ВСЕ вкладки таблицы, каждая — под своим названием (ровно как оно
+  // написано на вкладке, без зашитого в код списка): дальше в Справочниках →
+  // Точки каждую точку из iiko привязывают к нужной вкладке. Вкладки с "::" в
+  // названии пропускаем — двоеточия в ключах матрицы зарезервированы.
   const sheets = titles.filter((t) => !String(t).includes('::'))
+  if (!sheets.length) throw new Error('В таблице нет подходящих вкладок')
 
   // Без верхней границы по строке (не C3:I5000) — Sheets API читает до
   // конца реальных данных листа. Фиксированный потолок в 5000 строк рос бы
@@ -220,7 +164,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   const restaurantNames = {}
 
   sheets.forEach((title, i) => {
-    const restaurantDisplay = sheetToRestaurant[title] ?? String(title).replace(/\s+/g, ' ').trim()
+    const restaurantDisplay = String(title).replace(/\s+/g, ' ').trim()
     const restaurant = norm(restaurantDisplay)
     const rows = valueRanges[i]?.values || []
     // Свой счётчик на каждую вкладку/ресторан — "первый поставщик этой
@@ -306,7 +250,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
 
   return {
     matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName, restaurantNames },
-    summary: { sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
+    summary: { sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
 
