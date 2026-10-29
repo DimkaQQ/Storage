@@ -1895,11 +1895,18 @@ const nfMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 
 export const fmt = (n: number) => nf.format(Math.round(n))
 export const fmt1 = (n: number) => nf1.format(n)
-export const money = (n: number) => nfMoney.format(n) + ' ₸'
+// Ноль — всегда просто «0»: Intl показывает «-0» для -0.3 (после округления до
+// целых), а «+» у 0.4 дал бы «+0» — людям непонятно, что это значит, поэтому
+// сначала округляем сами и нормализуем знак нуля.
+const isZero = (n: number) => Math.abs(n) < 0.5
+export const money = (n: number) => nfMoney.format(isZero(n) ? 0 : n) + ' ₸'
 // Дельты/разницы: у положительных явно ставим «+», чтобы при беглом взгляде
 // было видно знак (в ru-RU минус и так есть, плюс Intl не добавляет).
-export const signedMoney = (n: number) => (n > 0 ? '+' : '') + money(n)
-export const pct = (n: number) => (n >= 0 ? '+' : '') + nf1.format(n * 100) + '%'
+export const signedMoney = (n: number) => (!isZero(n) && n > 0 ? '+' : '') + money(n)
+export const pct = (n: number) => {
+  const v = Math.round(n * 1000) / 10
+  return (v > 0 ? '+' : '') + nf1.format(v === 0 ? 0 : v) + '%'
+}
 
 /** Russian plural selector: plural(n, 'правка', 'правки', 'правок'). */
 export function plural(n: number, one: string, few: string, many: string) {

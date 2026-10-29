@@ -229,7 +229,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     let r = rows
     if (active.size) r = r.filter((x) => active.has(x.status))
     if (onlyNoted) r = r.filter((x) => x.userComment || x.rowColor)
-    if (onlyDiff) r = r.filter((x) => diffOf(x) !== 0)
+    if (onlyDiff) r = r.filter((x) => { const d = diffOf(x); return d == null || Math.abs(d) >= 0.5 })
     if (hideEmpty) r = r.filter((x) => x.status !== 'notPurchased')
     if (supplierFilter.size) r = r.filter((x) => supplierFilter.has(supplierKeyOf(x)))
     if (productFilter.size) r = r.filter((x) => productFilter.has(productKeyOf(x)))
@@ -411,8 +411,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
             {moneyMode ? 'Общ. сумма закупки' : 'тенге за 1кг'}
           </button>
-          <button onClick={exportExcel} title="Скачать в Excel" className="btn !px-2.5 border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
-            <IDownload width={16} height={16} />
+          <button onClick={exportExcel} title="Скачать в Excel" className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
+            <IDownload width={16} height={16} /> Excel
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -747,8 +747,8 @@ function FiltersMenu({
               on={onlyDiff}
               onClick={() => setOnlyDiff(!onlyDiff)}
               dot="bg-brand-400"
-              label="Только расхождения"
-              title="Скрыть строки, где факт точно совпал с планом (Δ = 0) — проверять только реальные расхождения"
+              label="Убрать все 0 в дельте"
+              title="Скрыть строки, где дельта равна 0 (факт совпал с планом) — останутся только строки с реальной разницей"
             />
             <FilterCheckRow
               on={hideEmpty}
