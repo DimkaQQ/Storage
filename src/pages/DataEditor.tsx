@@ -211,9 +211,12 @@ export default function DataEditor() {
         const n = k.split('::')[0]
         if (!out.has(n)) out.set(n, capitalize(n))
       }
+      // без restaurantNames (матрицу ещё не синкали после обновления) настоящий регистр
+      // известен только у точек приложения — подставляем их написание вместо «Ле дом»/«Цфк»
+      for (const r of restaurants) if (out.has(norm(r.name))) out.set(norm(r.name), r.name)
     }
     return out
-  }, [realMatching])
+  }, [realMatching, restaurants])
 
   // Товары — теперь строятся ОТ МАТРИЦЫ, а не от закупок iiko: раньше шли
   // от факта покупки и искали его в матрице по точному совпадению текста;
