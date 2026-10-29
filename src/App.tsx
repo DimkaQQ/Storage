@@ -68,7 +68,7 @@ export default function App() {
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
 
   const venueLabels = useMemo(
-    () => Object.fromEntries(restaurants.filter((r) => r.alias).map((r) => [r.name, r.alias as string])),
+    () => Object.fromEntries(restaurants.filter((r) => r.alias || r.matrix).map((r) => [r.name, (r.alias || r.matrix) as string])),
     [restaurants],
   )
 

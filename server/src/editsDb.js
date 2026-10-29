@@ -54,6 +54,8 @@ db.exec(`
 try { db.exec("ALTER TABLE product_links ADD COLUMN pack TEXT NOT NULL DEFAULT ''") } catch { /* столбец уже есть */ }
 // Своё название точки (только для этого приложения; iiko-название остаётся ключом).
 try { db.exec('ALTER TABLE venue_overrides ADD COLUMN alias TEXT') } catch { /* столбец уже есть */ }
+// Вкладка матрицы, к которой привязана точка из iiko (основное название вкладки); пусто — по совпадению названий.
+try { db.exec('ALTER TABLE venue_overrides ADD COLUMN matrix TEXT') } catch { /* столбец уже есть */ }
 // Миграция: привязка товара стала учитывать ресторан (ключ теперь
 // "ресторан::поставщик::товар::фасовка") — на уже существующих базах
 // столбца может не быть. Старые строки (без ресторана в ключе) после
@@ -72,13 +74,14 @@ export function getEditsForOrg(orgId) {
   const supplierRenames = Object.fromEntries(
     db.prepare('SELECT original, name FROM supplier_renames WHERE org_id=?').all(orgId).map((r) => [r.original, r.name]))
   const venueOverrides = Object.fromEntries(
-    db.prepare('SELECT restaurant, city, brand, entity, category, alias FROM venue_overrides WHERE org_id=?').all(orgId).map((r) => {
+    db.prepare('SELECT restaurant, city, brand, entity, category, alias, matrix FROM venue_overrides WHERE org_id=?').all(orgId).map((r) => {
       const patch = {}
       if (r.city) patch.city = r.city
       if (r.brand) patch.brand = r.brand
       if (r.entity) patch.entity = r.entity
       if (r.category) patch.category = r.category
       if (r.alias) patch.alias = r.alias
+      if (r.matrix) patch.matrix = r.matrix
       return [r.restaurant, patch]
     }))
   const newVenues = Object.fromEntries(
@@ -158,15 +161,16 @@ export function setVenue(orgId, restaurant, patch) {
   const r = str(restaurant)
   if (!r) return
   const p = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}
-  const row = db.prepare('SELECT city, brand, entity, category, alias FROM venue_overrides WHERE org_id=? AND restaurant=?').get(orgId, r) || {}
+  const row = db.prepare('SELECT city, brand, entity, category, alias, matrix FROM venue_overrides WHERE org_id=? AND restaurant=?').get(orgId, r) || {}
   const merged = { ...row, ...p }
   const city = merged.city || null, brand = merged.brand || null, entity = merged.entity || null, category = merged.category || null
   const alias = typeof merged.alias === 'string' ? merged.alias.trim().slice(0, 100) || null : null
-  if (!city && !brand && !entity && !category && !alias) db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, r)
+  const matrix = typeof merged.matrix === 'string' ? merged.matrix.trim().slice(0, 100) || null : null
+  if (!city && !brand && !entity && !category && !alias && !matrix) db.prepare('DELETE FROM venue_overrides WHERE org_id=? AND restaurant=?').run(orgId, r)
   else db.prepare(`
-    INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category, alias) VALUES (?,?,?,?,?,?,?)
-    ON CONFLICT(org_id, restaurant) DO UPDATE SET city=excluded.city, brand=excluded.brand, entity=excluded.entity, category=excluded.category, alias=excluded.alias
-  `).run(orgId, r, city, brand, entity, category, alias)
+    INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category, alias, matrix) VALUES (?,?,?,?,?,?,?,?)
+    ON CONFLICT(org_id, restaurant) DO UPDATE SET city=excluded.city, brand=excluded.brand, entity=excluded.entity, category=excluded.category, alias=excluded.alias, matrix=excluded.matrix
+  `).run(orgId, r, city, brand, entity, category, alias, matrix)
 }
 
 export function clearVenue(orgId, restaurant) {
@@ -319,9 +323,10 @@ export function replaceAllEdits(orgId, e) {
       const patch = plainObject(patchRaw)
       const city = patch.city || null, brand = patch.brand || null, entity = patch.entity || null, category = patch.category || null
       const alias = typeof patch.alias === 'string' ? patch.alias.trim().slice(0, 100) || null : null
-      if (!city && !brand && !entity && !category && !alias) continue // ничего реально не переопределено — не создавать пустую запись
-      db.prepare('INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category, alias) VALUES (?,?,?,?,?,?,?)')
-        .run(orgId, r, city, brand, entity, category, alias)
+      const matrix = typeof patch.matrix === 'string' ? patch.matrix.trim().slice(0, 100) || null : null
+      if (!city && !brand && !entity && !category && !alias && !matrix) continue // ничего реально не переопределено — не создавать пустую запись
+      db.prepare('INSERT INTO venue_overrides (org_id, restaurant, city, brand, entity, category, alias, matrix) VALUES (?,?,?,?,?,?,?,?)')
+        .run(orgId, r, city, brand, entity, category, alias, matrix)
     }
     for (const name of Object.keys(plainObject(edits.newVenues))) {
       const n = str(name); if (!n) continue

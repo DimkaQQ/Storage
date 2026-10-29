@@ -501,7 +501,15 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
     // явно (Object.values(sheetMap)) — mergeMatching полностью заменяет их
     // данные свежими (строка/цена, которую убрали из таблицы, не должна
     // жить в сторонном matrix.json вечно), не трогая другой город.
-    saveMatrix(orgId, mergeMatching(getMatrix(orgId), matching, Object.values(sheetMap)))
+    // Вкладки, прочитанные в ПРОШЛЫЙ синк этого же города (tabsByTarget), тоже
+    // входят в область замены — иначе вкладка, из которой убрали все строки
+    // (или удалили целиком), не вычищалась бы из matrix.json никогда.
+    const target = astana ? 'astana' : 'almaty'
+    const prev = getMatrix(orgId)
+    const freshNames = Object.values(matching.restaurantNames || {})
+    const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...freshNames, ...(prev?.tabsByTarget?.[target] ?? [])])
+    merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: [...new Set([...(prev?.tabsByTarget?.[target] ?? []), ...freshNames])] }
+    saveMatrix(orgId, merged)
     res.json({ ok: true, target: astana ? 'astana' : 'almaty', ...summary })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })

@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { fmt, plural, norm, normPack, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
+import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { syncMatrix } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
@@ -194,9 +194,26 @@ export default function DataEditor() {
   }, [realMatching])
   const restaurantDisplayByNorm = useMemo(() => {
     const map = new Map<string, string>()
-    for (const r of restaurants) map.set(norm(r.name), r.name)
+    // ключ — название в МАТРИЦЕ (учитывая привязку точки к вкладке), значение — название точки в приложении
+    for (const r of restaurants) map.set(norm(matchRestaurant(edits, r.name)), r.name)
     return map
-  }, [restaurants])
+  }, [restaurants, edits.venueOverrides])
+
+  // Вкладки/рестораны матрицы, которые можно выбрать для привязки точки из
+  // iiko: norm-имя -> основное название. Матрица читает ВСЕ вкладки
+  // таблицы (см. syncMatrix) — новая вкладка сразу появляется в списке. У
+  // ранее синканной матрицы (без restaurantNames) список собираем по ключам.
+  const matrixNames = useMemo(() => {
+    const out = new Map<string, string>()
+    for (const [n, d] of Object.entries(realMatching.restaurantNames ?? {})) out.set(n, d)
+    if (out.size === 0) {
+      for (const k of [...Object.keys(realMatching.planPairs), ...Object.keys(realMatching.planPairsByPack), ...Object.keys(realMatching.noPriceExact)]) {
+        const n = k.split('::')[0]
+        if (!out.has(n)) out.set(n, capitalize(n))
+      }
+    }
+    return out
+  }, [realMatching])
 
   // Товары — теперь строятся ОТ МАТРИЦЫ, а не от закупок iiko: раньше шли
   // от факта покупки и искали его в матрице по точному совпадению текста;
@@ -219,7 +236,7 @@ export default function DataEditor() {
     // RESTAURANT_SCOPE (кэшируется по ссылке на matching, см. data.ts):
     // без этого ниже шёл полный проход по ~4000 ключам всей сети ради
     // ~500 реально нужных, и push() всё равно отбрасывал остальное.
-    const m = scopedMatching(matching)
+    const m = scopedMatching(matching, linkTargets(edits))
     const packBrokenDownPairKeys = new Set(
       Object.keys(m.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
     )
@@ -254,7 +271,7 @@ export default function DataEditor() {
   // автопоисков в этом файле (см. комментарий у realMatching в начале).
   const realMatrixRows = useMemo(() => {
     if (!productsVisited) return [] // нужно только для подсказок в Товарах — не считаем, пока вкладку не открыли
-    const m = scopedMatching(realMatching)
+    const m = scopedMatching(realMatching, linkTargets(edits))
     const packBrokenDownPairKeys = new Set(
       Object.keys(m.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
     )
@@ -498,7 +515,7 @@ export default function DataEditor() {
     for (const r of rows) {
       if (r.unit == null || r.status !== 'nomatrix') continue
       if (editorRestaurant && r.restaurant !== editorRestaurant) continue
-      const supplierCanon = supplierAliasFor(matching, r.restaurant, r.supplier) ?? r.supplier
+      const supplierCanon = supplierAliasFor(matching, matchRestaurant(edits, r.restaurant), r.supplier) ?? r.supplier
       // И сырое название (как в iiko), и каноническое (как в матрице) —
       // переход "Товары →" из Компаний передаёт сюда каноническое, а сам
       // человек может искать и тем и другим текстом.
@@ -506,7 +523,7 @@ export default function DataEditor() {
         !supplierCanon.toLowerCase().includes(needle) &&
         !r.productRaw.toLowerCase().includes(needle) && !(r.pack || '').toLowerCase().includes(needle)) continue
       const supplierNorm = norm(supplierCanon)
-      const key = `${norm(r.restaurant)}::${supplierNorm}::${norm(r.productRaw)}::${r.pack ? normPack(r.pack) : ''}`
+      const key = `${norm(matchRestaurant(edits, r.restaurant))}::${supplierNorm}::${norm(r.productRaw)}::${r.pack ? normPack(r.pack) : ''}`
       let g = groups.get(key)
       // note — та же подсказка, что resolveRowPlan уже готовит (у поставщика
       // есть цена по другой фасовке, но она не совпала) — объясняет, ПОЧЕМУ
@@ -523,7 +540,7 @@ export default function DataEditor() {
       g.count++
     }
     return [...groups.values()]
-  }, [rows, matching, editorRestaurant, needle])
+  }, [rows, matching, editorRestaurant, needle, edits.venueOverrides])
 
   // Строки матрицы без названия в iiko (столбец E пуст) — попросили прямо:
   // не гадать молча (см. nameBasis в server/src/sheets.js — строка всё
@@ -533,7 +550,7 @@ export default function DataEditor() {
   // исправить только тот, кто ведёт таблицу.
   interface NoNameRow { key: string; restaurant: string; supplier: string; description: string; pack: string; price: number | null }
   const noIikoNameRows = useMemo(() => {
-    const m = scopedMatching(matching)
+    const m = scopedMatching(matching, linkTargets(edits))
     if (!m.noIikoName) return []
     const out: NoNameRow[] = []
     for (const key of Object.keys(m.noIikoName)) {
@@ -982,11 +999,12 @@ export default function DataEditor() {
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-[26%]">Основное название <InfoTip text="Название точки, по которому закупки из iiko сопоставлены с вкладкой матрицы. Это не сырое название склада в iiko (там, например, «Кухня склад Олово(Olovo1-Satpaeva)»): сервер сам приводит складские названия к основному по таблице в коде. Здесь не редактируется." /></th>
-                  <th className="th w-[26%]">Название у нас <InfoTip text="Как точка будет называться в этом приложении (Обзор, Проверка цен, выбор точек, Excel). Влияет только на подпись — закупки и матрица по-прежнему привязаны к основному названию. Верните основное название, чтобы убрать переименование." /></th>
-                  <th className="th w-[14%]">Город</th>
-                  <th className="th w-[20%]">Юрлицо</th>
-                  <th className="th w-[14%]">Категория</th>
+                  <th className="th w-[20%]">Основное название <InfoTip text="Название точки, по которому закупки из iiko сопоставлены с вкладкой матрицы. Это не сырое название склада в iiko (там, например, «Кухня склад Олово(Olovo1-Satpaeva)»): сервер сам приводит складские названия к основному по таблице в коде. Здесь не редактируется." /></th>
+                  <th className="th w-[20%]">Название у нас <InfoTip text="Как точка будет называться в этом приложении (Обзор, Проверка цен, выбор точек, Excel). Влияет только на подпись — закупки и матрица по-прежнему привязаны к основному названию. Пока не задано — подписью служит название выбранной вкладки матрицы (или основное название, если вкладка не выбрана)." /></th>
+                  <th className="th w-[22%]">Вкладка матрицы <InfoTip text="С какой вкладкой Google-таблицы сверяются закупки этой точки. Если название точки из iiko совпало с названием вкладки — выбрана сама. Для нового ресторана выберите его вкладку из списка (все вкладки таблицы читаются при синке матрицы) — дальше закупки и план тянутся по ней, товары и поставщики проставляются во вкладке «Товары»." /></th>
+                  <th className="th w-[10%]">Город</th>
+                  <th className="th w-[14%]">Юрлицо</th>
+                  <th className="th w-[10%]">Категория</th>
                 </tr>
               )}
             </thead>
@@ -1004,7 +1022,7 @@ export default function DataEditor() {
                             <IStore width={14} height={14} className="shrink-0 text-fg-600" /><HoverName text={s.name} />
                             {editorRestaurant && (
                               <button
-                                onClick={() => { setTab('products'); setQ(supplierAliasFor(matching, editorRestaurant, s.name) ?? s.name); setLimit(60); setUnmatchedOpen(true) }}
+                                onClick={() => { setTab('products'); setQ(supplierAliasFor(matching, matchRestaurant(edits, editorRestaurant), s.name) ?? s.name); setLimit(60); setUnmatchedOpen(true) }}
                                 title={`Товары и «нет в матрице» этой компании в «${editorRestaurant}»`}
                                 className="ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-brand-300 hover:bg-brand-500/10"
                               >
@@ -1120,6 +1138,26 @@ export default function DataEditor() {
                         }
                         setVenue(r.name, { alias: next })
                       }} className="max-w-[220px]" /></td>
+                      <td className="td">
+                        {(() => {
+                          const auto = matrixNames.get(norm(r.name))
+                          const value = r.matrix ?? auto ?? ''
+                          return (
+                            <select
+                              value={value}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setVenue(r.name, { matrix: !v || norm(v) === norm(r.name) ? '' : v })
+                              }}
+                              className={`w-full max-w-[220px] rounded-md border bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none ${value ? 'border-ink-600' : 'border-warn/60'}`}
+                              title={value ? undefined : 'Эта точка пока не привязана ни к одной вкладке матрицы — закупки будут «Нет в матрице»'}
+                            >
+                              {!value && <option value="">— выберите вкладку —</option>}
+                              {[...new Set([...matrixNames.values(), ...(value ? [value] : [])])].sort((a, b) => a.localeCompare(b)).map((n) => <option key={n} value={n}>{n}</option>)}
+                            </select>
+                          )
+                        })()}
+                      </td>
                       <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[140px]" /></td>
                       <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[180px]" /></td>
                       <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[140px]" /></td>

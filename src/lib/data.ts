@@ -49,6 +49,8 @@ export interface MatchingTable {
   // не можем писать обратно в саму Google-таблицу (сервисный аккаунт —
   // только чтение).
   noIikoName?: Record<string, true>
+  // norm-имя -> основное название вкладки/ресторана матрицы (только вкладки, где нашлись строки) — список для привязки точки из iiko в Справочниках → Точки. Опционально: у ранее синканной матрицы его нет до следующего синка.
+  restaurantNames?: Record<string, string>
 }
 const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
   '2026-05': matchingMay as MatchingTable,
@@ -364,7 +366,7 @@ export interface BaseRow {
 }
 
 /** Manual corrections to a venue's meta — for when auto-derived data is wrong. */
-export interface VenuePatch { city?: string; brand?: string; entity?: string; category?: string; alias?: string }
+export interface VenuePatch { city?: string; brand?: string; entity?: string; category?: string; alias?: string; matrix?: string }
 
 /**
  * User edits layered over the immutable base data — deliberately minimal.
@@ -990,7 +992,7 @@ function isPackSensitiveProduct(product: string): boolean {
 }
 
 function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, designatedIndex: DesignatedIndex, knownFlatPairs: Set<string>): Resolved {
-  const restaurant = norm(b.restaurant)
+  const restaurant = norm(matchRestaurant(edits, b.restaurant))
   // Канон строго ДЛЯ ЭТОГО ресторана (см. supplierAliasFor) — один и тот
   // же iiko-алиас реально писался по-разному в разных вкладках таблицы
   // для одного и того же поставщика; раньше тут был глобальный
@@ -999,7 +1001,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // совпадал с тем, что реально прайсовано в planPairsByPack ЭТОГО
   // ресторана — закупка у правильного поставщика выглядела как "заказ
   // не по матрице" со ссылкой на самого себя же.
-  const supplierCanon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
+  const supplierCanon = norm(supplierAliasFor(matching, matchRestaurant(edits, b.restaurant), b.supplier0) ?? b.supplier0)
 
   const rawPack = normPack(b.pack)
 
@@ -1216,6 +1218,18 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
 
 export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 
+/**
+ * Под каким названием точка числится в МАТРИЦЕ. По умолчанию — под тем же,
+ * что и в iiko (так было всегда: основное название == вкладка). Новый
+ * ресторан привязывают в Справочниках → Точки: выбирают вкладку матрицы
+ * (VenuePatch.matrix) — дальше все закупки этой точки сверяются с её
+ * вкладкой, без правки кода. Идентичность строки (scope, rowKey, заметки)
+ * при этом остаётся прежней, меняется только ключ поиска в матрице.
+ */
+export const matchRestaurant = (edits: Pick<Edits, 'venueOverrides'>, restaurant: string): string => edits.venueOverrides[restaurant]?.matrix || restaurant
+export const linkTargets = (edits: Pick<Edits, 'venueOverrides'>): string[] =>
+  Object.values(edits.venueOverrides).map((o) => o.matrix).filter((m): m is string => !!m)
+
 // Матрица целиком — это вся сеть (~15 точек), а RESTAURANT_SCOPE показывает
 // только часть (сейчас — одну). computeRows и Справочники (matrixRows и
 // подобное) гоняют полными проходами по Object.entries/Object.keys всей
@@ -1225,12 +1239,16 @@ export const capitalize = (s: string) => s ? s[0].toUpperCase() + s.slice(1) : s
 // matching, он неизменяем), и везде, где идёт полный проход по ключам,
 // используем эту версию вместо исходной. supplierAlias теперь тоже
 // ресторан-скоуп (см. MatchingTable) — обрезаем его так же.
-let scopedMatchingCache = new WeakMap<MatchingTable, MatchingTable>()
-export function scopedMatching(matching: MatchingTable): MatchingTable {
+let scopedMatchingCache = new WeakMap<MatchingTable, Map<string, MatchingTable>>()
+export function scopedMatching(matching: MatchingTable, extraNames: string[] = []): MatchingTable {
   if (!RESTAURANT_SCOPE) return matching
-  const cached = scopedMatchingCache.get(matching)
+  const cacheKey = [...new Set(extraNames.map(norm))].sort().join('|')
+  let byExtra = scopedMatchingCache.get(matching)
+  if (!byExtra) { byExtra = new Map(); scopedMatchingCache.set(matching, byExtra) }
+  if (byExtra.size > 6) byExtra.clear() // правки привязки меняют набор имён — не копим копии матрицы
+  const cached = byExtra.get(cacheKey)
   if (cached) return cached
-  const prefixes = RESTAURANT_SCOPE.map((r) => `${norm(r)}::`)
+  const prefixes = [...RESTAURANT_SCOPE, ...extraNames].map((r) => `${norm(r)}::`)
   const inScope = (key: string) => prefixes.some((p) => key.startsWith(p))
   const filterKeys = <T,>(obj: Record<string, T>): Record<string, T> => {
     const out: Record<string, T> = {}
@@ -1262,7 +1280,7 @@ export function scopedMatching(matching: MatchingTable): MatchingTable {
     supplierOrder: matching.supplierOrder ? filterKeys(matching.supplierOrder) : undefined,
     noIikoName: matching.noIikoName ? filterKeys(matching.noIikoName) : undefined,
   }
-  scopedMatchingCache.set(matching, result)
+  byExtra.set(cacheKey, result)
   return result
 }
 
@@ -1293,7 +1311,8 @@ export const isExcludedPair = (supplier: string, product: string) => {
 
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = []): Row[] {
-  const matching = scopedMatching(matchingIn)
+  const matching = scopedMatching(matchingIn, linkTargets(edits))
+  const mr = (restaurant: string) => matchRestaurant(edits, restaurant)
   // Поставщики, которых попросили убрать из "Проверки цен" ЦЕЛИКОМ (не
   // просто статусом "Нет в матрице") — иначе они захламляют сортировку по
   // сумме и счётчик "нет в матрице" позициями, которые и не должны были
@@ -1344,9 +1363,9 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   // Список пар и сравнение — EXCLUDED_PAIRS/isExcludedPair выше (module-level,
   // общие с Справочниками); кавычки и ё там нормализуются с обеих сторон.
   base = base.filter((b) => {
-    const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
+    const canon = norm(supplierAliasFor(matching, mr(b.restaurant), b.supplier0) ?? b.supplier0)
     if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) {
-      const pairKey = `${norm(b.restaurant)}::${canon}::${norm(b.product0)}`
+      const pairKey = `${norm(mr(b.restaurant))}::${canon}::${norm(b.product0)}`
       if (!pairKeysWithMatrix.has(pairKey)) return false
     }
     if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
@@ -1374,7 +1393,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   // to reuse for its "not purchased yet" rows below.
   const venueByRestaurant = new Map<string, Pick<BaseRow, 'restaurant' | 'brand' | 'city' | 'entity' | 'category'>>()
   for (const b of base) {
-    const key = norm(b.restaurant)
+    const key = norm(mr(b.restaurant))
     if (!venueByRestaurant.has(key)) venueByRestaurant.set(key, b)
   }
   // Точки без единой реальной закупки за период (есть план-цены, но
@@ -1383,7 +1402,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   // уже включена и видна в выборе точек (см. buildDataset/runSync на
   // сервере — туда её добавляют явно, с пустыми items).
   for (const v of venues) {
-    const key = norm(v.name)
+    const key = norm(mr(v.name))
     if (!venueByRestaurant.has(key)) venueByRestaurant.set(key, { restaurant: v.name, brand: v.brand, city: v.city, entity: v.entity, category: v.category })
   }
   const supplierDisplayByNorm = new Map<string, string>()
@@ -1394,7 +1413,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // Их название компании из матрицы (колонка C) — отдельная серая подпись
     // снизу, так же, как название товара из матрицы под самим товаром.
     const supplier = b.supplier0
-    const supplierCanonical = supplierAliasFor(matching, b.restaurant, b.supplier0)
+    const supplierCanonical = supplierAliasFor(matching, mr(b.restaurant), b.supplier0)
     // Ручное переименование побеждает каноническое название из матрицы —
     // только подпись, на само сопоставление (supplierCanon в resolveRowPlan)
     // не влияет, там по-прежнему используется тот же supplierAliasFor.
@@ -1407,7 +1426,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // данных (demo-матрица без supplierOrder, либо поставщик в матрице
     // этого ресторана вообще не прайсован) — Infinity, такие строки просто
     // уходят в конец при сортировке "по матрице".
-    const matrixOrder = matching.supplierOrder?.[`${norm(b.restaurant)}::${norm(supplierCanonical ?? b.supplier0)}`] ?? Infinity
+    const matrixOrder = matching.supplierOrder?.[`${norm(mr(b.restaurant))}::${norm(supplierCanonical ?? b.supplier0)}`] ?? Infinity
     let { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, isPackSensitive, resolvedProduct, resolvedPack, ambiguousOptions, variants } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
     // Неоднозначный ключ матрицы (см. AmbiguousVariant) с уже сделанным
     // выбором именно для ЭТОЙ закупки (edits.ambiguousChoices по rowKey, не
@@ -1478,7 +1497,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // точно, зато не зависит от порядка перебора и не улетает в разы.
     let designatedPlanPrice: number | null = null
     if (status === 'wrongSupplier' && designatedNorm.length > 0) {
-      const restaurant = norm(b.restaurant), product0 = resolvedProduct, pack = resolvedPack
+      const restaurant = norm(mr(b.restaurant)), product0 = resolvedProduct, pack = resolvedPack
       const foundPrices = new Set<number>()
       for (const s of designatedNorm) {
         const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
@@ -1510,7 +1529,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
         // пометкой "цена не указана", а не молча выпадать из списка (иначе
         // при единственном назначенном поставщике без цены подсказка
         // пропадала целиком — именно так было с "Яйцо куриное"/"Акку").
-        const restaurant = norm(b.restaurant), product0 = resolvedProduct, pack = resolvedPack
+        const restaurant = norm(mr(b.restaurant)), product0 = resolvedProduct, pack = resolvedPack
         const prices = designatedNorm.map((s) => {
           const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
           const price = fixedPrice(byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`], s, product0)
@@ -1655,7 +1674,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
 
 export interface SupplierAgg { name: string; count: number; isNew: boolean }
 export interface ProductAgg { name: string; count: number; restaurantCount: number }
-export interface VenueMeta { name: string; entity: string; brand: string; city: string; category: string; alias?: string }  // name — как точка называется в iiko (ключ везде), alias — своё название только для показа в этом приложении
+export interface VenueMeta { name: string; entity: string; brand: string; city: string; category: string; alias?: string; matrix?: string }  // matrix — вкладка матрицы, к которой привязана точка (см. matchRestaurant); name — как точка называется в iiko (ключ везде), alias — своё название только для показа в этом приложении
 
 /** Everything derived from a dataset — parsed once, either from the bundle or the API. */
 export interface Parsed {
@@ -1785,7 +1804,7 @@ export const BUNDLED = parseDataset(bundledDataset())
 export function applyVenueOverrides(restaurants: VenueMeta[], overrides: Record<string, VenuePatch>): VenueMeta[] {
   return restaurants.map((r) => {
     const o = overrides[r.name]
-    return o ? { ...r, city: o.city ?? r.city, brand: o.brand ?? r.brand, entity: o.entity ?? r.entity, category: o.category ?? r.category, alias: o.alias || undefined } : r
+    return o ? { ...r, city: o.city ?? r.city, brand: o.brand ?? r.brand, entity: o.entity ?? r.entity, category: o.category ?? r.category, alias: o.alias || undefined, matrix: o.matrix || undefined } : r
   })
 }
 

@@ -132,7 +132,7 @@ async function pushCatalogDiff(baseline: CatalogFields, current: CatalogFields):
   return oks.every(Boolean)
 }
 
-const VENUE_FIELD_LABELS: Record<keyof VenuePatch, string> = { city: 'город', brand: 'бренд', entity: 'юрлицо', category: 'категория', alias: 'название у нас' }
+const VENUE_FIELD_LABELS: Record<keyof VenuePatch, string> = { city: 'город', brand: 'бренд', entity: 'юрлицо', category: 'категория', alias: 'название у нас', matrix: 'вкладка матрицы' }
 
 /**
  * Человекочитаемый список того, что именно изменилось с baseline — чтобы
@@ -592,6 +592,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       if (merged.entity) cleaned.entity = merged.entity
       if (merged.category) cleaned.category = merged.category
       if (merged.alias) cleaned.alias = merged.alias
+      if (merged.matrix) cleaned.matrix = merged.matrix
       if (Object.keys(cleaned).length === 0) delete next[restaurant]
       else next[restaurant] = cleaned
       return { ...e, venueOverrides: next }
@@ -731,7 +732,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     [parsed.restaurants, edits.venueOverrides],
   )
 
-  const aliasByName = useMemo(() => new Map(restaurants.filter((r) => r.alias).map((r) => [r.name, r.alias as string])), [restaurants])
+  const aliasByName = useMemo(() => new Map(restaurants.filter((r) => r.alias || r.matrix).map((r) => [r.name, (r.alias || r.matrix) as string])), [restaurants])
   const venueLabel = useCallback((name: string) => aliasByName.get(name) ?? name, [aliasByName])
 
   const value: Ctx = {

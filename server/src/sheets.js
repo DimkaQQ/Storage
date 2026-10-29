@@ -142,7 +142,7 @@ export async function testConnection({ googleSheetId, googleServiceAccountKey },
     const token = await getAccessToken(googleServiceAccountKey)
     const titles = await fetchSheetTitles(token, googleSheetId)
     const known = titles.filter((t) => sheetToRestaurant[t])
-    return { ok: true, message: `Подключение есть. Вкладок в таблице: ${titles.length}, из них узнано точек: ${known.length}.` }
+    return { ok: true, message: `Подключение есть. Вкладок в таблице: ${titles.length}, из них с известным названием точки: ${known.length} (остальные тоже читаются под своим названием).` }
   } catch (e) {
     return { ok: false, message: String(e.message || e) }
   }
@@ -163,14 +163,23 @@ export async function testConnection({ googleSheetId, googleServiceAccountKey },
 export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT) {
   const token = await getAccessToken(googleServiceAccountKey)
   const titles = await fetchSheetTitles(token, googleSheetId)
-  const sheets = titles.filter((t) => sheetToRestaurant[t])
-  if (!sheets.length) throw new Error('Ни одна вкладка таблицы не узнана — проверьте названия вкладок (см. SHEET_TO_RESTAURANT в sheets.js)')
+  // Сканируем ВСЕ вкладки, а не только узнанные по списку: вкладка, которой
+  // нет в sheetToRestaurant (новый ресторан), попадает в матрицу под своим же
+  // названием — дальше в Справочниках → Точки её привязывают к ресторану из
+  // iiko, без правки кода. Узнанные вкладки по-прежнему получают своё
+  // "красивое" основное название из sheetToRestaurant.
+  // Защита от не той таблицы: хотя бы одна вкладка должна быть узнана по
+  // списку (как раньше) — иначе скорее всего указан чужой ID, и каждая его
+  // вкладка стала бы "рестораном". Вкладки с "::" в названии пропускаем —
+  // двоеточия в ключах матрицы зарезервированы.
+  if (!titles.some((t) => sheetToRestaurant[t])) throw new Error('Ни одна вкладка таблицы не узнана — проверьте ID таблицы (ожидаются вкладки с названиями точек, см. SHEET_TO_RESTAURANT в sheets.js)')
+  const sheets = titles.filter((t) => !String(t).includes('::'))
 
   // Без верхней границы по строке (не C3:I5000) — Sheets API читает до
   // конца реальных данных листа. Фиксированный потолок в 5000 строк рос бы
   // молча: превысила бы таблица его — часть строк матрицы тихо пропала бы
   // из синка без единой ошибки.
-  const ranges = sheets.flatMap((t) => [`'${t}'!C3:I`])
+  const ranges = sheets.flatMap((t) => [`'${t.replace(/'/g, "''")}'!C3:I`])
   const valueRanges = await batchGetValues(token, googleSheetId, ranges)
 
   const supplierAlias = {}
@@ -207,9 +216,12 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   // списком "допишите название в iiko" вместо того, чтобы делать вид,
   // что сопоставление уже надёжное.
   const noIikoName = {}
+  // norm-имя -> основное название вкладки (только вкладки, где нашлись строки) — список для выбора в Справочниках → Точки.
+  const restaurantNames = {}
 
   sheets.forEach((title, i) => {
-    const restaurant = norm(sheetToRestaurant[title])
+    const restaurantDisplay = sheetToRestaurant[title] ?? String(title).replace(/\s+/g, ' ').trim()
+    const restaurant = norm(restaurantDisplay)
     const rows = valueRanges[i]?.values || []
     // Свой счётчик на каждую вкладку/ресторан — "первый поставщик этой
     // вкладки" получает 0, следующий новый — 1, и т.д.
@@ -228,6 +240,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       const nameBasis = iikoNameRaw || labelRaw
       if (!nameBasis || !supplierCanonRaw) continue
       rowsSeen++
+      restaurantNames[restaurant] = restaurantDisplay
       const supplierCanon = norm(supplierCanonRaw)
       const orderKey = `${restaurant}::${supplierCanon}`
       if (!(orderKey in supplierOrder)) supplierOrder[orderKey] = nextSupplierOrder++
@@ -292,8 +305,8 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   for (const [key, variants] of ambiguousVariants) if (variants.length > 1) ambiguous[key] = variants
 
   return {
-    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName },
-    summary: { sheets: sheets.length, rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
+    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName, restaurantNames },
+    summary: { sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
 
@@ -341,5 +354,6 @@ export function mergeMatching(a, b, restaurantNames) {
     ambiguous: replaceScoped(a.ambiguous ?? {}, b.ambiguous ?? {}),
     supplierOrder: replaceScoped(a.supplierOrder ?? {}, b.supplierOrder ?? {}),
     noIikoName: replaceScoped(a.noIikoName ?? {}, b.noIikoName ?? {}),
+    restaurantNames: replaceScoped(a.restaurantNames ?? {}, b.restaurantNames ?? {}),
   }
 }
