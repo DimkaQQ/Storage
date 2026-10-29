@@ -372,7 +372,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
 
       {/* toolbar */}
       <div className="card p-4">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3">
           <div className="relative w-36 shrink-0">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
             <input
@@ -892,13 +892,13 @@ function Th({ children, onClick, sort, k, right, center, width, tight, longLabel
   const on = sort.key === k
   return (
     <th className={`th hover:text-fg-300 ${right ? 'text-right' : center ? 'text-center' : ''} ${tight ? 'px-2' : ''} ${longLabel ? 'normal-case tracking-normal leading-snug' : ''} ${width ?? ''}`}>
-      <span className={`inline-flex cursor-pointer items-start gap-1.5 ${right ? 'flex-row-reverse' : ''}`} onClick={onClick}>
+      <span className={`inline-flex cursor-pointer items-center gap-1.5 ${right ? 'flex-row-reverse' : ''}`} onClick={onClick}>
         {children}
         {on ? (
           sort.dir === 1
-            ? <IArrowUp width={15} height={15} className="mt-px shrink-0 text-brand-300" />
-            : <IArrowDown width={15} height={15} className="mt-px shrink-0 text-brand-300" />
-        ) : <ISort width={15} height={15} className="mt-px shrink-0 text-fg-400" />}
+            ? <IArrowUp width={15} height={15} className="shrink-0 text-brand-300" />
+            : <IArrowDown width={15} height={15} className="shrink-0 text-brand-300" />
+        ) : <ISort width={15} height={15} className="shrink-0 text-fg-400" />}
       </span>
     </th>
   )
