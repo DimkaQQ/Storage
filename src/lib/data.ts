@@ -1285,6 +1285,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     ['ип лайм / зеленый мир', 'фрукты овощи'],
     ['ип лайм / зеленый мир', 'фрукты овощи зелень'],
   ].map(([s, p]) => `${stripQuotes(norm(s))}::${exclProduct(p)}`))
+  const isExcludedPair = (supplier: string, product: string) => EXCLUDED_PAIRS.has(`${stripQuotes(norm(supplier))}::${exclProduct(product)}`)
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, b.restaurant, b.supplier0) ?? b.supplier0)
     if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) {
@@ -1292,8 +1293,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       if (!pairKeysWithMatrix.has(pairKey)) return false
     }
     if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
-    const exclKey = (s: string) => `${stripQuotes(norm(s))}::${exclProduct(b.product0)}`
-    if (EXCLUDED_PAIRS.has(exclKey(b.supplier0)) || EXCLUDED_PAIRS.has(exclKey(canon))) return false
+    if (isExcludedPair(b.supplier0, b.product0) || isExcludedPair(canon, b.product0)) return false
     return true
   })
   const designatedIndex = buildDesignatedIndex(matching)
@@ -1520,7 +1520,11 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // (noPriceExact — "честный пробел лучше, чем товар, которого как будто
     // вообще нет").
     if (EXCLUDED_SUPPLIERS.has(supplierNorm) && plan == null && matching.noIikoName?.[key]) return
+    // Те же EXCLUDED_PAIRS, что и для реальных закупок выше: без этой
+    // проверки "ИП Лайм / Зелёный мир — Фрукты овощи зелень" убирался из
+    // закупок, но строка из матрицы всё равно всплывала как "Не закупали".
     const supplierDisplay = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
+    if (isExcludedPair(supplierNorm, product) || isExcludedPair(supplierDisplay, product)) return
     const label = matching.productLabels[key] ?? null
     const isAssortment = !knownFlatPairs.has(key.split('::').slice(0, 3).join('::'))
     const isPackSensitive = isPackSensitiveProduct(product)
