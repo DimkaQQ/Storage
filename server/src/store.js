@@ -149,15 +149,33 @@ export const DEFAULT_SETTINGS = {
   googleSheetId: '',
   // Астана — отдельная таблица (свои точки, свои вкладки), но тот же
   // сервисный аккаунт (googleServiceAccountKey выше) — его достаточно
-  // пригласить читателем и в эту таблицу тоже.
+  // пригласить читателем и в эту таблицу тоже. См.
+  // SHEET_TO_RESTAURANT_ASTANA в sheets.js.
   astanaSheetId: '',
 }
 
 /**
- * Стартовый список включённых точек пуст: точки приходят из iiko вместе с
- * закупками (Настройки iiko → «Точки сети» → «Добавить»), в коде их нет.
+ * То же самое, что раньше было зашито в коде фронтенда (RESTAURANT_SCOPE в
+ * src/lib/data.ts) — те же точки, кроме "French bar". Используется только
+ * как разовое стартовое значение при первом обращении к /api/venues для
+ * органиазции, у которой ещё нет своего сохранённого enabledRestaurants —
+ * дальше источник правды один, тут (settings.json), а не в двух местах.
  */
-export const DEFAULT_ENABLED_RESTAURANTS = []
+export const DEFAULT_ENABLED_RESTAURANTS = [
+  'Рене',
+  'Олово 1 (Сатпаева)',
+  'Олово 2 (Достык)',
+  'Pasta la vista (Богенбай)',
+  'Pasta la vista (Гагарина)',
+  'Pasta la vista (Толе би)',
+  'Ле Дом',
+  'Six coffee&wine 1',
+  'Six coffee&wine 2',
+  'Tangirs',
+  'Акку',
+  'ЦФК',
+  'Сирена',
+]
 
 /**
  * Bundled demo data ships as one file per month (server/seed/dataset-<period>.json)

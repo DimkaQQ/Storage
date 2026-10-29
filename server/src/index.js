@@ -10,7 +10,7 @@ import {
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
-import { testConnection as testSheetsConnection, syncMatrix, mergeMatching } from './sheets.js'
+import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
@@ -480,7 +480,7 @@ app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, r
   const merged = { ...s, ...req.body }
   if (req.body?.googleServiceAccountKey === '********') merged.googleServiceAccountKey = s.googleServiceAccountKey
   const googleSheetId = astana ? (req.body?.astanaSheetId ?? s.astanaSheetId) : merged.googleSheetId
-  res.json(await testSheetsConnection({ googleSheetId, googleServiceAccountKey: merged.googleServiceAccountKey }))
+  res.json(await testSheetsConnection({ googleSheetId, googleServiceAccountKey: merged.googleServiceAccountKey }, astana ? SHEET_TO_RESTAURANT_ASTANA : undefined))
 })
 
 // Снимки матрицы по месяцам готовы, но выключены, пока заказчик решает, нужны ли
@@ -494,8 +494,10 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
   const googleSheetId = astana ? settings.astanaSheetId : settings.googleSheetId
   if (!googleSheetId) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
   try {
+    const sheetMap = astana ? SHEET_TO_RESTAURANT_ASTANA : SHEET_TO_RESTAURANT
     const { matching, summary } = await syncMatrix(
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
+      sheetMap,
     )
     // Мёрджим с уже сохранённой матрицей, а не перезаписываем — иначе синк
     // Астаны стирал бы уже синканную Алматы (и наоборот), т.к. обе живут в
@@ -516,14 +518,9 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
     // входят в область замены — иначе вкладка, из которой убрали все строки
     // (или удалили целиком), не вычищалась бы из matrix.json никогда.
     const target = astana ? 'astana' : 'almaty'
-    // Матрица без tabsByTarget сохранена ДО перехода на настоящие названия вкладок:
-    // её ключи (названия точек из старого списка в коде) больше ни с чем не связаны
-    // и не очищаются — берём чистый лист, а не сливаем с ними (синкнуть нужно
-    // обе таблицы, Алматы и Астану, ключи пересоберутся под названия вкладок).
-    const prevRaw = period ? (getMatrixSnapshot(orgId, period) ?? resolveMatrixFor(orgId, period, { allowLater: false }).matching) : getMatrix(orgId)
-    const prev = prevRaw?.tabsByTarget ? prevRaw : null
+    const prev = period ? (getMatrixSnapshot(orgId, period) ?? resolveMatrixFor(orgId, period, { allowLater: false }).matching) : getMatrix(orgId)
     const freshNames = Object.values(matching.restaurantNames || {})
-    const merged = mergeMatching(prev, matching, [...freshNames, ...(prev?.tabsByTarget?.[target] ?? [])])
+    const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...freshNames, ...(prev?.tabsByTarget?.[target] ?? [])])
     merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: [...new Set([...(prev?.tabsByTarget?.[target] ?? []), ...freshNames])] }
     if (period) saveMatrixSnapshot(orgId, period, merged)
     else saveMatrix(orgId, merged)

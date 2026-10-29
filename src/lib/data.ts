@@ -51,8 +51,6 @@ export interface MatchingTable {
   noIikoName?: Record<string, true>
   // norm-имя -> основное название вкладки/ресторана матрицы (только вкладки, где нашлись строки) — список для привязки точки из iiko в Справочниках → Точки. Опционально: у ранее синканной матрицы его нет до следующего синка.
   restaurantNames?: Record<string, string>
-  // города (по таблице Алматы/Астана) -> названия их вкладок — для выбора вкладки в Справочниках → Точки; ставит синк матрицы.
-  tabsByTarget?: { almaty?: string[]; astana?: string[] }
 }
 const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
   '2026-05': matchingMay as MatchingTable,
@@ -1232,7 +1230,7 @@ export const matchRestaurant = (edits: Pick<Edits, 'venueOverrides'>, restaurant
 export const linkTargets = (edits: Pick<Edits, 'venueOverrides'>): string[] =>
   Object.values(edits.venueOverrides).map((o) => o.matrix).filter((m): m is string => !!m)
 
-// Матрица целиком — это вся сеть, а RESTAURANT_SCOPE показывает
+// Матрица целиком — это вся сеть (~15 точек), а RESTAURANT_SCOPE показывает
 // только часть (сейчас — одну). computeRows и Справочники (matrixRows и
 // подобное) гоняют полными проходами по Object.entries/Object.keys всей
 // матрицы, хотя дальше 9 из 10 записей всё равно отбрасываются по
@@ -1690,11 +1688,30 @@ export interface Parsed {
 }
 
 /**
- * Список точек, включённых в приложение, в коде не зашит: приходит с бэкенда
- * (см. setRestaurantScope ниже) и настраивается в Настройки iiko → «Точки
- * сети». Пока бэкенд не ответил (или его нет — демо/офлайн), список пуст.
+ * Список точек, включённых в приложение. Раньше был жёстко зашит в код
+ * (сначала ['Рене'] на время перепроверки, потом полный список вручную) —
+ * теперь это НАЧАЛЬНОЕ значение, а реальный список приходит с бэкенда (см.
+ * setRestaurantScope ниже) и настраивается по кнопке в Настройки iiko →
+ * «Точки сети», без правки кода и редеплоя. Без бэкенда (демо/офлайн) или
+ * до первой загрузки настроек используется этот список как есть — он же
+ * то, что уже проверено и включено на сегодня, минус "French bar" (бар,
+ * отдельная задача на потом).
  */
-export const DEFAULT_RESTAURANT_SCOPE: string[] = []
+export const DEFAULT_RESTAURANT_SCOPE: string[] = [
+  'Рене',
+  'Олово 1 (Сатпаева)',
+  'Олово 2 (Достык)',
+  'Pasta la vista (Богенбай)',
+  'Pasta la vista (Гагарина)',
+  'Pasta la vista (Толе би)',
+  'Ле Дом',
+  'Six coffee&wine 1',
+  'Six coffee&wine 2',
+  'Tangirs',
+  'Акку',
+  'ЦФК',
+  'Сирена',
+]
 let RESTAURANT_SCOPE: string[] | null = DEFAULT_RESTAURANT_SCOPE
 
 /**
