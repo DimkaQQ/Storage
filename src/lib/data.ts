@@ -364,7 +364,7 @@ export interface BaseRow {
 }
 
 /** Manual corrections to a venue's meta — for when auto-derived data is wrong. */
-export interface VenuePatch { city?: string; brand?: string; entity?: string; category?: string }
+export interface VenuePatch { city?: string; brand?: string; entity?: string; category?: string; alias?: string }
 
 /**
  * User edits layered over the immutable base data — deliberately minimal.
@@ -446,18 +446,6 @@ export interface Edits {
 export const EMPTY_EDITS: Edits = {
   productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, productLinks: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
   rowComments: {}, rowColors: {}, ambiguousChoices: {},
-}
-
-/** Appends manually-added venues (e.g. a new restaurant not yet flowing purchases through iiko). */
-export function withNewVenues(restaurants: VenueMeta[], edits: Edits): VenueMeta[] {
-  const existing = new Set(restaurants.map((r) => r.name))
-  const added = Object.keys(edits.newVenues)
-    .filter((name) => !existing.has(name))
-    .map((name): VenueMeta => {
-      const patch = edits.venueOverrides[name] || {}
-      return { name, city: patch.city ?? '', brand: patch.brand ?? name, entity: patch.entity ?? '', category: patch.category ?? '' }
-    })
-  return added.length ? [...restaurants, ...added] : restaurants
 }
 
 export interface FasovkaOption { pack: string; price: number; label: string | null }
@@ -1667,7 +1655,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
 
 export interface SupplierAgg { name: string; count: number; isNew: boolean }
 export interface ProductAgg { name: string; count: number; restaurantCount: number }
-export interface VenueMeta { name: string; entity: string; brand: string; city: string; category: string }
+export interface VenueMeta { name: string; entity: string; brand: string; city: string; category: string; alias?: string }  // name — как точка называется в iiko (ключ везде), alias — своё название только для показа в этом приложении
 
 /** Everything derived from a dataset — parsed once, either from the bundle or the API. */
 export interface Parsed {
@@ -1797,7 +1785,7 @@ export const BUNDLED = parseDataset(bundledDataset())
 export function applyVenueOverrides(restaurants: VenueMeta[], overrides: Record<string, VenuePatch>): VenueMeta[] {
   return restaurants.map((r) => {
     const o = overrides[r.name]
-    return o ? { ...r, city: o.city ?? r.city, brand: o.brand ?? r.brand, entity: o.entity ?? r.entity, category: o.category ?? r.category } : r
+    return o ? { ...r, city: o.city ?? r.city, brand: o.brand ?? r.brand, entity: o.entity ?? r.entity, category: o.category ?? r.category, alias: o.alias || undefined } : r
   })
 }
 

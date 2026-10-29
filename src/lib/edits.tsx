@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, withNewVenues, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -132,7 +132,7 @@ async function pushCatalogDiff(baseline: CatalogFields, current: CatalogFields):
   return oks.every(Boolean)
 }
 
-const VENUE_FIELD_LABELS: Record<keyof VenuePatch, string> = { city: 'город', brand: 'бренд', entity: 'юрлицо', category: 'категория' }
+const VENUE_FIELD_LABELS: Record<keyof VenuePatch, string> = { city: 'город', brand: 'бренд', entity: 'юрлицо', category: 'категория', alias: 'название у нас' }
 
 /**
  * Человекочитаемый список того, что именно изменилось с baseline — чтобы
@@ -206,8 +206,7 @@ interface Ctx {
   renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
   renameSupplier: (rawName: string, name: string) => void
   setVenue: (restaurant: string, patch: VenuePatch) => void
-  addVenue: (name: string, patch?: VenuePatch) => void
-  removeVenue: (name: string) => void
+  venueLabel: (name: string) => string  // своё название точки (alias) или iiko-название, если своего нет
   acknowledgeSupplier: (rawName: string) => void
   unacknowledgeSupplier: (rawName: string) => void
   setProductPackOverride: (product: string, value: boolean | null) => void
@@ -592,27 +591,10 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       if (merged.brand) cleaned.brand = merged.brand
       if (merged.entity) cleaned.entity = merged.entity
       if (merged.category) cleaned.category = merged.category
+      if (merged.alias) cleaned.alias = merged.alias
       if (Object.keys(cleaned).length === 0) delete next[restaurant]
       else next[restaurant] = cleaned
       return { ...e, venueOverrides: next }
-    })
-  }, [updateEdits])
-
-  // Ручное добавление точки, у которой ещё нет закупок в iiko.
-  const addVenue = useCallback((name: string, patch?: VenuePatch) => {
-    const v = name.trim()
-    if (!v) return
-    updateEdits((e) => {
-      const newVenues = e.newVenues[v] ? e.newVenues : { ...e.newVenues, [v]: true as const }
-      const venueOverrides = patch ? { ...e.venueOverrides, [v]: { ...e.venueOverrides[v], ...patch } } : e.venueOverrides
-      return { ...e, newVenues, venueOverrides }
-    })
-  }, [updateEdits])
-  const removeVenue = useCallback((name: string) => {
-    updateEdits((e) => {
-      const n = { ...e.newVenues }; delete n[name]
-      const vo = { ...e.venueOverrides }; delete vo[name]
-      return { ...e, newVenues: n, venueOverrides: vo }
     })
   }, [updateEdits])
 
@@ -745,9 +727,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.ambiguousChoices).length
 
   const restaurants = useMemo(
-    () => withNewVenues(applyVenueOverrides(parsed.restaurants, edits.venueOverrides), edits),
-    [parsed.restaurants, edits],
+    () => applyVenueOverrides(parsed.restaurants, edits.venueOverrides),
+    [parsed.restaurants, edits.venueOverrides],
   )
+
+  const aliasByName = useMemo(() => new Map(restaurants.filter((r) => r.alias).map((r) => [r.name, r.alias as string])), [restaurants])
+  const venueLabel = useCallback((name: string) => aliasByName.get(name) ?? name, [aliasByName])
 
   const value: Ctx = {
     edits, rows, rawBase: parsed.base, editCount,
@@ -756,7 +741,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
-    addVenue, removeVenue,
+    venueLabel,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
     reset, replaceAll, undo, canUndo,
     saveError,

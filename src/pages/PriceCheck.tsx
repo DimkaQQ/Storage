@@ -59,7 +59,7 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
-  const { setRowComment, setRowColor, setAmbiguousChoice, period } = useEdits()
+  const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   // «С заметкой» — строки, где уже есть свой комментарий или цветовая
@@ -236,7 +236,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     if (needle) {
       r = r.filter((x) =>
         x.product.toLowerCase().includes(needle) || x.supplier.toLowerCase().includes(needle) ||
-        x.restaurant.toLowerCase().includes(needle) || x.pack.toLowerCase().includes(needle) ||
+        x.restaurant.toLowerCase().includes(needle) || venueLabel(x.restaurant).toLowerCase().includes(needle) || x.pack.toLowerCase().includes(needle) ||
         // ...и по "их" названиям из матрицы — можно искать "Тамаки" даже
         // когда основное поле показывает общее iiko-название "Соус ореховый".
         (x.productLabel ?? '').toLowerCase().includes(needle) || (x.supplierLabel ?? '').toLowerCase().includes(needle) ||
@@ -258,7 +258,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       // меняет только порядок поставщиков внутри ресторана, не сам список
       // ресторанов, иначе "перевернуть сортировку" путало бы ещё и их.
       if (key === 'supplier') {
-        const rCmp = a.restaurant.localeCompare(b.restaurant)
+        const rCmp = venueLabel(a.restaurant).localeCompare(venueLabel(b.restaurant))
         if (rCmp !== 0) return rCmp
         const oCmp = (a.matrixOrder - b.matrixOrder) * dir
         if (oCmp !== 0) return oCmp
@@ -268,7 +268,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
       return av.localeCompare(bv) * dir
     })
     return groupStarsAdjacent(sorted)
-  }, [rows, q, active, sort, moneyMode, onlyNoted, onlyDiff, hideEmpty, supplierFilter, productFilter, starByRowKey])
+  }, [rows, q, active, sort, moneyMode, onlyNoted, onlyDiff, hideEmpty, supplierFilter, productFilter, starByRowKey, venueLabel])
 
   const s = useMemo(() => summarize(filtered), [filtered])
   // Раньше была ручная кнопка "Показать ещё" (убрана — не работала как
@@ -333,14 +333,14 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     // основной, как и на экране: тот же бренд/цена/разница, в итоги не входят.
     const lines = filtered.flatMap((r) => {
       const main = [
-        r.restaurant, r.supplier, r.product, r.pack, r.qty,
+        venueLabel(r.restaurant), r.supplier, r.product, r.pack, r.qty,
         planOf(r) ?? '', factOf(r) ?? '', diffOf(r) ?? '',
         STATUS_META[r.status].label, r.designatedSuppliers.join(', '), r.userComment ?? '',
       ]
       const vs = r.variants && r.variants.length > 1 ? r.variants : []
       const sub = vs.map((v, i) => {
         const { plan, diff } = variantPlanDiff(r, v.price, moneyMode)
-        return [r.restaurant, r.supplier, `└ ${v.label ?? 'вариант без описания'}`, '', '', plan, '', diff ?? '', `вариант ${i + 1} из ${vs.length}`, '', '']
+        return [venueLabel(r.restaurant), r.supplier, `└ ${v.label ?? 'вариант без описания'}`, '', '', plan, '', diff ?? '', `вариант ${i + 1} из ${vs.length}`, '', '']
       })
       return [main, ...sub]
     })
@@ -354,7 +354,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
     // каждого (разные месяцы, деньги/₸ за кг, разные точки, повторные
     // выгрузки в один день).
     const safe = (s: string) => s.replace(/\s+/g, '_').replace(/[\\/:*?"<>|]/g, '')
-    const restaurantNames = [...new Set(rows.map((r) => r.restaurant))]
+    const restaurantNames = [...new Set(rows.map((r) => venueLabel(r.restaurant)))]
     const restaurantPart = restaurantNames.length === 1 ? `-${safe(restaurantNames[0])}` : ''
     const todayStr = new Date().toISOString().slice(0, 10)
     XLSX.writeFile(wb, `proverka-cen-${safe(period)}-${moneyMode ? 'money' : 'per-kg'}${restaurantPart}-${todayStr}.xlsx`)
@@ -487,7 +487,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 return (
                 <Fragment key={r.id}>
                 <tr className={`row-hover ${colorMeta ? `${colorMeta.rowBg} ${colorMeta.rowBgHover}` : 'hover:bg-ink-800/40'} ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''}`}>
-                  <td className="td overflow-hidden px-2 text-fg-400"><HoverName text={r.restaurant} /></td>
+                  <td className="td overflow-hidden px-2 text-fg-400"><HoverName text={venueLabel(r.restaurant)} /></td>
                   <td className="td overflow-hidden px-2 font-medium text-fg-100">
                     {/* Крупным — название из матрицы (если есть), мелким под ним —
                         как называется в iiko. Тот же порядок, что и у товара ниже. */}

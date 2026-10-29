@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { IStore, IChevron, ICheck, IClose } from './icons'
 
 export default function ScopePicker({
-  options, selected, onChange,
+  options, selected, onChange, labels,
 }: {
   options: string[]
+  labels?: Record<string, string>  // своё название точки (alias) для показа; в selected/onChange остаются iiko-названия
   selected: Set<string>
   onChange: (s: Set<string>) => void
 }) {
@@ -27,7 +28,7 @@ export default function ScopePicker({
 
   const label =
     selected.size === 0 ? 'Все точки (консолидировано)' :
-    selected.size === 1 ? [...selected][0] :
+    selected.size === 1 ? (labels?.[[...selected][0]] ?? [...selected][0]) :
     `${selected.size} точек выбрано`
 
   return (
@@ -80,7 +81,7 @@ export default function ScopePicker({
                   <span className={`grid h-4 w-4 place-items-center rounded border ${on ? 'border-brand-400 bg-brand-500/20' : 'border-ink-600'}`}>
                     {on && <ICheck className="text-brand-300" width={12} height={12} />}
                   </span>
-                  <span className="truncate">{o}</span>
+                  <span className="truncate">{labels?.[o] ?? o}</span>
                 </button>
               )
             })}

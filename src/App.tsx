@@ -67,6 +67,11 @@ export default function App() {
 
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
 
+  const venueLabels = useMemo(
+    () => Object.fromEntries(restaurants.filter((r) => r.alias).map((r) => [r.name, r.alias as string])),
+    [restaurants],
+  )
+
   const applySlice = (rows: typeof allRows, category: string | null, scope: Set<string>) => {
     let r = rows
     if (category) r = r.filter((x) => x.category === category)
@@ -187,6 +192,7 @@ export default function App() {
                 {showFilters && (
                   <ScopePicker
                     options={restaurants.map((r) => r.name)}
+                    labels={venueLabels}
                     selected={activeScope}
                     onChange={setActiveScope}
                   />

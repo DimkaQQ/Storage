@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { PieChart, Pie, ResponsiveContainer, Tooltip, Cell } from 'recharts'
 import { Row, summarize, byRestaurant, fmt, money, signedMoney, pct, norm, STATUS_META, Status } from '../lib/data'
+import { useEdits } from '../lib/edits'
 import StatCard from '../components/StatCard'
 import { Section } from '../components/ui'
 import { ChartTip, C, Legend } from '../components/charts'
@@ -21,6 +22,7 @@ interface WrongSupplierItem {
 }
 
 export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: string) => void }) {
+  const { venueLabel } = useEdits()
   const s = useMemo(() => summarize(rows), [rows])
   const [expanded, setExpanded] = useState<string | null>(null)
 
@@ -108,7 +110,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
   // не с чем сверить вручную, когда позиций много.
   const exportRestaurant = async (r: { name: string; fact: number; plan: number; delta: number; items: WrongSupplierItem[] }) => {
     const XLSX = await import('xlsx')
-    const title = [`Заказ не по матрице — ${r.name}`]
+    const title = [`Заказ не по матрице — ${venueLabel(r.name)}`]
     const totalsRow = ['Итого закупили не по матрице', 'Итого если бы по матрице', 'Разница']
     const totalsVals = [r.fact, r.plan, r.delta]
     const head = ['Наименование/сырьё', 'Поставщик', 'Фасовка', 'Кол-во', 'План (за ед.)', 'Факт (за ед.)', 'Итого план', 'Итого факт', 'Разница', 'Должны у']
@@ -122,7 +124,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
     XLSX.utils.book_append_sheet(wb, ws, 'Не по матрице')
     const safe = (x: string) => x.replace(/\s+/g, '_').replace(/[\\/:*?"<>|]/g, '')
     const todayStr = new Date().toISOString().slice(0, 10)
-    XLSX.writeFile(wb, `ne-po-matrice-${safe(r.name)}-${todayStr}.xlsx`)
+    XLSX.writeFile(wb, `ne-po-matrice-${safe(venueLabel(r.name))}-${todayStr}.xlsx`)
   }
   const totals = useMemo(
     () => perRest.reduce((acc, r) => ({ fact: acc.fact + r.fact, plan: acc.plan + r.plan, delta: acc.delta + r.delta }), { fact: 0, plan: 0, delta: 0 }),
@@ -195,7 +197,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
                   >
                     <span className="flex items-center gap-2 text-sm text-fg-200">
                       <IChevron width={12} height={12} className={`text-fg-500 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
-                      {r.name}
+                      {venueLabel(r.name)}
                     </span>
                     <span className={`text-sm font-semibold tabnum ${r.delta > 0 ? 'text-good' : 'text-warn'}`}>{signedMoney(r.delta)}</span>
                   </button>

@@ -710,7 +710,7 @@ export default function IikoSettings() {
       </Section>
 
       {/* venues */}
-      <Section title="Точки сети" subtitle="Список показывается на бэкенде, не в коде — новую точку можно включить прямо тут, без правки кода и редеплоя.">
+      <Section title="Точки сети" subtitle="Точки приходят из iiko вместе с закупками: найдите нужную в списке «Обнаружены в закупках» и нажмите «Добавить» — она появится в Справочниках → Точки (там можно задать своё название, только для этого приложения) и в выборе точек на Обзоре и в Проверке цен.">
         <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
         <div className="mt-3 flex flex-wrap gap-2">
           {venues.enabled.map((name) => (

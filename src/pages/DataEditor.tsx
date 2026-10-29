@@ -8,7 +8,7 @@ import { Section, InfoTip, Checkbox } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
 import ProductLabelSuggest from '../components/ProductLabelSuggest'
 import HoverName from '../components/HoverName'
-import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, IPlus, ITrash, ICheck, ISync } from '../components/icons'
+import { ISearch, IFilter, IChevron, IReset, IUndo, IStore, IDatabase, IPin, ICheck, ISync } from '../components/icons'
 
 type Tab = 'suppliers' | 'products' | 'venues'
 type SupplierFilter = 'all' | 'new'
@@ -59,7 +59,6 @@ function HoverTip({ text, children }: { text: string; children: ReactNode }) {
 export default function DataEditor() {
   const {
     edits, rows, renameSupplier, setVenue,
-    addVenue, removeVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, pendingProductLinks, stageProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey, refreshMatrix,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,
@@ -115,12 +114,6 @@ export default function DataEditor() {
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(60)
   const [sFilter, setSFilter] = useState<SupplierFilter>('all')
-  const [addOpen, setAddOpen] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newCity, setNewCity] = useState('')
-  const [newBrand, setNewBrand] = useState('')
-  const [newEntity, setNewEntity] = useState('')
-  const [newCategory, setNewCategory] = useState('')
   // Выбор точки — верхнеуровневый фильтр, общий для Компаний и Товаров (в
   // т.ч. «Нет в матрице»), не только для Товаров, как было раньше. Пусто —
   // вся сеть, как и было. При выборе точки список Компаний показывает
@@ -646,7 +639,7 @@ export default function DataEditor() {
   )
 
   const venues = useMemo(
-    () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
+    () => (needle ? restaurants.filter((r) => r.name.toLowerCase().includes(needle) || (r.alias ?? '').toLowerCase().includes(needle) || r.city.toLowerCase().includes(needle)) : restaurants),
     [needle, restaurants],
   )
 
@@ -656,19 +649,6 @@ export default function DataEditor() {
   const total = tab === 'suppliers' ? suppliers.length
     : tab === 'products' ? matrixRowsFiltered.length
     : venues.length
-
-  const resetAddForm = () => {
-    setNewName(''); setNewCity(''); setNewBrand(''); setNewEntity(''); setNewCategory(''); setAddOpen(false)
-  }
-  const submitAddVenue = () => {
-    const name = newName.trim()
-    if (!name) return
-    addVenue(name, {
-      city: newCity.trim() || undefined, brand: newBrand.trim() || undefined,
-      entity: newEntity.trim() || undefined, category: newCategory.trim() || undefined,
-    })
-    resetAddForm()
-  }
 
   return (
     <div className="space-y-5">
@@ -815,50 +795,9 @@ export default function DataEditor() {
                 className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
               />
             </div>
-            {tab === 'venues' && (
-              <button
-                onClick={() => setAddOpen((v) => !v)}
-                className={`btn border px-3 py-2 text-xs ${addOpen ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
-              >
-                <IPlus width={14} height={14} /> Добавить точку
-              </button>
-            )}
           </div>
         </div>
 
-        {addOpen && tab === 'venues' && (
-          <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl border border-brand-500/30 bg-brand-500/[0.04] p-3">
-            <div className="min-w-[200px] flex-1">
-              <label className="mb-1 block text-[11px] text-fg-500">Название точки</label>
-              <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-            </div>
-            <div className="w-36">
-              <label className="mb-1 block text-[11px] text-fg-500">Город</label>
-              <input value={newCity} onChange={(e) => setNewCity(e.target.value)}
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-            </div>
-            <div className="w-40">
-              <label className="mb-1 block text-[11px] text-fg-500">Бренд</label>
-              <input value={newBrand} onChange={(e) => setNewBrand(e.target.value)}
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-            </div>
-            <div className="w-44">
-              <label className="mb-1 block text-[11px] text-fg-500">Юрлицо</label>
-              <input value={newEntity} onChange={(e) => setNewEntity(e.target.value)}
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-            </div>
-            <div className="w-40">
-              <label className="mb-1 block text-[11px] text-fg-500">Категория</label>
-              <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="например, Кухня"
-                className="w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-            </div>
-            <button onClick={submitAddVenue} disabled={!newName.trim()} className="btn border border-brand-500/50 bg-brand-500/15 px-3 py-1.5 text-xs text-brand-200 hover:bg-brand-500/25 disabled:opacity-40">
-              <ICheck width={14} height={14} /> Добавить
-            </button>
-            <button onClick={resetAddForm} className="btn px-3 py-1.5 text-xs text-fg-500 hover:text-fg-300">Отмена</button>
-          </div>
-        )}
 
 
         {tab === 'products' && unmatchedRows.length > 0 && (
@@ -1043,12 +982,11 @@ export default function DataEditor() {
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-[25%]">Точка</th>
+                  <th className="th w-[26%]">Название в iiko <InfoTip text="Как точка называется в iiko — по этому названию к ней привязаны закупки и план из матрицы. Здесь не редактируется." /></th>
+                  <th className="th w-[26%]">Название у нас <InfoTip text="Как точка будет называться в этом приложении (Обзор, Проверка цен, выбор точек, Excel). Влияет только на подпись — закупки и матрица по-прежнему привязаны к названию из iiko. Верните название из iiko, чтобы убрать переименование." /></th>
                   <th className="th w-[14%]">Город</th>
-                  <th className="th w-[16%]">Бренд</th>
-                  <th className="th w-[21%]">Юрлицо</th>
+                  <th className="th w-[20%]">Юрлицо</th>
                   <th className="th w-[14%]">Категория</th>
-                  <th className="th w-[10%] text-center">Действие</th>
                 </tr>
               )}
             </thead>
@@ -1165,30 +1103,28 @@ export default function DataEditor() {
                       </tr>
                     )
                   })
-                : (shown as typeof venues).map((r) => {
-                    const manual = edits.newVenues[r.name] === true
-                    return (
-                      <tr key={r.name} className="row-hover hover:bg-ink-800/40">
-                        <td className="td overflow-hidden text-fg-100">
-                          <span className="flex min-w-0 items-center gap-2">
-                            <IPin width={14} height={14} className="shrink-0 text-fg-600" /><HoverName text={r.name} className="min-w-0 flex-1" />
-                            {manual && <span className="chip shrink-0 border-transparent bg-brand-500/10 text-[10px] text-brand-300">вручную</span>}
-                          </span>
-                        </td>
-                        <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[140px]" /></td>
-                        <td className="td"><EditableText value={r.brand} onCommit={(v) => setVenue(r.name, { brand: v })} className="max-w-[160px]" /></td>
-                        <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[180px]" /></td>
-                        <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[140px]" /></td>
-                        <td className="td text-center">
-                          {manual && (
-                            <button onClick={() => removeVenue(r.name)} className="btn mx-auto px-2 py-1 text-xs text-fg-500 hover:text-bad" title="Удалить добавленную вручную точку">
-                              <ITrash width={13} height={13} />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
+                : (shown as typeof venues).map((r) => (
+                    <tr key={r.name} className="row-hover hover:bg-ink-800/40">
+                      <td className="td overflow-hidden text-fg-400">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <IPin width={14} height={14} className="shrink-0 text-fg-600" /><HoverName text={r.name} className="min-w-0 flex-1" />
+                        </span>
+                      </td>
+                      <td className="td"><EditableText value={r.alias ?? r.name} onCommit={(v) => {
+                        const next = v.trim() === r.name ? '' : v.trim()
+                        if (next === (r.alias ?? '')) return
+                        // Название должно отличать точки друг от друга: не совпадать ни с iiko-названием, ни с чужим своим названием.
+                        if (next && restaurants.some((o) => o.name !== r.name && [o.name, o.alias ?? ''].some((x) => norm(x) === norm(next)))) {
+                          window.alert(`Название «${next}» уже занято другой точкой — выберите другое.`)
+                          return
+                        }
+                        setVenue(r.name, { alias: next })
+                      }} className="max-w-[220px]" /></td>
+                      <td className="td"><EditableText value={r.city} onCommit={(v) => setVenue(r.name, { city: v })} className="max-w-[140px]" /></td>
+                      <td className="td"><EditableText value={r.entity} onCommit={(v) => setVenue(r.name, { entity: v })} className="max-w-[180px]" /></td>
+                      <td className="td"><EditableText value={r.category} onCommit={(v) => setVenue(r.name, { category: v })} className="max-w-[140px]" /></td>
+                    </tr>
+                  ))}
             </tbody>
           </table>
           {shown.length === 0 && <div className="py-12 text-center text-sm text-fg-500">Ничего не найдено.</div>}
