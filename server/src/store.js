@@ -275,6 +275,41 @@ export function getMatrix(orgId) {
 }
 export const saveMatrix = (orgId, m) => write(orgPaths(orgId).matrix, m)
 
+// Снимки матрицы по месяцам: цены, зафиксированные «за этот месяц» (кнопка
+// «Загрузить цены на период» в Настройки iiko). Файл назван matrixsnap-*, а не
+// matrix-*, — последние считаются старым форматом (см. legacyMatrixPeriods).
+const matrixSnapPath = (orgId, period) => join(orgDir(orgId), `matrixsnap-${period}.json`)
+export const getMatrixSnapshot = (orgId, period) => read(matrixSnapPath(orgId, period), null)
+export const saveMatrixSnapshot = (orgId, period, m) => write(matrixSnapPath(orgId, period), m)
+export function listMatrixSnapshots(orgId) {
+  return readdirSync(orgDir(orgId))
+    .map((f) => /^matrixsnap-(\d{4}-\d{2})\.json$/.exec(f)?.[1])
+    .filter(Boolean)
+    .sort()
+}
+/**
+ * Какая матрица действует для периода: снимок ровно этого месяца; иначе
+ * ближайший более ранний (цены, выставленные раньше, действуют, пока не
+ * зафиксированы новые — так «ноябрь» без своего снимка берёт октябрьский);
+ * иначе общая матрица (matrix.json — состояние ДО снимков, дальше она не
+ * обновляется: кнопка синка всегда фиксирует конкретный месяц); иначе самый ранний
+ * снимок. Без period — общая, а если её нет — самый свежий снимок.
+ */
+export function resolveMatrixFor(orgId, period, { allowLater = true } = {}) {
+  const snaps = listMatrixSnapshots(orgId)
+  if (period && snaps.length) {
+    const exact = snaps.includes(period) ? period : [...snaps].reverse().find((p) => p < period)
+    if (exact) return { matching: getMatrixSnapshot(orgId, exact), snapshotPeriod: exact }
+  }
+  const base = getMatrix(orgId)
+  if (base) return { matching: base, snapshotPeriod: null }
+  // Нет ни более раннего снимка, ни общей матрицы: для просмотра лучше показать
+  // ближайший ПОЗДНИЙ снимок, чем вшитую демо-матрицу; но как основу для нового
+  // снимка (allowLater: false) он не годится — это цены другого месяца.
+  if (snaps.length && (allowLater || !period)) { const p = period ? snaps[0] : snaps[snaps.length - 1]; return { matching: getMatrixSnapshot(orgId, p), snapshotPeriod: p } }
+  return { matching: null, snapshotPeriod: null }
+}
+
 /** Available periods for this org, oldest first, read straight off the stored dataset files. */
 export function listDatasetPeriods(orgId) {
   const dir = orgDir(orgId)
@@ -363,6 +398,7 @@ export function exportOrgData(orgId) {
     status: getStatus(orgId),
     datasets,
     matrix: getMatrix(orgId),
+    matrixSnapshots: Object.fromEntries(listMatrixSnapshots(orgId).map((p) => [p, getMatrixSnapshot(orgId, p)])),
   }
 }
 
@@ -382,6 +418,7 @@ export function resetOrgData(orgId) {
   const matrixPath = orgPaths(orgId).matrix
   if (existsSync(matrixPath)) unlinkSync(matrixPath)
   for (const period of legacyMatrixPeriods(orgId)) unlinkSync(orgLegacyMatrixPath(orgId, period))
+  for (const period of listMatrixSnapshots(orgId)) unlinkSync(matrixSnapPath(orgId, period))
   write(orgPaths(orgId).venues, [])
   saveSettings(orgId, { enabledRestaurants: null })
   saveStatus(orgId, { lastSync: null, lastResult: null, source: null, message: 'Данные сброшены — настройте синк заново' })

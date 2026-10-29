@@ -439,12 +439,17 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     const v = await fetchVenues()
     if (v) { setRestaurantScope(v.enabled); setVenuesState(v); setBackendOnline(true) }
   }, [])
-  // Матрица — свой источник, свой фетч, не завязан на loadData (закупки) и
-  // не привязан к периоду (план-цены сами по себе не "за такой-то месяц").
+  // Матрица — свой источник, свой фетч, не завязан на loadData (закупки), но
+  // действует по месяцам (снимки цен), поэтому берётся под выбранный период.
   // null у fetchMatching означает "ещё нет синка с таблицей вообще" — это
   // НЕ ошибка бэкенда, поэтому backendOnline не трогаем.
-  const loadMatching = useCallback(async () => {
-    const m = await fetchMatching()
+  // Матрица теперь действует по месяцам (снимки, см. resolveMatrixFor на сервере):
+  // для выбранного периода берётся снимок этого месяца, иначе ближайший более ранний.
+  const matchingReq = useRef(0)
+  const loadMatching = useCallback(async (period?: string) => {
+    const id = ++matchingReq.current
+    const m = await fetchMatching(period ?? periodKeyRef.current)
+    if (id !== matchingReq.current) return // пока шёл запрос, выбрали другой период — не затираем его матрицу старым ответом
     setBackendMatching(m && m.planPairs ? (m as MatchingTable) : null)
   }, [])
 
@@ -462,15 +467,16 @@ export function EditsProvider({ children }: { children: ReactNode }) {
         const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
         setPeriodKey(initial)
         loadData(initial)
+        loadMatching(initial)
       })
     })
-    loadMatching()
+    loadMatching() // без ожидания периодов: если они не загрузятся, матрица всё равно придёт
   }, [])
 
   // Пересинхронизировать матрицу вручную (кнопка в Настройки iiko, после
   // «Обновить сейчас» самой Google-таблицы) — просто перечитывает уже
   // сохранённую бэкендом (единую, без периода) матрицу.
-  const refreshMatrix = useCallback(() => loadMatching(), [loadMatching])
+  const refreshMatrix = useCallback(() => loadMatching(periodKeyRef.current), [loadMatching])
 
   // Кнопка «Добавить» у обнаруженной, но пока не включённой точки
   // (Настройки iiko → «Точки сети»). Точка уже есть в данных (iiko прислал
@@ -498,7 +504,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const setPeriod = useCallback((period: string) => {
     setPeriodKey(period)
     loadData(period)
-  }, [loadData])
+    loadMatching(period)
+  }, [loadData, loadMatching])
 
   // «Обновление» держит текущий выбранный период — просто пересобирает то,
   // на что уже смотрит пользователь, плюс подтягивает список периодов

@@ -233,14 +233,16 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
-export async function syncMatrix(target?: 'almaty' | 'astana'): Promise<{ ok: boolean; message?: string; rows?: number }> {
+/** period ("YYYY-MM") — зафиксировать цены матрицы ЗА ЭТОТ месяц отдельным снимком (остальные месяцы не трогаются); без period — общая матрица, как раньше. */
+export async function syncMatrix(target?: 'almaty' | 'astana', period?: string): Promise<{ ok: boolean; message?: string; rows?: number; period?: string | null }> {
   try {
-    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}) }) })
+    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}), ...(period ? { period } : {}) }) })
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
-/** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. Без периода — план-цены не привязаны к месяцу. */
-export const fetchMatching = () => get<any>('/api/matching')
+/** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. period — матрица, действующая для этого месяца (снимок месяца, иначе ближайший более ранний). */
+export const fetchMatching = (period?: string) => get<any>(period ? `/api/matching?period=${encodeURIComponent(period)}` : '/api/matching')
+export const fetchMatrixSnapshots = () => get<{ periods: { period: string; periodLabel: string }[] }>('/api/matrix/snapshots')
 
 /** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */
 export async function triggerSync(period?: string): Promise<{ ok: boolean; message?: string }> {

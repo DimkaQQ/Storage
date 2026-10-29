@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, fetchProductCategorySample, ProductCategoryItem, fetchExcludedCategoryList, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, fetchProductCategorySample, ProductCategoryItem, fetchExcludedCategoryList, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -35,7 +35,7 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, rawBase, period } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, rawBase, period, periodKey } = useEdits()
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -51,7 +51,17 @@ export default function IikoSettings() {
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
-  const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  // Месяц, ЗА КОТОРЫЙ фиксируем цены матрицы (снимок): по умолчанию тот, что
+  // сейчас выбран в приложении, но можно любой — например, в ноябре дописать
+  // цены за июнь и зафиксировать их именно на июнь.
+  const [matrixPeriod, setMatrixPeriod] = useState('')
+  const [matrixPeriodTouched, setMatrixPeriodTouched] = useState(false)
+  useEffect(() => { if (!matrixPeriodTouched && periodKey) setMatrixPeriod(periodKey) }, [periodKey, matrixPeriodTouched])
+  const nextMonth = (() => { const n = new Date(); const d = new Date(n.getFullYear(), n.getMonth() + 1, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
+  const [snapshots, setSnapshots] = useState<{ period: string; periodLabel: string }[]>([])
+  const loadSnapshots = () => { fetchMatrixSnapshots().then((r) => r && setSnapshots(r.periods)) }
+  useEffect(() => { loadSnapshots() }, [])
+  const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string; period?: string | null } | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [rawExporting, setRawExporting] = useState(false)
@@ -62,7 +72,7 @@ export default function IikoSettings() {
   const [astanaTesting, setAstanaTesting] = useState(false)
   const [astanaTestResult, setAstanaTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [astanaSyncing, setAstanaSyncing] = useState(false)
-  const [astanaSyncResult, setAstanaSyncResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  const [astanaSyncResult, setAstanaSyncResult] = useState<{ ok: boolean; message?: string; period?: string | null } | null>(null)
   const [columnsLoading, setColumnsLoading] = useState(false)
   const [columnsResult, setColumnsResult] = useState<{ ok: boolean; columns?: unknown; message?: string } | null>(null)
   const [sampleLoading, setSampleLoading] = useState(false)
@@ -234,9 +244,9 @@ export default function IikoSettings() {
     // без единой ошибки об этом.
     const r0 = await saveSettings(form)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
-    const r = await syncMatrix()
+    const r = await syncMatrix(undefined, matrixPeriod || undefined)
     setMatrixSyncResult(r)
-    if (r.ok) await refreshMatrix()
+    if (r.ok) { await refreshMatrix(); loadSnapshots() }
     setMatrixSyncing(false)
   }
 
@@ -254,9 +264,9 @@ export default function IikoSettings() {
     // См. doSyncMatrix — та же причина, тот же фикс, для таблицы Астаны.
     const r0 = await saveSettings(form)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
-    const r = await syncMatrix('astana')
+    const r = await syncMatrix('astana', matrixPeriod || undefined)
     setAstanaSyncResult(r)
-    if (r.ok) await refreshMatrix()
+    if (r.ok) { await refreshMatrix(); loadSnapshots() }
     setAstanaSyncing(false)
   }
 
@@ -751,7 +761,7 @@ export default function IikoSettings() {
       </Section>
 
       {/* matrix (plan prices from Google Sheet) */}
-      <Section title="Матрица — Алматы" subtitle="Читается прямо из Google-таблицы Сырьё Ф (Алматы) через сервисный аккаунт — это отдельный источник от iiko, iiko про договорные цены ничего не знает. Без привязки к месяцу — всегда актуальная версия, хранится вместе с матрицей Астаны ниже.">
+      <Section title="Матрица — Алматы" subtitle="Читается прямо из Google-таблицы Сырьё Ф (Алматы) через сервисный аккаунт — это отдельный источник от iiko, iiko про договорные цены ничего не знает. Цены фиксируются снимком за выбранный месяц: в ноябре можно вписать в таблицу цены за июнь, выбрать «июнь» и нажать кнопку — июньские цены сохранятся отдельно, остальные месяцы не меняются. Месяц без своего снимка использует ближайший более ранний.">
         <div className="grid grid-cols-2 gap-3">
           <Field
             label="ID или ссылка на таблицу"
@@ -780,25 +790,40 @@ export default function IikoSettings() {
           <button onClick={testMatrix} disabled={matrixTesting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
             <IPlug width={16} height={16} /> {matrixTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
           </button>
-          <button onClick={doSyncMatrix} disabled={matrixSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Обновить'}
+          <label className="flex items-center gap-2 text-xs text-fg-400">
+            Цены за месяц
+            <input
+              type="month"
+              value={matrixPeriod}
+              max={nextMonth}
+              onChange={(e) => { setMatrixPeriod(e.target.value); setMatrixPeriodTouched(true) }}
+              className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
+            />
+          </label>
+          <button onClick={doSyncMatrix} disabled={matrixSyncing || !matrixPeriod} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Загрузить цены на этот месяц'}
           </button>
           {matrixTestResult && (
             <span className={`chip ${matrixTestResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {matrixTestResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{matrixTestResult.message}
             </span>
           )}
+          {snapshots.length > 0 && (
+            <span className="chip border-ink-600 bg-ink-800/60 text-fg-400" title="Месяцы, для которых цены матрицы зафиксированы отдельным снимком">
+              Зафиксировано: {snapshots.map((x) => x.periodLabel).join(', ')}
+            </span>
+          )}
           {matrixSyncResult && (
             <span className={`chip ${matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {matrixSyncResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-              {matrixSyncResult.ok ? 'Матрица обновлена' : matrixSyncResult.message}
+              {matrixSyncResult.ok ? `Цены зафиксированы${matrixSyncResult.period ? ` за ${matrixSyncResult.period}` : ''}` : matrixSyncResult.message}
             </span>
           )}
         </div>
       </Section>
 
       {/* matrix — Астана (отдельная таблица, тот же сервисный аккаунт) */}
-      <Section title="Матрица — Астана" subtitle="Отдельная таблица для точек Астаны (свои вкладки). Ключ сервисного аккаунта — тот же, что выше; его нужно пригласить читателем и в эту таблицу.">
+      <Section title="Матрица — Астана" subtitle="Отдельная таблица для точек Астаны (свои вкладки). Ключ сервисного аккаунта — тот же, что выше; его нужно пригласить читателем и в эту таблицу. Цены фиксируются за тот же месяц, что выбран в блоке «Матрица — Алматы» выше.">
         <Field
           label="ID или ссылка на таблицу Астаны"
           hint="Можно вставить прямо ссылку из адресной строки — ID вытащится сам"
@@ -811,8 +836,18 @@ export default function IikoSettings() {
           <button onClick={testAstana} disabled={astanaTesting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
             <IPlug width={16} height={16} /> {astanaTesting ? 'Сохраняю и проверяю…' : 'Сохранить и проверить доступ'}
           </button>
-          <button onClick={doSyncAstana} disabled={astanaSyncing} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Обновить'}
+          <label className="flex items-center gap-2 text-xs text-fg-400">
+            Цены за месяц
+            <input
+              type="month"
+              value={matrixPeriod}
+              max={nextMonth}
+              onChange={(e) => { setMatrixPeriod(e.target.value); setMatrixPeriodTouched(true) }}
+              className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
+            />
+          </label>
+          <button onClick={doSyncAstana} disabled={astanaSyncing || !matrixPeriod} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Загрузить цены на этот месяц'}
           </button>
           {astanaTestResult && (
             <span className={`chip ${astanaTestResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
@@ -822,7 +857,7 @@ export default function IikoSettings() {
           {astanaSyncResult && (
             <span className={`chip ${astanaSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {astanaSyncResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-              {astanaSyncResult.ok ? 'Матрица обновлена' : astanaSyncResult.message}
+              {astanaSyncResult.ok ? `Цены зафиксированы${astanaSyncResult.period ? ` за ${astanaSyncResult.period}` : ''}` : astanaSyncResult.message}
             </span>
           )}
         </div>

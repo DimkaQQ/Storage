@@ -6,7 +6,7 @@ import {
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
-  getMatrix, saveMatrix, exportOrgData, resetOrgData,
+  getMatrix, saveMatrix, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, resolveMatrixFor, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
@@ -501,23 +501,41 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
     // явно (Object.values(sheetMap)) — mergeMatching полностью заменяет их
     // данные свежими (строка/цена, которую убрали из таблицы, не должна
     // жить в сторонном matrix.json вечно), не трогая другой город.
+    // period ("YYYY-MM") — зафиксировать цены ЗА ЭТОТ месяц отдельным снимком
+    // (прошлые месяцы не трогаются). Без period — прежнее поведение: общая
+    // матрица. Базой для слияния служит уже действующая для периода матрица
+    // — так второй город (который сейчас не синкаем) переходит в снимок как есть.
+    const rawPeriod = req.body?.period
+    if (rawPeriod != null && (typeof rawPeriod !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod))) {
+      return res.status(400).json({ ok: false, message: 'Период должен быть в формате ГГГГ-ММ (например 2026-06)' })
+    }
+    const period = rawPeriod ?? null
     // Вкладки, прочитанные в ПРОШЛЫЙ синк этого же города (tabsByTarget), тоже
     // входят в область замены — иначе вкладка, из которой убрали все строки
     // (или удалили целиком), не вычищалась бы из matrix.json никогда.
     const target = astana ? 'astana' : 'almaty'
-    const prev = getMatrix(orgId)
+    const prev = period ? (getMatrixSnapshot(orgId, period) ?? resolveMatrixFor(orgId, period, { allowLater: false }).matching) : getMatrix(orgId)
     const freshNames = Object.values(matching.restaurantNames || {})
     const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...freshNames, ...(prev?.tabsByTarget?.[target] ?? [])])
     merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: [...new Set([...(prev?.tabsByTarget?.[target] ?? []), ...freshNames])] }
-    saveMatrix(orgId, merged)
-    res.json({ ok: true, target: astana ? 'astana' : 'almaty', ...summary })
+    if (period) saveMatrixSnapshot(orgId, period, merged)
+    else saveMatrix(orgId, merged)
+    res.json({ ok: true, target: astana ? 'astana' : 'almaty', period, ...summary })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
 })
 
 app.get('/api/matching', requireAuth, (req, res) => {
-  res.json(getMatrix(req.auth.orgId)) // null, если ещё не синхронизировали вообще — фронт сам падает на вшитую матрицу
+  // ?period=YYYY-MM — матрица, действующая для этого месяца (см. resolveMatrixFor);
+  // null, если ещё не синхронизировали вообще — фронт сам падает на вшитую матрицу
+  const period = typeof req.query.period === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(req.query.period) ? req.query.period : null
+  const { matching, snapshotPeriod } = resolveMatrixFor(req.auth.orgId, period)
+  res.json(matching ? { ...matching, snapshotPeriod } : null)
+})
+
+app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
+  res.json({ periods: listMatrixSnapshots(req.auth.orgId).map((p) => ({ period: p, periodLabel: periodLabelFor(p) })) })
 })
 
 
