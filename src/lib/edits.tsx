@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
+import { MATRIX_SNAPSHOTS } from './features'
 import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
@@ -443,12 +444,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // действует по месяцам (снимки цен), поэтому берётся под выбранный период.
   // null у fetchMatching означает "ещё нет синка с таблицей вообще" — это
   // НЕ ошибка бэкенда, поэтому backendOnline не трогаем.
-  // Матрица теперь действует по месяцам (снимки, см. resolveMatrixFor на сервере):
-  // для выбранного периода берётся снимок этого месяца, иначе ближайший более ранний.
+  // Если включены снимки (MATRIX_SNAPSHOTS, сейчас выключены — см. features.ts), матрица
+  // действует по месяцам (resolveMatrixFor на сервере): снимок выбранного месяца, иначе
+  // ближайший более ранний; иначе — одна общая матрица.
   const matchingReq = useRef(0)
   const loadMatching = useCallback(async (period?: string) => {
     const id = ++matchingReq.current
-    const m = await fetchMatching(period ?? periodKeyRef.current)
+    const m = await fetchMatching(MATRIX_SNAPSHOTS ? (period ?? periodKeyRef.current) : undefined)
     if (id !== matchingReq.current) return // пока шёл запрос, выбрали другой период — не затираем его матрицу старым ответом
     setBackendMatching(m && m.planPairs ? (m as MatchingTable) : null)
   }, [])
@@ -467,7 +469,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
         const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
         setPeriodKey(initial)
         loadData(initial)
-        loadMatching(initial)
+        if (MATRIX_SNAPSHOTS) loadMatching(initial)
       })
     })
     loadMatching() // без ожидания периодов: если они не загрузятся, матрица всё равно придёт
@@ -504,7 +506,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const setPeriod = useCallback((period: string) => {
     setPeriodKey(period)
     loadData(period)
-    loadMatching(period)
+    if (MATRIX_SNAPSHOTS) loadMatching(period)
   }, [loadData, loadMatching])
 
   // «Обновление» держит текущий выбранный период — просто пересобирает то,

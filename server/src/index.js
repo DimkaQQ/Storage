@@ -483,6 +483,10 @@ app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, r
   res.json(await testSheetsConnection({ googleSheetId, googleServiceAccountKey: merged.googleServiceAccountKey }, astana ? SHEET_TO_RESTAURANT_ASTANA : undefined))
 })
 
+// Снимки матрицы по месяцам готовы, но выключены, пока заказчик решает, нужны ли
+// (включить: MATRIX_SNAPSHOTS=1 здесь и MATRIX_SNAPSHOTS=true в src/lib/features.ts).
+const MATRIX_SNAPSHOTS = process.env.MATRIX_SNAPSHOTS === '1'
+
 app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
   const orgId = req.auth.orgId
   const settings = getSettings(orgId)
@@ -505,7 +509,7 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
     // (прошлые месяцы не трогаются). Без period — прежнее поведение: общая
     // матрица. Базой для слияния служит уже действующая для периода матрица
     // — так второй город (который сейчас не синкаем) переходит в снимок как есть.
-    const rawPeriod = req.body?.period
+    const rawPeriod = MATRIX_SNAPSHOTS ? req.body?.period : undefined
     if (rawPeriod != null && (typeof rawPeriod !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod))) {
       return res.status(400).json({ ok: false, message: 'Период должен быть в формате ГГГГ-ММ (например 2026-06)' })
     }
@@ -529,13 +533,13 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
 app.get('/api/matching', requireAuth, (req, res) => {
   // ?period=YYYY-MM — матрица, действующая для этого месяца (см. resolveMatrixFor);
   // null, если ещё не синхронизировали вообще — фронт сам падает на вшитую матрицу
-  const period = typeof req.query.period === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(req.query.period) ? req.query.period : null
+  const period = MATRIX_SNAPSHOTS && typeof req.query.period === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(req.query.period) ? req.query.period : null
   const { matching, snapshotPeriod } = resolveMatrixFor(req.auth.orgId, period)
   res.json(matching ? { ...matching, snapshotPeriod } : null)
 })
 
 app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
-  res.json({ periods: listMatrixSnapshots(req.auth.orgId).map((p) => ({ period: p, periodLabel: periodLabelFor(p) })) })
+  res.json({ periods: !MATRIX_SNAPSHOTS ? [] : listMatrixSnapshots(req.auth.orgId).map((p) => ({ period: p, periodLabel: periodLabelFor(p) })) })
 })
 
 
