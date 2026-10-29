@@ -1,4 +1,4 @@
-import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, signedMoney, pct, fmt, summarize, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
@@ -231,7 +231,9 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
         x.restaurant.toLowerCase().includes(needle) || x.pack.toLowerCase().includes(needle) ||
         // ...и по "их" названиям из матрицы — можно искать "Тамаки" даже
         // когда основное поле показывает общее iiko-название "Соус ореховый".
-        (x.productLabel ?? '').toLowerCase().includes(needle) || (x.supplierLabel ?? '').toLowerCase().includes(needle),
+        (x.productLabel ?? '').toLowerCase().includes(needle) || (x.supplierLabel ?? '').toLowerCase().includes(needle) ||
+        // ...и по брендам привязанных вариантов (см. Row.variants).
+        (x.variants ?? []).some((v) => (v.label ?? '').toLowerCase().includes(needle)),
       )
     }
     const dir = sort.dir
@@ -435,8 +437,39 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                 // метку (оба правила бьют в один и тот же background-color,
                 // и hover почти всегда побеждал). У цветных строк на ховере
                 // усиливаем тот же цвет (rowBgHover), а не нейтральный.
+                // >1 прайсованных вариантов одной пары (разные бренды под одним
+                // iiko-названием, см. pairVariantsOf) — основная строка несёт
+                // СРЕДНИЙ план и единственную закупку (она одна, в итоги идёт
+                // один раз), а сами варианты — привязанные строки "└" под ней:
+                // каждая со своим брендом, ценой и разницей с той же закупкой.
+                // Это только отображение, в rows/итоги они не входят.
+                const vs = r.variants && r.variants.length > 1 ? r.variants : null
+                const variantRows = vs ? vs.map((v, i) => {
+                  const vPlan = moneyMode && r.unit != null ? v.price * r.qty : v.price
+                  const vDiff = factVal != null ? vPlan - factVal : null
+                  return (
+                    <tr key={`${r.id}-v${i}`} className={`text-fg-400 ${colorMeta ? colorMeta.rowBg : 'bg-ink-900/30'}`}>
+                      <td className="td" />
+                      <td className="td" />
+                      <td className="td overflow-hidden px-2 text-[11px]">
+                        <span className="flex items-center gap-1.5">
+                          <span className="shrink-0 pl-2 text-fg-600">└</span>
+                          <HoverName text={v.label ?? 'вариант без описания'} className="min-w-0 flex-1" />
+                        </span>
+                      </td>
+                      <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-400">{money(vPlan)}</td>
+                      <td className="td" />
+                      <td className={`td overflow-hidden whitespace-nowrap text-center text-xs tabnum ${vDiff != null && vDiff > 0 ? 'text-good' : 'text-fg-400'}`}>
+                        {vDiff != null ? signedMoney(vDiff) : ''}
+                      </td>
+                      <td className="td overflow-hidden text-center text-[10px] text-fg-600">вариант {i + 1} из {vs.length}</td>
+                      <td className="td" />
+                    </tr>
+                  )
+                }) : null
                 return (
-                <tr key={r.id} className={`row-hover ${colorMeta ? `${colorMeta.rowBg} ${colorMeta.rowBgHover}` : 'hover:bg-ink-800/40'} ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''}`}>
+                <Fragment key={r.id}>
+                <tr className={`row-hover ${colorMeta ? `${colorMeta.rowBg} ${colorMeta.rowBgHover}` : 'hover:bg-ink-800/40'} ${r.isTotalRow ? 'opacity-50 hover:opacity-100' : ''}`}>
                   <td className="td overflow-hidden px-2 text-fg-400"><HoverName text={r.restaurant} /></td>
                   <td className="td overflow-hidden px-2 font-medium text-fg-100">
                     {/* Крупным — название из матрицы (если есть), мелким под ним —
@@ -516,7 +549,10 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                       </>
                     )}
                   </td>
-                  <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-400">{planVal != null ? money(planVal) : '—'}</td>
+                  <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-400">
+                    {planVal != null ? money(planVal) : '—'}
+                    {vs && <span className="block text-[10px] text-fg-600">среднее из {vs.length}</span>}
+                  </td>
                   <td className="td overflow-hidden whitespace-nowrap text-center text-xs tabnum text-fg-200">{factVal != null ? money(factVal) : <span className="text-fg-600">—</span>}</td>
                   <td className={`td overflow-hidden whitespace-nowrap text-center text-xs tabnum font-semibold ${diffVal != null && diffVal > 0 ? 'text-good' : 'text-fg-300'}`}>
                     {diffVal != null ? signedMoney(diffVal) : <span className="text-fg-600">—</span>}
@@ -589,6 +625,8 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                     )}
                   </td>
                 </tr>
+                {variantRows}
+                </Fragment>
               )})}
             </tbody>
           </table>

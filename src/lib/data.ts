@@ -312,6 +312,7 @@ export interface Row {
   userComment: string | null  // свой комментарий пользователя к этой закупке (Проверка цен) — отдельно от note/b.comment (их же комментарий из iiko)
   rowColor: RowColor | null  // цветовая метка строки, если поставили вручную
   ambiguousOptions: AmbiguousVariant[] | null  // см. AmbiguousVariant — непустой, когда эта строка притянула неоднозначный ключ матрицы и выбор ещё не сделан (edits.ambiguousChoices[rowKey])
+  variants?: { price: number; label: string | null }[] | null  // >1 прайсованных вариантов одной пары (разные бренды/фасовки под одним iiko-названием, см. pairVariantsOf) — plan тут их среднее, сами варианты показываются привязанными строками под этой
   matrixOrder: number  // порядок поставщика на вкладке этого ресторана в самой матрице (см. MatchingTable.supplierOrder) — Infinity, если поставщик в матрице для этого ресторана не встретился вовсе (сортировка просто кидает такие в конец)
 }
 
@@ -489,6 +490,7 @@ interface Resolved {
   resolvedProduct: string  // товар (норм.), который resolveRowPlan реально использовал для сопоставления — после productLink, НЕ b.product0 напрямую. Нужен снаружи (buildRows), чтобы подсказка цены у "заказ не по матрице" искала план по ТОЙ ЖЕ строке матрицы, что дала designatedSuppliers, а не заново по сырому iiko-названию
   resolvedPack: string  // фасовка (норм.), аналогично — после packAlias/curatedTarget
   ambiguousOptions: AmbiguousVariant[] | null  // см. AmbiguousVariant — непустой только когда matchedKey реально неоднозначен в самой таблице (>1 варианта цены/названия)
+  variants?: { price: number; label: string | null }[] | null  // см. Row.variants
 }
 
 const NO_PLAN_PRICE_NOTE = 'В матрице нет плановой цены для этой позиции.'
@@ -1096,7 +1098,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
     const pv = pairVariantsOf(matching, designatedIndex, pairKey)
     if (pv.variants.length > 1) {
       const m = mergeVariants(pv.variants)
-      return { plan: m.plan, status: 'ok', designatedSuppliers: [], productLabel: m.label, unpricedMatch: false, matchedKey: pv.keys[0], ...NONE, ambiguousOptions: null }
+      return { plan: m.plan, status: 'ok', designatedSuppliers: [], productLabel: null, unpricedMatch: false, matchedKey: pv.keys[0], ...NONE, ambiguousOptions: null, variants: pv.variants }
     }
   }
   if (pack) {
@@ -1418,7 +1420,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // этого ресторана вообще не прайсован) — Infinity, такие строки просто
     // уходят в конец при сортировке "по матрице".
     const matrixOrder = matching.supplierOrder?.[`${norm(b.restaurant)}::${norm(supplierCanonical ?? b.supplier0)}`] ?? Infinity
-    let { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, isPackSensitive, resolvedProduct, resolvedPack, ambiguousOptions } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
+    let { plan, status, designatedSuppliers: designatedNorm, productLabel: matrixLabel, unpricedMatch, matchedKey, candidateNote, availableFasovki, packFixKey, isAssortment, isPackSensitive, resolvedProduct, resolvedPack, ambiguousOptions, variants } = resolveRowPlan(b, edits, matching, designatedIndex, knownFlatPairs)
     // Неоднозначный ключ матрицы (см. AmbiguousVariant) с уже сделанным
     // выбором именно для ЭТОЙ закупки (edits.ambiguousChoices по rowKey, не
     // по matchedKey — выбор не должен молча переноситься на другую закупку
@@ -1536,7 +1538,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       brand: venue?.brand ?? b.brand, city: venue?.city ?? b.city, entity: venue?.entity ?? b.entity, category: venue?.category ?? b.category,
       supplier, supplierLabel, product, productRaw: b.product0, productLabel, isAssortment, isPackSensitive, pack: b.pack, qty: b.qty, unit: b.unit, plan,
       diffPct, status, designatedSuppliers, designatedPlan: designatedPlanPrice, note, availableFasovki, packFixKey, matchedKey, isTotalRow: b.isTotalRow,
-      rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null, ambiguousOptions, matrixOrder,
+      rowKey, userComment: edits.rowComments[rowKey] ?? null, rowColor: edits.rowColors[rowKey] ?? null, ambiguousOptions, variants: variants ?? null, matrixOrder,
     }
   })
 
@@ -1596,14 +1598,14 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // строка "Не закупали" со средним планом и перечнем брендов, а не по
     // строке на каждую фасовку; остальные ключи пары пропускаем.
     let mergedPlan: number | null = null
-    let mergedLabel: string | null = null
+    let mergedVariants: { price: number; label: string | null }[] | null = null
     if (plan != null && !isPackSensitiveProduct(product)) {
       const pv = pairVariantsOf(matching, designatedIndex, pairKey)
       if (pv.variants.length > 1) {
         if (pv.keys[0] !== key) return
         const m = mergeVariants(pv.variants)
         mergedPlan = m.plan
-        mergedLabel = m.label
+        mergedVariants = pv.variants
       }
     }
     const label = matching.productLabels[key] ?? null
@@ -1614,7 +1616,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       id: 'np' + seq++, restaurant: venueRow.restaurant,
       brand: venueRow.brand, city: venueRow.city, entity: venueRow.entity, category: venueRow.category,
       supplier: supplierDisplay, supplierLabel: null,
-      product: mergedPlan != null ? capitalize(product) : (label ?? capitalize(product)), productRaw: '', productLabel: mergedPlan != null ? mergedLabel : (pack || null), isAssortment, isPackSensitive,
+      product: mergedPlan != null ? capitalize(product) : (label ?? capitalize(product)), productRaw: '', productLabel: mergedPlan != null ? null : (pack || null), isAssortment, isPackSensitive,
       pack: mergedPlan != null ? '' : pack, qty: 0, unit: null, plan: mergedPlan ?? plan,
       // Раньше тут был status: 'ok' — та же метка "По матрице", что у
       // реально купленной и совпавшей позиции. При фильтре "По матрице" эти
@@ -1630,7 +1632,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       // сохранено в edits.rowColors — клик по цвету молча пропадал на
       // следующий же пересчёт. rowKey стабильный (по ключу матрицы), так
       // что читаем ровно как у настоящих закупок ниже.
-      rowKey: `np::${key}`, userComment: edits.rowComments[`np::${key}`] ?? null, rowColor: edits.rowColors[`np::${key}`] ?? null, ambiguousOptions: null, matrixOrder,
+      rowKey: `np::${key}`, userComment: edits.rowComments[`np::${key}`] ?? null, rowColor: edits.rowColors[`np::${key}`] ?? null, ambiguousOptions: null, variants: mergedVariants, matrixOrder,
     })
   }
   for (const [key, plan] of Object.entries(matching.planPairsByPack)) {
