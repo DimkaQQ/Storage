@@ -639,6 +639,53 @@ function buildKnownFlatIndex(matching: MatchingTable): Set<string> {
 }
 
 /**
+ * Все прайсованные варианты ОДНОЙ пары ресторан+поставщик+товар: плоская
+ * цена, цены по каждой фасовке и неоднозначные дубли одного ключа (см.
+ * MatchingTable.ambiguous). Живой случай (Рене, ИП Азык): "Сливки 33%" в
+ * матрице — три разных бренда (Президент, Master Martini, Чудское озеро)
+ * под одним iiko-названием; iiko их не различает, поэтому для всех товаров,
+ * кроме isPackSensitiveProduct (пюре, ягода в асс), берём ВСЕ варианты разом
+ * — план = среднее, подпись = перечень брендов, выбирать ничего не нужно
+ * (человек сам разберётся, что именно приехало).
+ */
+const pairVariantsCache = new WeakMap<MatchingTable, Map<string, { keys: string[]; variants: { price: number; label: string | null }[] }>>()
+export function pairVariantsOf(matching: MatchingTable, designatedIndex: DesignatedIndex, pairKey: string): { keys: string[]; variants: { price: number; label: string | null }[] } {
+  let cache = pairVariantsCache.get(matching)
+  if (!cache) { cache = new Map(); pairVariantsCache.set(matching, cache) }
+  const hit = cache.get(pairKey)
+  if (hit) return hit
+  const keys: string[] = []
+  const variants: { price: number; label: string | null }[] = []
+  const seen = new Set<string>()
+  const push = (price: number, label: string | null) => {
+    const id = `${price}::${label ?? ''}`
+    if (seen.has(id)) return // тот же вариант под плоским и пакетным ключом — один раз
+    seen.add(id)
+    variants.push({ price, label })
+  }
+  const add = (key: string, price: number | undefined) => {
+    if (price == null) return
+    keys.push(key)
+    const amb = matching.ambiguous?.[key]
+    if (amb && amb.length > 0) for (const v of amb) push(v.price, v.label)
+    else push(price, matching.productLabels[key] ?? null)
+  }
+  add(pairKey, matching.planPairs[pairKey])
+  const packs = [...(designatedIndex.bySupplierProduct.get(pairKey) ?? [])].sort((a, c) => a.localeCompare(c))
+  for (const p of packs) add(`${pairKey}::${p}`, matching.planPairsByPack[`${pairKey}::${p}`])
+  const result = { keys, variants }
+  cache.set(pairKey, result)
+  return result
+}
+
+/** Среднее по вариантам и перечень их подписей (без повторов) — см. pairVariantsOf. */
+export function mergeVariants(variants: { price: number; label: string | null }[]): { plan: number; label: string | null } {
+  const plan = variants.reduce((a, v) => a + v.price, 0) / variants.length
+  const labels = [...new Set(variants.map((v) => v.label).filter((l): l is string => !!l))]
+  return { plan, label: labels.length ? labels.join(' · ') : null }
+}
+
+/**
  * Заранее просмотренные вручную случаи "это тот же товар, просто в закупке
  * фасовка записана иначе, чем в матрице" — например "Фасоль эдамаме с/м."
  * пач. 250гр у ФудМаркет и их же цена по кг: один и тот же товар, кто-то в
@@ -1042,6 +1089,16 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // Google-таблице, не здесь. edits.planOverrides — legacy-поле, дальше не
   // читается (см. Edits.planOverrides).
 
+  // Не pack-sensitive товар, у которого в матрице несколько прайсованных
+  // вариантов (разные фасовки/бренды под одним iiko-названием) — не
+  // выбираем один, а сразу берём все: план — среднее, подпись — перечень.
+  if (!isPackSensitive) {
+    const pv = pairVariantsOf(matching, designatedIndex, pairKey)
+    if (pv.variants.length > 1) {
+      const m = mergeVariants(pv.variants)
+      return { plan: m.plan, status: 'ok', designatedSuppliers: [], productLabel: m.label, unpricedMatch: false, matchedKey: pv.keys[0], ...NONE, ambiguousOptions: null }
+    }
+  }
   if (pack) {
     const tripleKey = `${pairKey}::${pack}`
     const plan = matching.planPairsByPack[tripleKey]
@@ -1535,6 +1592,20 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     // закупок, но строка из матрицы всё равно всплывала как "Не закупали".
     const supplierDisplay = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
     if (isExcludedPair(supplierNorm, product) || isExcludedPair(supplierDisplay, product)) return
+    // Несколько вариантов одной пары (см. pairVariantsOf) — одна общая
+    // строка "Не закупали" со средним планом и перечнем брендов, а не по
+    // строке на каждую фасовку; остальные ключи пары пропускаем.
+    let mergedPlan: number | null = null
+    let mergedLabel: string | null = null
+    if (plan != null && !isPackSensitiveProduct(product)) {
+      const pv = pairVariantsOf(matching, designatedIndex, pairKey)
+      if (pv.variants.length > 1) {
+        if (pv.keys[0] !== key) return
+        const m = mergeVariants(pv.variants)
+        mergedPlan = m.plan
+        mergedLabel = m.label
+      }
+    }
     const label = matching.productLabels[key] ?? null
     const isAssortment = !knownFlatPairs.has(key.split('::').slice(0, 3).join('::'))
     const isPackSensitive = isPackSensitiveProduct(product)
@@ -1543,8 +1614,8 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       id: 'np' + seq++, restaurant: venueRow.restaurant,
       brand: venueRow.brand, city: venueRow.city, entity: venueRow.entity, category: venueRow.category,
       supplier: supplierDisplay, supplierLabel: null,
-      product: label ?? capitalize(product), productRaw: '', productLabel: pack || null, isAssortment, isPackSensitive,
-      pack, qty: 0, unit: null, plan,
+      product: mergedPlan != null ? capitalize(product) : (label ?? capitalize(product)), productRaw: '', productLabel: mergedPlan != null ? mergedLabel : (pack || null), isAssortment, isPackSensitive,
+      pack: mergedPlan != null ? '' : pack, qty: 0, unit: null, plan: mergedPlan ?? plan,
       // Раньше тут был status: 'ok' — та же метка "По матрице", что у
       // реально купленной и совпавшей позиции. При фильтре "По матрице" эти
       // строки (ничего не покупали, просто план есть) неотличимо мешались с
