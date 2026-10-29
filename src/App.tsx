@@ -15,6 +15,8 @@ const DataEditor = lazy(() => import('./pages/DataEditor'))
 const IikoSettings = lazy(() => import('./pages/IikoSettings'))
 const UsersAdmin = lazy(() => import('./pages/UsersAdmin'))
 
+declare const __BUILD_TIME__: string
+
 type PageId = 'dashboard' | 'pricecheck' | 'data' | 'iiko' | 'users'
 
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string; adminOnly?: boolean }[] = [
@@ -212,7 +214,7 @@ export default function App() {
             ))}
 
             <footer className="px-0 pb-2 pt-6 text-center text-[11px] text-fg-600">
-              Проверка закупочных цен · план (матрица) против факта (iiko) · {period}
+              Проверка закупочных цен · план (матрица) против факта (iiko) · {period} · сборка {__BUILD_TIME__} UTC
             </footer>
           </main>
         </div>
