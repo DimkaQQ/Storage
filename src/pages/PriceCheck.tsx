@@ -747,7 +747,7 @@ function FiltersMenu({
               on={onlyDiff}
               onClick={() => setOnlyDiff(!onlyDiff)}
               dot="bg-brand-400"
-              label="Убрать все 0 в дельте"
+              label="Убрать все 0"
               title="Скрыть строки, где дельта равна 0 (факт совпал с планом) — останутся только строки с реальной разницей"
             />
             <FilterCheckRow
