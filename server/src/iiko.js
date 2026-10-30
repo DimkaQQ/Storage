@@ -340,6 +340,7 @@ export async function iikoServerInvoiceReconcile(settings, period) {
     const round = (n) => Math.round(n)
     const totals = { all: 0, droppedStore: 0, excludedCategory: 0, kept: 0 }
     const droppedStores = new Map()
+    const droppedStoreCats = new Map()
     const excludedCats = new Map()
     const unknownStores = new Map()
     const keptRestaurants = new Map()
@@ -352,6 +353,9 @@ export async function iikoServerInvoiceReconcile(settings, period) {
       if (restaurant === null) {
         totals.droppedStore += sum
         droppedStores.set(store, (droppedStores.get(store) || 0) + sum)
+        const cats = droppedStoreCats.get(store) || new Map()
+        cats.set(cat, (cats.get(cat) || 0) + sum)
+        droppedStoreCats.set(store, cats)
       } else if (EXCLUDED_CATEGORIES.has(norm(cat))) {
         totals.excludedCategory += sum
         excludedCats.set(cat, (excludedCats.get(cat) || 0) + sum)
@@ -364,7 +368,8 @@ export async function iikoServerInvoiceReconcile(settings, period) {
     const top = (m, n = 40) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, sum]) => ({ name, sum: round(sum) }))
     return {
       totals: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, round(v)])),
-      droppedStores: top(droppedStores),
+      // отброшенные склады с тремя крупнейшими категориями товаров внутри — видно, еда ли это
+      droppedStores: top(droppedStores).map((d) => ({ ...d, topCategories: top(droppedStoreCats.get(d.name) ?? new Map(), 3) })),
       excludedCategories: top(excludedCats),
       keptByRestaurant: top(keptRestaurants),
       unknownStores: top(unknownStores),
