@@ -10,7 +10,7 @@ import {
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
-import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
+import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
@@ -487,7 +487,11 @@ app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, r
 // (включить: MATRIX_SNAPSHOTS=1 здесь и MATRIX_SNAPSHOTS=true в src/lib/features.ts).
 const MATRIX_SNAPSHOTS = process.env.MATRIX_SNAPSHOTS === '1'
 
-app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
+// Синки матрицы идут строго по одному: read-modify-write matrix.json иначе терял бы город при параллельных запросах
+let matrixSyncQueue = Promise.resolve()
+const inMatrixQueue = (fn) => { const run = matrixSyncQueue.then(fn, fn); matrixSyncQueue = run.catch(() => {}); return run }
+
+app.post('/api/matrix/sync', requireAuth, requireAdmin, (req, res) => inMatrixQueue(async () => {
   const orgId = req.auth.orgId
   const settings = getSettings(orgId)
   const astana = req.body?.target === 'astana'
@@ -495,10 +499,26 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
   if (!googleSheetId) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
   try {
     const sheetMap = astana ? SHEET_TO_RESTAURANT_ASTANA : SHEET_TO_RESTAURANT
+    const rawPeriod = MATRIX_SNAPSHOTS ? req.body?.period : undefined
+    if (rawPeriod != null && (typeof rawPeriod !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod))) {
+      return res.status(400).json({ ok: false, message: 'Период должен быть в формате ГГГГ-ММ (например 2026-06)' })
+    }
+    const period = rawPeriod ?? null
+    const target = astana ? 'astana' : 'almaty'
+    const otherTarget = astana ? 'almaty' : 'astana'
+    const otherMap = astana ? SHEET_TO_RESTAURANT : SHEET_TO_RESTAURANT_ASTANA
+    // база слияния — та же матрица, в которую пишем (снимок месяца или общая)
+    const prev = period ? (getMatrixSnapshot(orgId, period) ?? resolveMatrixFor(orgId, period, { allowLater: false }).matching) : getMatrix(orgId)
+    // имена вкладок другого города — занятые: одноимённая вкладка этого города не должна затереть их
+    // (свои вкладки — из sheetMap и прошлых синков этого города — не считаются занятыми)
+    const own = new Set([...Object.values(sheetMap), ...(prev?.tabsByTarget?.[target] ?? [])].map(normKey))
+    const reserved = [...Object.values(otherMap), ...(prev?.tabsByTarget?.[otherTarget] ?? [])].filter((n) => !own.has(normKey(n)))
     const { matching, summary } = await syncMatrix(
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       sheetMap,
+      reserved,
     )
+    if (summary.conflicts.length) console.warn(`[matrix] ${target}: пропущены вкладки с занятым названием: ${summary.conflicts.join(', ')}`)
     // Мёрджим с уже сохранённой матрицей, а не перезаписываем — иначе синк
     // Астаны стирал бы уже синканную Алматы (и наоборот), т.к. обе живут в
     // одном файле matrix.json. Рестораны ИМЕННО этого города передаём
@@ -509,26 +529,22 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, async (req, res) => {
     // (прошлые месяцы не трогаются). Без period — прежнее поведение: общая
     // матрица. Базой для слияния служит уже действующая для периода матрица
     // — так второй город (который сейчас не синкаем) переходит в снимок как есть.
-    const rawPeriod = MATRIX_SNAPSHOTS ? req.body?.period : undefined
-    if (rawPeriod != null && (typeof rawPeriod !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod))) {
-      return res.status(400).json({ ok: false, message: 'Период должен быть в формате ГГГГ-ММ (например 2026-06)' })
-    }
-    const period = rawPeriod ?? null
     // Вкладки, прочитанные в ПРОШЛЫЙ синк этого же города (tabsByTarget), тоже
     // входят в область замены — иначе вкладка, из которой убрали все строки
     // (или удалили целиком), не вычищалась бы из matrix.json никогда.
-    const target = astana ? 'astana' : 'almaty'
-    const prev = period ? (getMatrixSnapshot(orgId, period) ?? resolveMatrixFor(orgId, period, { allowLater: false }).matching) : getMatrix(orgId)
     const freshNames = Object.values(matching.restaurantNames || {})
-    const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...freshNames, ...(prev?.tabsByTarget?.[target] ?? [])])
-    merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: [...new Set([...(prev?.tabsByTarget?.[target] ?? []), ...freshNames])] }
+    // имена, записанные за обоими городами (старые данные), в область замены не берём — иначе стёрли бы чужой город
+    const ownTabs = [...new Set([...(prev?.tabsByTarget?.[target] ?? []), ...freshNames])]
+      .filter((n) => freshNames.includes(n) || !(prev?.tabsByTarget?.[otherTarget] ?? []).includes(n))
+    const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...ownTabs])
+    merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: ownTabs }
     if (period) saveMatrixSnapshot(orgId, period, merged)
     else saveMatrix(orgId, merged)
-    res.json({ ok: true, target: astana ? 'astana' : 'almaty', period, ...summary })
+    res.json({ ok: true, target, period, ...summary })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
-})
+}))
 
 app.get('/api/matching', requireAuth, (req, res) => {
   // ?period=YYYY-MM — матрица, действующая для этого месяца (см. resolveMatrixFor);

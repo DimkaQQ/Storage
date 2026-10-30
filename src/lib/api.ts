@@ -234,7 +234,7 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 /** period ("YYYY-MM") — зафиксировать цены матрицы ЗА ЭТОТ месяц отдельным снимком (остальные месяцы не трогаются); без period — общая матрица, как раньше. */
-export async function syncMatrix(target?: 'almaty' | 'astana', period?: string): Promise<{ ok: boolean; message?: string; rows?: number; period?: string | null }> {
+export async function syncMatrix(target?: 'almaty' | 'astana', period?: string): Promise<{ ok: boolean; message?: string; rows?: number; period?: string | null; conflicts?: string[] }> {
   try {
     const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}), ...(period ? { period } : {}) }) })
     return await r.json()

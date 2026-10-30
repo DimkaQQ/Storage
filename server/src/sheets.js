@@ -160,7 +160,7 @@ export async function testConnection({ googleSheetId, googleServiceAccountKey },
  * (свой googleSheetId, тот же сервисный аккаунт) — вызывающая сторона
  * (index.js) сама решает, какой googleSheetId и какой маппинг сюда подать.
  */
-export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT) {
+export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT, reservedNames = []) {
   const token = await getAccessToken(googleServiceAccountKey)
   const titles = await fetchSheetTitles(token, googleSheetId)
   // Сканируем ВСЕ вкладки, а не только узнанные по списку: вкладка, которой
@@ -173,7 +173,24 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   // вкладка стала бы "рестораном". Вкладки с "::" в названии пропускаем —
   // двоеточия в ключах матрицы зарезервированы.
   if (!titles.some((t) => sheetToRestaurant[t])) throw new Error('Ни одна вкладка таблицы не узнана — проверьте ID таблицы (ожидаются вкладки с названиями точек, см. SHEET_TO_RESTAURANT в sheets.js)')
-  const sheets = titles.filter((t) => !String(t).includes('::'))
+  // Защита от одинаковых названий: ключ матрицы — norm(название), поэтому две
+  // вкладки с одним названием (в разных городах или отличающиеся только
+  // пробелами/регистром) слились бы в одну и затирали друг друга. Узнанные по
+  // списку вкладки читаем первыми; любая вкладка, чьё название уже занято (в этой
+  // же таблице или в таблице другого города — reservedNames), пропускается и
+  // попадает в conflicts — переименуйте её в таблице.
+  const taken = new Set(reservedNames.map(norm))
+  const claimed = new Set()
+  const conflicts = []
+  const sheets = []
+  const byKnown = [...titles].sort((a, b) => (sheetToRestaurant[b] ? 1 : 0) - (sheetToRestaurant[a] ? 1 : 0))
+  for (const t of byKnown) {
+    if (String(t).includes('::')) continue
+    const key = norm(sheetToRestaurant[t] ?? String(t).replace(/\s+/g, ' ').trim())
+    if (taken.has(key) || claimed.has(key)) { conflicts.push(String(t)); continue }
+    claimed.add(key)
+    sheets.push(t)
+  }
 
   // Без верхней границы по строке (не C3:I5000) — Sheets API читает до
   // конца реальных данных листа. Фиксированный потолок в 5000 строк рос бы
@@ -309,7 +326,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
 
   return {
     matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName, restaurantNames, tabTitles },
-    summary: { sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
+    summary: { conflicts, sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
 

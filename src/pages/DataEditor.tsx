@@ -90,10 +90,17 @@ export default function DataEditor() {
   // PriceCheck.tsx), а не одним выбором "навсегда" для всей сети.
   const refreshFromMatrix = async () => {
     setMatrixSyncing(true); setMatrixSyncMsg(null)
-    const [almaty, astana] = await Promise.all([syncMatrix('almaty'), syncMatrix('astana')])
+    // по очереди, не параллельно: защита от одинаковых названий вкладок сверяет
+    // города по уже сохранённой матрице, второй синк должен видеть первый
+    const almaty = await syncMatrix('almaty')
+    const astana = await syncMatrix('astana')
     await refreshMatrix()
     setMatrixSyncing(false)
-    setMatrixSyncMsg(almaty.ok || astana.ok ? 'Обновлено' : (almaty.message || astana.message || 'Не удалось обновить'))
+    const skipped = [...(almaty.conflicts ?? []), ...(astana.conflicts ?? [])]
+    const failed = [!almaty.ok && almaty.message && `Алматы: ${almaty.message}`, !astana.ok && astana.message && `Астана: ${astana.message}`].filter(Boolean)
+    setMatrixSyncMsg(almaty.ok || astana.ok
+      ? 'Обновлено' + (failed.length ? ` · не обновилось — ${failed.join('; ')}` : '') + (skipped.length ? ` · пропущены вкладки с занятым названием: ${skipped.join(', ')} — переименуйте в таблице` : '')
+      : (almaty.message || astana.message || 'Не удалось обновить'))
   }
   // Подсказки автопоиска (Компании/Товары) должны предлагать то, что уже
   // реально известно, даже когда включён тестовый режим "без матрицы" —
