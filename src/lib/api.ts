@@ -116,6 +116,16 @@ export async function fetchOlapTypes(period = ''): Promise<{ ok: boolean; rows?:
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+export interface ExtraFact { restaurant: string; store: string; category: string; supplier: string; product: string; pack: string; qty: number; sum: number; reason: 'склад' | 'категория' | 'склад+категория' }
+/** «Что добавится, если брать всё» — закупки, которые загрузка отбрасывает (не кухонные склады, исключённые категории); в приложение не попадают. */
+export async function fetchExtraFacts(period = ''): Promise<{ ok: boolean; rows?: ExtraFact[]; message?: string }> {
+  try {
+    const q = new URLSearchParams(period ? { period } : {})
+    const r = await fetch(`/api/iiko/extra-facts?${q}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 /** «Куда ушли закупки» — сколько приходных накладных вернул iiko за месяц и какая часть отброшена складом/категорией. */
 export async function fetchInvoiceReconcile(period = ''): Promise<{ ok: boolean; rows?: unknown; message?: string }> {
   try {

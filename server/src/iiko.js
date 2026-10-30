@@ -192,7 +192,7 @@ const TSFK_CODE = squash('цехпроменад')
  * ресторан, пока нечем, пусть будет видно в "обнаружено, но не показано",
  * а не тихо потеряется.
  */
-function resolveStoreRestaurant(storeRaw) {
+function resolveStoreRestaurant(storeRaw, ignoreDept = false) {
   const normalized = normStoreKey(storeRaw)
   // Хвостовую скобку отбрасываем из основной строки перед разбором —
   // встречается два вида содержимого: либо код склада ("Кухнясклад/
@@ -215,7 +215,7 @@ function resolveStoreRestaurant(storeRaw) {
   const { rest, deptWords: keyDeptWords } = peelDeptWords(key)
   const deptWords = [...keyDeptWords, ...parenDeptWords]
   const hasKitchen = deptWords.some((w) => KITCHEN_WORDS.includes(w))
-  if (deptWords.length > 0 && !hasKitchen) return null // указан какой-то отдел (бар/склад/хозтовары/посуда/...) без кухни — исключить, бренд не важен
+  if (!ignoreDept && deptWords.length > 0 && !hasKitchen) return null // указан какой-то отдел (бар/склад/хозтовары/посуда/...) без кухни — исключить, бренд не важен
   const code = squash(rest)
   if (IGNORED_BRAND_CODES.has(code)) return null
   const restaurant = BRAND_CODE_SQUASHED[code]
@@ -301,6 +301,66 @@ export async function iikoServerTransactionTypes(settings, period) {
     if (!res.ok) throw new Error(`Отчёт недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
     const data = await res.json()
     return data.data || []
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
+/**
+ * «Что добавится, если брать всё» — закупки (INVOICE), которые обычная
+ * загрузка отбрасывает: не кухонные склады (бар/хозтовары/кальян/витрина…) и
+ * исключённые категории. Точка определяется по бренду склада так же, как в
+ * загрузке, только без отсева по отделу; закрытые бренды (IGNORED_BRAND_CODES)
+ * пропускаются. В приложение это НЕ попадает — клиент сверяет строки с
+ * матрицей в отдельной таблице (Настройки iiko). Строки, которые и так
+ * доходят до Проверки цен, сюда не входят.
+ */
+export async function iikoServerExtraFacts(settings, period) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const { from, to } = periodRange(period)
+    const body = {
+      reportType: 'TRANSACTIONS',
+      buildSummary: false,
+      groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'Product.Category'],
+      aggregateFields: ['Amount', 'Sum.Incoming'],
+      filters: {
+        'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
+        TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] },
+      },
+    }
+    const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }, 90000)
+    if (!res.ok) throw new Error(`Отчёт недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const rows = (await res.json()).data || []
+    const out = []
+    // как в iikoServerFacts: пустые Товар/Поставщик/Категория в сгруппированных строках наследуются от предыдущей строки того же склада
+    let lastStore = null, lastProduct = '', lastSupplier = '', lastCategory = ''
+    for (const r of rows) {
+      const store = r['Store'] || ''
+      if (store !== lastStore) { lastStore = store; lastProduct = ''; lastSupplier = ''; lastCategory = '' }
+      const product = r['Product.Name'] || lastProduct
+      const supplierName = r['Counteragent.Name'] || lastSupplier
+      const categoryName = r['Product.Category'] || lastCategory
+      lastProduct = product; lastSupplier = supplierName; lastCategory = categoryName
+      const qty = Number(r['Amount']) || 0
+      if (!store || !product || qty <= 0) continue
+      const restaurant = resolveStoreRestaurant(store, true)
+      if (restaurant === null) continue // закрытый бренд — осознанно вне данных
+      const kitchen = resolveStoreRestaurant(store) !== null
+      const category = categoryName
+      const catExcluded = EXCLUDED_CATEGORIES.has(norm(category)) && !CATEGORY_EXCLUSION_OVERRIDES.has(norm(product))
+      if (kitchen && !catExcluded) continue // уже в Проверке цен
+      out.push({
+        restaurant, store, category,
+        supplier: supplierName,
+        product, pack: r['Product.MeasureUnit'] || '',
+        qty, sum: Number(r['Sum.Incoming']) || 0,
+        reason: !kitchen && catExcluded ? 'склад+категория' : !kitchen ? 'склад' : 'категория',
+      })
+    }
+    return out
   } finally {
     await iikoServerLogout(base, token)
   }

@@ -3,6 +3,7 @@ import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceReconcile, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, fetchProductCategorySample, ProductCategoryItem, fetchExcludedCategoryList, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
+import ExtraPurchases from './ExtraPurchases'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
 /** Принимает и полную ссылку на таблицу, и просто ID — вытаскивает ID из ссылки вида .../d/<ID>/edit. */
@@ -580,6 +581,7 @@ export default function IikoSettings() {
             )}
           </div>
         )}
+        <ExtraPurchases period={samplePeriod} />
         {reconcileResult && (
           <div className="mt-3">
             {reconcileResult.ok ? (

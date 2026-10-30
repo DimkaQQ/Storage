@@ -9,7 +9,7 @@ import {
   getMatrix, saveMatrix, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, resolveMatrixFor, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
+import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -319,6 +319,17 @@ app.get('/api/iiko/olap-types', requireAuth, requireAdmin, async (req, res) => {
   try {
     const period = String(req.query.period || resolveLivePeriod(s).period)
     res.json({ ok: true, rows: await iikoServerTransactionTypes(s, period) })
+  } catch (e) {
+    res.status(502).json({ ok: false, message: String(e.message || e) })
+  }
+})
+
+app.get('/api/iiko/extra-facts', requireAuth, requireAdmin, async (req, res) => {
+  const s = getSettings(req.auth.orgId)
+  try {
+    const period = String(req.query.period || resolveLivePeriod(s).period)
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ ok: false, message: 'Период должен быть в формате ГГГГ-ММ' })
+    res.json({ ok: true, period, rows: await iikoServerExtraFacts(s, period) })
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
