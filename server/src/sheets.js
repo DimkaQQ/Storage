@@ -218,6 +218,8 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   const noIikoName = {}
   // norm-имя -> основное название вкладки (только вкладки, где нашлись строки) — список для выбора в Справочниках → Точки.
   const restaurantNames = {}
+  // norm-имя -> название вкладки ровно как написано в таблице (у известных вкладок основное название отличается: 'Renee' -> 'Рене') — подпись в выборе вкладки в Справочниках.
+  const tabTitles = {}
 
   sheets.forEach((title, i) => {
     const restaurantDisplay = sheetToRestaurant[title] ?? String(title).replace(/\s+/g, ' ').trim()
@@ -241,6 +243,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       if (!nameBasis || !supplierCanonRaw) continue
       rowsSeen++
       restaurantNames[restaurant] = restaurantDisplay
+      tabTitles[restaurant] = String(title).replace(/\s+/g, ' ').trim()
       const supplierCanon = norm(supplierCanonRaw)
       const orderKey = `${restaurant}::${supplierCanon}`
       if (!(orderKey in supplierOrder)) supplierOrder[orderKey] = nextSupplierOrder++
@@ -305,7 +308,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   for (const [key, variants] of ambiguousVariants) if (variants.length > 1) ambiguous[key] = variants
 
   return {
-    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName, restaurantNames },
+    matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName, restaurantNames, tabTitles },
     summary: { sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
@@ -355,5 +358,6 @@ export function mergeMatching(a, b, restaurantNames) {
     supplierOrder: replaceScoped(a.supplierOrder ?? {}, b.supplierOrder ?? {}),
     noIikoName: replaceScoped(a.noIikoName ?? {}, b.noIikoName ?? {}),
     restaurantNames: replaceScoped(a.restaurantNames ?? {}, b.restaurantNames ?? {}),
+    tabTitles: replaceScoped(a.tabTitles ?? {}, b.tabTitles ?? {}),
   }
 }

@@ -51,6 +51,9 @@ export interface MatchingTable {
   noIikoName?: Record<string, true>
   // norm-имя -> основное название вкладки/ресторана матрицы (только вкладки, где нашлись строки) — список для привязки точки из iiko в Справочниках → Точки. Опционально: у ранее синканной матрицы его нет до следующего синка.
   restaurantNames?: Record<string, string>
+  // norm-имя -> название вкладки ровно как в таблице (у известных вкладок основное название может отличаться: 'Renee' -> 'Рене') и список вкладок по таблицам (Алматы/Астана) — подписи и фильтр выбора вкладки в Справочниках → Точки; ставит синк матрицы.
+  tabTitles?: Record<string, string>
+  tabsByTarget?: { almaty?: string[]; astana?: string[] }
 }
 const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
   '2026-05': matchingMay as MatchingTable,
