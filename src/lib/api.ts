@@ -116,6 +116,15 @@ export async function fetchOlapTypes(period = ''): Promise<{ ok: boolean; rows?:
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+/** «Куда ушли закупки» — сколько приходных накладных вернул iiko за месяц и какая часть отброшена складом/категорией. */
+export async function fetchInvoiceReconcile(period = ''): Promise<{ ok: boolean; rows?: unknown; message?: string }> {
+  try {
+    const q = new URLSearchParams(period ? { period } : {})
+    const r = await fetch(`/api/iiko/invoice-reconcile?${q}`, { headers: authHeaders() })
+    return await r.json()
+  } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 /** «Проверить накладную (XML)» — сырой кусок самой накладной (не OLAP) вокруг `search`, для поиска поля с фасовкой на уровне документа. period — "YYYY-MM", по умолчанию решает сервер. */
 export async function fetchInvoiceSample(search = 'ягода', period = ''): Promise<{ ok: boolean; xml?: string; message?: string }> {
   try {

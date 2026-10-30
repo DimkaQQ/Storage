@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, fetchProductCategorySample, ProductCategoryItem, fetchExcludedCategoryList, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchOlapColumns, fetchOlapSample, fetchOlapTypes, fetchInvoiceReconcile, fetchInvoiceSample, fetchProductSample, fetchStoresSample, fetchAssortmentDebug, AssortmentDebugItem, fetchDatasetDebug, DatasetDebugItem, fetchProductCategorySample, ProductCategoryItem, fetchExcludedCategoryList, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchOrgDataExport, resetOrgData, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IInfo, IChevron, ITrash } from '../components/icons'
 
@@ -155,6 +155,13 @@ export default function IikoSettings() {
     setSampleLoading(false)
   }
 
+  const [reconcileResult, setReconcileResult] = useState<{ ok: boolean; rows?: unknown; message?: string } | null>(null)
+  const [reconcileLoading, setReconcileLoading] = useState(false)
+  const showReconcile = async () => {
+    setReconcileLoading(true); setReconcileResult(null)
+    setReconcileResult(await fetchInvoiceReconcile(samplePeriod))
+    setReconcileLoading(false)
+  }
   // «Показать типы операций» — дешёвая разведка перед «все типы операций»
   // (тот режим гоняет всю сеть по Store×Product×Counteragent и на реальных
   // объёмах не успевает за таймаут прокси/CDN): агрегат только по одному
@@ -508,6 +515,9 @@ export default function IikoSettings() {
               <button onClick={showSample} disabled={sampleLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {sampleLoading ? 'Спрашиваю…' : 'Проверить сырые поля'}
               </button>
+              <button onClick={showReconcile} disabled={reconcileLoading} title="Сколько приходных накладных вернул iiko за месяц и сколько из них отброшено по складу или категории" className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+                <IInfo width={16} height={16} /> {reconcileLoading ? 'Считаю…' : 'Куда ушли закупки'}
+              </button>
               <button onClick={showTypes} disabled={typesLoading} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
                 <IInfo width={16} height={16} /> {typesLoading ? 'Спрашиваю…' : 'Показать типы операций'}
               </button>
@@ -567,6 +577,17 @@ export default function IikoSettings() {
               )
             ) : (
               <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{sampleResult.message}</span>
+            )}
+          </div>
+        )}
+        {reconcileResult && (
+          <div className="mt-3">
+            {reconcileResult.ok ? (
+              <pre className="max-h-80 overflow-auto rounded-lg border border-ink-600 bg-ink-900/60 p-3 text-[11px] text-fg-300">
+                {JSON.stringify(reconcileResult.rows, null, 1)}
+              </pre>
+            ) : (
+              <span className="chip border-bad/30 bg-bad/10 text-bad"><IClose width={13} height={13} />{reconcileResult.message}</span>
             )}
           </div>
         )}

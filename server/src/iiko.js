@@ -307,6 +307,74 @@ export async function iikoServerTransactionTypes(settings, period) {
 }
 
 /**
+ * «Куда ушли закупки» — сверка: сколько приходных накладных (INVOICE) за
+ * месяц вернул iiko по всей сети и какая часть дошла до приложения. Один
+ * агрегат Склад × Категория товара, дальше каждая строка получает судьбу
+ * по тем же правилам, что и настоящая загрузка: склад отброшен (не кухня /
+ * игнорируемый бренд), категория исключена (EXCLUDED_CATEGORIES; точечные
+ * CATEGORY_EXCLUSION_OVERRIDES здесь не видны — по товарам не группируем,
+ * поэтому часть «исключённой категории» на деле возвращается в приложение),
+ * либо учтена. Это оценка сверху: строки без товара и с количеством ≤ 0
+ * (возвраты) здесь не отсеиваются, как в настоящей загрузке. Склады с неизвестным брендом показываем отдельно — они
+ * попадают в данные под сырым названием.
+ */
+export async function iikoServerInvoiceReconcile(settings, period) {
+  const { base, token } = await iikoServerAuth(settings)
+  try {
+    const { from, to } = periodRange(period)
+    const body = {
+      reportType: 'TRANSACTIONS',
+      buildSummary: false,
+      groupByRowFields: ['Store', 'Product.Category'],
+      aggregateFields: ['Amount', 'Sum.Incoming'],
+      filters: {
+        'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
+        TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] },
+      },
+    }
+    const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }, 60000)
+    if (!res.ok) throw new Error(`Отчёт недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
+    const rows = (await res.json()).data || []
+    const round = (n) => Math.round(n)
+    const totals = { all: 0, droppedStore: 0, excludedCategory: 0, kept: 0 }
+    const droppedStores = new Map()
+    const excludedCats = new Map()
+    const unknownStores = new Map()
+    const keptRestaurants = new Map()
+    for (const r of rows) {
+      const sum = Number(r['Sum.Incoming']) || 0
+      const store = r['Store'] || '(без склада)'
+      const cat = r['Product.Category'] || '(без категории)'
+      totals.all += sum
+      const restaurant = resolveStoreRestaurant(r['Store']) ?? (r['Store'] ? null : '(без склада)')
+      if (restaurant === null) {
+        totals.droppedStore += sum
+        droppedStores.set(store, (droppedStores.get(store) || 0) + sum)
+      } else if (EXCLUDED_CATEGORIES.has(norm(cat))) {
+        totals.excludedCategory += sum
+        excludedCats.set(cat, (excludedCats.get(cat) || 0) + sum)
+      } else {
+        totals.kept += sum
+        keptRestaurants.set(restaurant, (keptRestaurants.get(restaurant) || 0) + sum)
+        if (restaurant === r['Store']) unknownStores.set(store, (unknownStores.get(store) || 0) + sum)
+      }
+    }
+    const top = (m, n = 40) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, sum]) => ({ name, sum: round(sum) }))
+    return {
+      totals: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, round(v)])),
+      droppedStores: top(droppedStores),
+      excludedCategories: top(excludedCats),
+      keptByRestaurant: top(keptRestaurants),
+      unknownStores: top(unknownStores),
+    }
+  } finally {
+    await iikoServerLogout(base, token)
+  }
+}
+
+/**
  * Pulls the supply/purchase report via the OLAP endpoint.
  * NOTE: точный набор полей отчёта уточняется на реальном сервере —
  * маппинг колонок вынесен в один блок ниже.
