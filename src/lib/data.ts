@@ -346,8 +346,10 @@ export function buildRowKey(b: Pick<BaseRow, 'period' | 'restaurant' | 'supplier
   return [b.period, norm(b.restaurant), norm(b.supplier0), norm(b.product0), normPack(b.pack), b.qty, b.sum].join('::')
 }
 
-// ТЗ: нули, пустые графы и позиции с оборотом до 1000 ₸ не показываем.
-const MIN_TURNOVER = 1000
+// Нули и пустые графы не показываем. Раньше (ТЗ) прятали и позиции с оборотом до 1000 ₸ —
+// октябрь 2026, по решению заказчика порог снят: мелкие закупки (сгущёнка 850 ₸, сода 350 ₸)
+// пропадали из Проверки цен, хотя они есть в матрице. Строка видна при обороте > MIN_TURNOVER.
+export const MIN_TURNOVER = 0
 
 /** Immutable base row parsed from the dataset (original names, no plan resolution yet). */
 export interface BaseRow {
@@ -1742,7 +1744,7 @@ export function parseDataset(data: RawDataset, matching: MatchingTable = bundled
     : (data.restaurants || [])
   for (const r of restaurantsIn) {
     for (const it of r.items || []) {
-      if (it.m < MIN_TURNOVER || it.q <= 0) continue
+      if (it.m <= MIN_TURNOVER || it.q <= 0) continue
       // "Поставщик" с двоеточием в названии ("G63: Бар G63", "Renee: Кухня
       // Рене" и т.п.) — это не закупка у внешней компании, а внутреннее
       // перемещение товара между точками сети, случайно попавшее в тот же

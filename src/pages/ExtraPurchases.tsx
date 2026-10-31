@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { fetchExtraFacts, ExtraFact } from '../lib/api'
-import { computeRows, BaseRow, Row, Status, STATUS_META, fmt, money } from '../lib/data'
+import { computeRows, BaseRow, Row, Status, STATUS_META, MIN_TURNOVER, fmt, money } from '../lib/data'
 import { IInfo, IClose } from '../components/icons'
 
-const MIN_TURNOVER = 1000  // та же отсечка, что у parseDataset: мелочь до 1000 ₸ не показываем
 const PAGE = 200
 
 interface Line { fact: ExtraFact; row: Row }
@@ -41,7 +40,7 @@ export default function ExtraPurchases({ period }: { period: string }) {
 
   const lines = useMemo<Line[]>(() => {
     if (!facts) return []
-    const kept = facts.filter((f) => f.sum >= MIN_TURNOVER && !f.supplier.includes(':') && !/черновик/i.test(f.supplier))
+    const kept = facts.filter((f) => f.sum > MIN_TURNOVER && !f.supplier.includes(':') && !/черновик/i.test(f.supplier))
     const base: BaseRow[] = kept.map((f, i) => ({
       id: 'x' + i, period: periodKey, restaurant: f.restaurant, brand: '', city: '', entity: '', category: '',
       supplier0: f.supplier, product0: f.product, pack: f.pack, qty: f.qty, sum: f.sum, unit: f.sum / f.qty,
