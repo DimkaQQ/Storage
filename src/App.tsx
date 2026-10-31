@@ -2,7 +2,7 @@ import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from 'reac
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
-import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, ILayers } from './components/icons'
+import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, ILayers, IPin } from './components/icons'
 import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
@@ -61,6 +61,8 @@ export default function App() {
     dashboard: null,
     pricecheck: null,
   })
+  // Город — только в Проверке цен: сужает и список точек, и таблицу (город точки — Справочники → Точки)
+  const [cityPricecheck, setCityPricecheck] = useState<string | null>(null)
   const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
@@ -83,10 +85,11 @@ export default function App() {
     () => applySlice(allRows, categoryByPage.dashboard, scopeByPage.dashboard),
     [allRows, categoryByPage.dashboard, scopeByPage.dashboard],
   )
-  const priceCheckRows = useMemo(
-    () => applySlice(allRows, categoryByPage.pricecheck, scopeByPage.pricecheck),
-    [allRows, categoryByPage.pricecheck, scopeByPage.pricecheck],
-  )
+  const cities = useMemo(() => [...new Set(restaurants.map((r) => r.city).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [restaurants])
+  const priceCheckRows = useMemo(() => {
+    const rows = applySlice(allRows, categoryByPage.pricecheck, scopeByPage.pricecheck)
+    return cityPricecheck ? rows.filter((x) => x.city === cityPricecheck) : rows
+  }, [allRows, categoryByPage.pricecheck, scopeByPage.pricecheck, cityPricecheck])
   const openIssues = useMemo(() => summarize(allRows).openIssues, [allRows])
 
   // Пикеры в шапке читают/пишут состояние ТЕКУЩЕЙ открытой вкладки.
@@ -97,7 +100,7 @@ export default function App() {
   const setActiveCategory = (c: string | null) => setCategoryByPage((prev) => ({ ...prev, [activePage]: c }))
 
   // Период и категория доступны на Обзоре и Проверке цен; точки —
-  // тоже на этих двух страницах (города больше не фильтруем нигде).
+  // тоже на этих двух страницах; город — только в Проверке цен.
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
   const showPeriodPicker = page !== 'iiko' && page !== 'users'
   // Тема — слева от фильтров, когда они есть (рядом с заголовком), и в конце
@@ -189,9 +192,16 @@ export default function App() {
                 {showFilters && categories.length > 1 && (
                   <FilterDropdown label="Категория закупок" icon={ILayers} value={activeCategory} options={categories} onChange={setActiveCategory} />
                 )}
+                {page === 'pricecheck' && cities.length > 1 && (
+                  <FilterDropdown label="Город" icon={IPin} value={cityPricecheck} options={cities} onChange={(c) => {
+                    setCityPricecheck(c)
+                    // точки выбранного ранее набора, которых нет в новом городе, из выбора убираем
+                    if (c) setScopeByPage((prev) => ({ ...prev, pricecheck: new Set([...prev.pricecheck].filter((n) => restaurants.some((r) => r.name === n && r.city === c))) }))
+                  }} />
+                )}
                 {showFilters && (
                   <ScopePicker
-                    options={restaurants.map((r) => r.name)}
+                    options={restaurants.filter((r) => page !== 'pricecheck' || !cityPricecheck || r.city === cityPricecheck).map((r) => r.name)}
                     labels={venueLabels}
                     selected={activeScope}
                     onChange={setActiveScope}
