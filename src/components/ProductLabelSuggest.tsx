@@ -21,9 +21,10 @@ import { rankSimilar } from '../lib/fuzzy'
  * решение, что уже применено в InfoTip.
  */
 export default function ProductLabelSuggest({
-  value, suggestions, onCommit, className = '', matchOnly = false,
+  value, suggestions, onCommit, className = '', matchOnly = false, placeholder,
 }: {
   value: string
+  placeholder?: string
   suggestions: { label: string; supplier?: string }[]
   onCommit: (v: string) => void
   className?: string
@@ -173,6 +174,7 @@ export default function ProductLabelSuggest({
       <input
         ref={inputRef}
         value={v}
+        placeholder={placeholder}
         title={v}
         onFocus={openDropdown}
         onChange={(e) => { setV(e.target.value); openDropdown() }}

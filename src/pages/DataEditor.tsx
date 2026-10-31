@@ -141,7 +141,7 @@ export default function DataEditor() {
   // реально нужно кого-то привязать.
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
   // «Без названия в iiko» — тоже свёрнута по умолчанию, по тем же причинам.
-  const [noIikoNameOpen, setNoIikoNameOpen] = useState(false)
+  const [noNameOnly, setNoNameOnly] = useState(false)  // «Без названия в iiko» — показать только строки с пустой колонкой E
   const [filterSection, setFilterSection] = useState<'restaurant' | 'name' | 'pack' | null>(null)
   const [excludedRestaurant, setExcludedRestaurant] = useState<Set<string>>(new Set())
   const [excludedName, setExcludedName] = useState<Set<string>>(new Set())
@@ -249,7 +249,8 @@ export default function DataEditor() {
     key: string; restaurantNorm: string; restaurant: string
     supplierNorm: string; supplier: string
     productSegment: string; matrixLabel: string
-    pack: string; plan: number
+    pack: string; plan: number | null
+    noName: boolean  // колонка E в таблице пуста — название из iiko ещё не вписано (поле показываем пустым)
   }
   const matrixRows = useMemo(() => {
     // scopedMatching — та же матрица, но обрезанная до точек в
@@ -257,28 +258,30 @@ export default function DataEditor() {
     // без этого ниже шёл полный проход по ~4000 ключам всей сети ради
     // ~500 реально нужных, и push() всё равно отбрасывал остальное.
     const m = scopedMatching(matching, linkTargets(edits))
+    // Все строки матрицы: с ценой (planPairs*) и без цены (noPriceExact) —
+    // человек должен видеть и вписывать название из iiko для любой строки
+    // таблицы, а не только для прайсованных.
+    const allKeys = new Set([...Object.keys(m.planPairsByPack), ...Object.keys(m.planPairs), ...Object.keys(m.noPriceExact)])
     const packBrokenDownPairKeys = new Set(
       Object.keys(m.planPairsByPack).map((k) => k.split('::').slice(0, 3).join('::')),
     )
     const result: MatrixRow[] = []
-    const push = (key: string, restaurantNorm: string, supplierNorm: string, productSegment: string, pack: string, plan: number) => {
+    for (const key of allKeys) {
+      const [restaurantNorm, supplierNorm, productSegment, pack = ''] = key.split('::')
+      if (!pack && packBrokenDownPairKeys.has(key)) continue
       const restaurant = restaurantDisplayByNorm.get(restaurantNorm)
-      if (!restaurant) return // ресторан вне текущего охвата приложения — не показываем
+      if (!restaurant) continue // ресторан вне текущего охвата приложения — не показываем
+      const supplier = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
+      const matrixLabel = m.productLabels[key] ?? capitalize(productSegment)
+      const noName = !!m.noIikoName?.[key]
+      // пары, которые приложение сознательно не сверяет (свежие овощи и т.п.), без названия в iiko не предлагаем заполнять
+      if (noName && (isExcludedPair(supplier, matrixLabel) || isExcludedPair(supplierNorm, matrixLabel))) continue
       result.push({
-        key, restaurantNorm, restaurant,
-        supplierNorm, supplier: supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm,
-        productSegment, matrixLabel: m.productLabels[key] ?? capitalize(productSegment),
-        pack, plan,
+        key, restaurantNorm, restaurant, supplierNorm, supplier,
+        productSegment, matrixLabel,
+        pack, plan: m.planPairsByPack[key] ?? m.planPairs[key] ?? null,
+        noName,
       })
-    }
-    for (const [key, plan] of Object.entries(m.planPairsByPack)) {
-      const [restaurantNorm, supplierNorm, productSegment, pack] = key.split('::')
-      push(key, restaurantNorm, supplierNorm, productSegment, pack, plan)
-    }
-    for (const [key, plan] of Object.entries(m.planPairs)) {
-      if (packBrokenDownPairKeys.has(key)) continue
-      const [restaurantNorm, supplierNorm, productSegment] = key.split('::')
-      push(key, restaurantNorm, supplierNorm, productSegment, '', plan)
     }
     return result
   }, [matching, restaurantDisplayByNorm, supplierDisplayByNorm])
@@ -562,32 +565,9 @@ export default function DataEditor() {
     return [...groups.values()]
   }, [rows, matching, editorRestaurant, needle, edits.venueOverrides])
 
-  // Строки матрицы без названия в iiko (столбец E пуст) — попросили прямо:
-  // не гадать молча (см. nameBasis в server/src/sheets.js — строка всё
-  // равно подтягивается под их собственным описанием, I), а явно показать
-  // "тут чего-то не хватает, впишите" — мы не можем писать обратно в саму
-  // Google-таблицу (сервисный аккаунт только читает), это вправе
-  // исправить только тот, кто ведёт таблицу.
-  interface NoNameRow { key: string; restaurant: string; supplier: string; description: string; pack: string; price: number | null }
-  const noIikoNameRows = useMemo(() => {
-    const m = scopedMatching(matching, linkTargets(edits))
-    if (!m.noIikoName) return []
-    const out: NoNameRow[] = []
-    for (const key of Object.keys(m.noIikoName)) {
-      const [restaurantNorm, supplierNorm, , pack] = key.split('::')
-      const restaurant = restaurantDisplayByNorm.get(restaurantNorm)
-      if (!restaurant) continue
-      if (editorRestaurant && restaurant !== editorRestaurant) continue
-      const supplier = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
-      const description = m.productLabels[key] ?? ''
-      if (isExcludedPair(supplier, description) || isExcludedPair(supplierNorm, description)) continue
-      if (needle && !restaurant.toLowerCase().includes(needle) && !supplier.toLowerCase().includes(needle) &&
-        !description.toLowerCase().includes(needle)) continue
-      const price = m.planPairsByPack[key] ?? m.planPairs[key] ?? null
-      out.push({ key, restaurant, supplier, description, pack: pack || '', price })
-    }
-    return out
-  }, [matching, restaurantDisplayByNorm, supplierDisplayByNorm, editorRestaurant, needle])
+  // Строки матрицы без названия в iiko (столбец E пуст) теперь живут в общем списке Товаров
+  // с пустым полем «Название из iiko» (MatrixRow.noName) — человек сам вписывает название.
+  const noNameCount = useMemo(() => matrixRows.filter((r) => r.noName && (!editorRestaurant || r.restaurant === editorRestaurant)).length, [matrixRows, editorRestaurant])
 
   // Черновик, не применяется к rows сразу (см. Ctx.pendingProductLinks) —
   // строка остаётся в «Нет в матрице», пока не нажата общая «Сохранить»
@@ -640,8 +620,9 @@ export default function DataEditor() {
         !excludedRestaurant.has(r.restaurant) && !excludedName.has(r.matrixLabel) && !excludedPack.has(r.pack || '—'))
     }
     if (editorRestaurant) list = list.filter((r) => r.restaurant === editorRestaurant)
+    if (noNameOnly) list = list.filter((r) => r.noName)
     return list
-  }, [needle, matrixRows, excludedRestaurant, excludedName, excludedPack, matchedRawNamesByKey, editorRestaurant])
+  }, [needle, noNameOnly, matrixRows, excludedRestaurant, excludedName, excludedPack, matchedRawNamesByKey, editorRestaurant])
 
   const activeFilterDims = (excludedRestaurant.size ? 1 : 0) + (excludedName.size ? 1 : 0) + (excludedPack.size ? 1 : 0)
   const resetAllFilters = () => { setExcludedRestaurant(new Set()); setExcludedName(new Set()); setExcludedPack(new Set()) }
@@ -937,43 +918,15 @@ export default function DataEditor() {
           </div>
         )}
 
-        {tab === 'products' && noIikoNameRows.length > 0 && (
-          <div className="mb-4 overflow-hidden rounded-xl border border-amber-500/30 bg-amber-500/[0.04]">
+        {tab === 'products' && (noNameCount > 0 || noNameOnly) && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setNoIikoNameOpen((v) => !v)}
-              className="flex w-full items-center gap-1.5 border-b border-amber-500/20 px-3 py-2 text-left"
+              onClick={() => { setNoNameOnly((v) => !v); setLimit(60) }}
+              className={`chip transition-colors ${noNameOnly ? 'border-amber-500/60 bg-amber-500/10 text-amber-400' : 'border-ink-600 text-fg-400 hover:text-fg-200'}`}
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-              <span className="text-xs font-medium text-amber-400">Без названия в iiko ({fmt(noIikoNameRows.length)})</span>
-              <InfoTip text="В самой Google-таблице («Сырьё F») у этих строк пустая колонка «Наименования как в iiko» — мы не выдумываем название сами и не можем вписать его туда (сервисный аккаунт только читает таблицу), поэтому строка временно подтягивается под их собственным описанием товара. Поправить может только тот, кто ведёт таблицу — впишите туда реальное название из iiko." align="left" />
-              <IChevron width={13} height={13} className={`ml-auto shrink-0 text-amber-500/70 transition-transform duration-150 ${noIikoNameOpen ? 'rotate-90' : ''}`} />
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Без названия в iiko ({fmt(noNameCount)})
             </button>
-            {noIikoNameOpen && (
-            <div className="max-h-[50vh] overflow-auto">
-              <table className="w-full table-fixed">
-                <thead className="sticky top-0 z-10 bg-ink-850">
-                  <tr>
-                    <th className="th w-[16%]">Ресторан</th>
-                    <th className="th w-[22%]">Поставщик</th>
-                    <th className="th w-[40%]">Описание (из таблицы)</th>
-                    <th className="th w-[12%]">Фасовка</th>
-                    <th className="th w-[10%] text-right">Цена</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {noIikoNameRows.map((n) => (
-                    <tr key={n.key} className="row-hover hover:bg-ink-800/40">
-                      <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={n.restaurant} /></td>
-                      <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={n.supplier} /></td>
-                      <td className="td overflow-hidden text-fg-100"><HoverName text={n.description || '—'} /></td>
-                      <td className="td overflow-hidden text-xs text-fg-400"><HoverName text={n.pack || '—'} /></td>
-                      <td className="td text-right tabnum text-fg-500">{n.price != null ? fmt(n.price) : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            )}
+            <InfoTip text="В таблице («Сырьё F») у этих строк пустая колонка «Наименования как в iiko». Они в общем списке ниже с пустым полем «Название из iiko» — впишите или выберите название, как оно приходит из iiko, и нажмите «Сохранить»: закупки с этим названием начнут притягиваться к строке. Эта привязка хранится в приложении, в саму Google-таблицу ничего не пишется." align="left" />
           </div>
         )}
 
@@ -1112,7 +1065,7 @@ export default function DataEditor() {
                     // сопоставление прямо сейчас, даже без единой покупки.
                     const fromMatrixKey = capitalize(row.productSegment)
                     const primary = explicitLink && matchedNames.includes(explicitLink) ? explicitLink
-                      : matchedNames[0] ?? explicitLink ?? fromMatrixKey
+                      : matchedNames[0] ?? explicitLink ?? (row.noName ? '' : fromMatrixKey)
                     const extra = matchedNames.filter((n) => n !== primary)
                     return (
                       <tr key={row.key} className="row-hover hover:bg-ink-800/40">
@@ -1127,6 +1080,7 @@ export default function DataEditor() {
                             <ProductLabelSuggest
                               value={primary}
                               suggestions={allIikoNameOptions}
+                              placeholder={row.noName ? 'Впишите название из iiko' : undefined}
                               onCommit={(v) => commitMatrixIikoName(row, primary, v)}
                             />
                             {extra.length > 0 && (
