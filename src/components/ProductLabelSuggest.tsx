@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { rankSimilar } from '../lib/fuzzy'
 
 /**
  * Как EditableText, но с выпадающим списком — начали печатать, список сам
@@ -155,10 +156,17 @@ export default function ProductLabelSuggest({
   // строками — с непустым текстом фильтр и так почти всегда сузит гораздо
   // сильнее, а без текста показываем начало полного списка, не всё разом.
   const needle = v.trim().toLowerCase()
-  const filtered = (needle
-    ? suggestions.filter((s) => s.label.toLowerCase().includes(needle) || (s.supplier ?? '').toLowerCase().includes(needle))
-    : suggestions
-  ).slice(0, 200)
+  // Точных вхождений мало — добавляем похожие по написанию: в iiko названия
+  // бывают с опечатками («Куринная грудка ШТ»), и сам пользователь печатает
+  // «Куриная» — подстрока такое не находит, а подсказка как раз и нужна.
+  const filtered = useMemo(() => {
+    if (!needle) return suggestions.slice(0, 200)
+    const exact = suggestions.filter((s) => s.label.toLowerCase().includes(needle) || (s.supplier ?? '').toLowerCase().includes(needle))
+    if (needle.length < 3 || exact.length >= 10) return exact.slice(0, 200)
+    const seen = new Set(exact)
+    const similar = rankSimilar(needle, suggestions.filter((s) => !seen.has(s)), (s) => s.label, 0.4).slice(0, 20).map((r) => r.item)
+    return [...exact, ...similar]
+  }, [suggestions, needle])
 
   return (
     <div className="relative">
@@ -206,7 +214,7 @@ export default function ProductLabelSuggest({
             // подсказок закономерно не будет; но поле всё равно рабочее,
             // можно вписать текст свободно, просто без автоподбора.
             <div className="px-3 py-2.5 text-xs text-fg-500">
-              Ничего не найдено среди уже известного — можно вписать своим текстом.
+              Ничего похожего среди уже известного — можно вписать своим текстом.
             </div>
           )}
         </div>,
