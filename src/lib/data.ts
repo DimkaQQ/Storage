@@ -1170,8 +1170,8 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   }
   const candidateNote = availableFasovki.length === 0 ? null
     : availableFasovki.length === 1
-    ? `В матрице у этого поставщика есть цена по фасовке «${availableFasovki[0].pack}»: ${money(availableFasovki[0].price)}${availableFasovki[0].label ? ` (${availableFasovki[0].label})` : ''} — но фасовка и цена этой закупки сильно отличаются, похоже на другой товар. Если это на самом деле он же — можно поправить фасовку в Справочниках → «Нет в матрице».`
-    : `В матрице у этого поставщика есть ${availableFasovki.length} прайсованных варианта(ов) фасовки для этого товара, но ни один не совпал с фактом по названию — если это просто иначе записанная фасовка, поправьте её в Справочниках → «Нет в матрице».`
+    ? `У этого поставщика в матрице есть «${b.product0}» по фасовке «${availableFasovki[0].pack}».`
+    : `У этого поставщика в матрице ${availableFasovki.length} ${plural(availableFasovki.length, 'прайсованная позиция', 'прайсованные позиции', 'прайсованных позиций')} «${b.product0}», но фасовка не совпала.`
 
   // Кто "назначен" для этого товара. Для ассортимента (isAssortment —
   // напр. ягоды) фасовка в факте важна, как и раньше: Ayakaz и Alga73 оба
