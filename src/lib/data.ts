@@ -1171,7 +1171,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const candidateNote = availableFasovki.length === 0 ? null
     : availableFasovki.length === 1
     ? `У этого поставщика в матрице есть «${b.product0}» по фасовке «${availableFasovki[0].pack}».`
-    : `У этого поставщика в матрице ${availableFasovki.length} ${plural(availableFasovki.length, 'прайсованная позиция', 'прайсованные позиции', 'прайсованных позиций')} «${b.product0}», но фасовка не совпала.`
+    : `В матрице у этого поставщика есть ${availableFasovki.length} прайсованных варианта(ов) фасовки для этого товара, но ни один не совпал с фактом по названию или фасовке`
 
   // Кто "назначен" для этого товара. Для ассортимента (isAssortment —
   // напр. ягоды) фасовка в факте важна, как и раньше: Ayakaz и Alga73 оба
