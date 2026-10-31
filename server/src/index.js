@@ -299,7 +299,7 @@ app.get('/api/iiko/olap-sample', requireAuth, requireAdmin, async (req, res) => 
   try {
     const period = String(req.query.period || resolveLivePeriod(s).period)
     const search = String(req.query.search || 'ягода')
-    const extraFields = String(req.query.fields || 'Product.Num,Product.Tag.Name,Product.Tags.NamesCombo,Document,OrderNum')
+    const extraFields = String(req.query.fields || 'Product.Num,Document,InvoiceDate.Typed,DateTime.DateTyped')
       .split(',').map((f) => f.trim()).filter(Boolean)
     const allTypes = req.query.allTypes === '1'
     const types = String(req.query.types || '').split(',').map((t) => t.trim()).filter(Boolean)
