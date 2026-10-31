@@ -1521,9 +1521,27 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       if (unpricedMatch) parts.push(NO_PLAN_PRICE_NOTE)
       if (candidateNote) parts.push(candidateNote)
       if (status === 'wrongSupplier' && designatedNorm.length > 0) {
-        // Только названия назначенных поставщиков, без цен (сопоставление и так не по цене).
-        const names = designatedNorm.map((s) => supplierDisplayByNorm.get(s) ?? s)
-        if (names.length) parts.push(`Заказано у другого поставщика — по матрице должны были купить у: ${names.join('; ')}.`)
+        // resolvedProduct/resolvedPack — та же пара, которую resolveRowPlan
+        // реально использовал, чтобы вычислить designatedSuppliers (после
+        // productLink/packAlias, если они есть) — раньше тут заново брали
+        // СЫРОЕ b.product0/b.pack, и если был явный productLink (iiko-
+        // название привязано к ДРУГОМУ названию из матрицы), цена по этому
+        // сырому тексту почти никогда не находилась — подсказка "По
+        // матрице должны были купить у: ..." молча пропадала.
+        // Часть назначенных поставщиков может быть подтверждена в матрице
+        // только через noPriceExact (привязка точная, но цена в колонке H
+        // не заполнена) — такие тоже должны попасть в подсказку, просто с
+        // пометкой "цена не указана", а не молча выпадать из списка (иначе
+        // при единственном назначенном поставщике без цены подсказка
+        // пропадала целиком — именно так было с "Яйцо куриное"/"Акку").
+        const restaurant = norm(mr(b.restaurant)), product0 = resolvedProduct, pack = resolvedPack
+        const prices = designatedNorm.map((s) => {
+          const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
+          const price = fixedPrice(byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`], s, product0)
+          const name = supplierDisplayByNorm.get(s) ?? s
+          return price != null ? `${name}: ${money(price)}` : `${name} (цена не указана)`
+        })
+        if (prices.length) parts.push(`Заказано у другого поставщика — по матрице должны были купить у: ${prices.join('; ')}.`)
       }
     }
     const note: string | null = parts.length ? parts.join(' ') : null
