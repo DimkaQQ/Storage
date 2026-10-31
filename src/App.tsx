@@ -193,7 +193,7 @@ export default function App() {
                   <FilterDropdown label="Категория закупок" icon={ILayers} value={activeCategory} options={categories} onChange={setActiveCategory} />
                 )}
                 {page === 'pricecheck' && cities.length > 1 && (
-                  <FilterDropdown label="Город" icon={IPin} value={cityPricecheck} options={cities} onChange={(c) => {
+                  <FilterDropdown label="Город" allLabel="Город" icon={IPin} value={cityPricecheck} options={cities} onChange={(c) => {
                     setCityPricecheck(c)
                     // точки выбранного ранее набора, которых нет в новом городе, из выбора убираем
                     if (c) setScopeByPage((prev) => ({ ...prev, pricecheck: new Set([...prev.pricecheck].filter((n) => restaurants.some((r) => r.name === n && r.city === c))) }))

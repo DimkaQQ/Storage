@@ -7,10 +7,11 @@ interface Props {
   value: string | null // null = «Все»
   options: string[]
   onChange: (v: string | null) => void
+  allLabel?: string // подпись кнопки, пока ничего не выбрано (по умолчанию «Все»)
 }
 
 /** Compact single-select dropdown — replaces a long row of city/category toggle buttons. */
-export default function FilterDropdown({ label, icon: Icon, value, options, onChange }: Props) {
+export default function FilterDropdown({ label, icon: Icon, value, options, onChange, allLabel = 'Все' }: Props) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -32,8 +33,8 @@ export default function FilterDropdown({ label, icon: Icon, value, options, onCh
         title={label}
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <Icon width={14} height={14} className="shrink-0 text-fg-500" />
-          <span className="truncate">{value ?? 'Все'}</span>
+          <Icon width={14} height={14} className="shrink-0 text-brand-300" />
+          <span className="truncate">{value ?? allLabel}</span>
         </span>
         <IChevron className={`shrink-0 text-fg-500 transition-transform ${open ? 'rotate-90' : ''}`} width={13} height={13} />
       </button>

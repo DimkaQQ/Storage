@@ -35,7 +35,7 @@ export default function PeriodPicker({
         className="btn w-[150px] justify-between border border-ink-600 bg-ink-800/80 px-2.5 py-2 text-xs text-fg-200 hover:border-brand-500/50 hover:bg-ink-750 hover:text-fg-50"
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <IClock className="shrink-0 text-fg-500" width={14} height={14} />
+          <IClock className="shrink-0 text-brand-300" width={14} height={14} />
           <span className="truncate">{label}</span>
         </span>
         <IChevron className={`shrink-0 text-fg-500 transition-transform ${open ? 'rotate-90' : ''}`} width={13} height={13} />
