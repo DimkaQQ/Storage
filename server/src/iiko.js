@@ -1128,6 +1128,9 @@ export async function iikoServerOlapSample(settings, period, { search = '', extr
       filters: {
         'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
         ...(allTypes ? {} : { TransactionType: { filterType: 'IncludeValues', values: types.length ? types : ['INVOICE'] } }),
+        // Поиск из одних цифр — это артикул товара (Product.Num): фильтруем в самом iiko, и «все типы»
+        // становятся быстрыми (один товар, а не вся сеть) — так ищут товар по всем типам операций.
+        ...(/^\d+$/.test(search.trim()) ? { 'Product.Num': { filterType: 'IncludeValues', values: [search.trim()] } } : {}),
       },
     }
     // Без TransactionType — OLAP считает вообще все типы операций по всей
@@ -1140,11 +1143,11 @@ export async function iikoServerOlapSample(settings, period, { search = '', extr
     if (!res.ok) throw new Error(`Отчёт недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
     const data = await res.json()
     const rows = data.data || []
-    const needle = search.trim().toLowerCase()
+    const needle = /^\d+$/.test(search.trim()) ? '' : search.trim().toLowerCase() // артикул уже отфильтрован в самом iiko
     const filtered = needle
       ? rows.filter((r) => fields.some((f) => String(r[f] || '').toLowerCase().includes(needle)))
       : rows
-    return filtered.slice(0, 50)
+    return filtered.slice(0, 100)
   } finally {
     await iikoServerLogout(base, token)
   }
