@@ -60,7 +60,7 @@ export default function DataEditor() {
   const {
     edits, rows, renameSupplier, setVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setProductLinks, pendingProductLinks, stageProductLink, undo, canUndo,
-    suppliers: suppliersBase, restaurants, matching: matchingBase, periodKey, refreshMatrix, setSupplierLinks, manualMode, enableManualMode, status,
+    suppliers: suppliersBase, restaurants, matching: matchingBase, refreshMatrix, setSupplierLinks, manualMode, enableManualMode, status,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,
   } = useEdits()
   // матрица + ручные привязки поставщиков из программы (см. withSupplierLinks в lib/data.ts)
@@ -110,7 +110,9 @@ export default function DataEditor() {
   // приложение так, будто матрицы вообще нет, но подсказки при этом не
   // должны исчезать: печатаем "лос" — ищем среди уже известных названий
   // (настоящей матрицы), а не среди пустоты теста.
-  const realMatching = useMemo(() => bundledMatching(periodKey), [periodKey])
+  // настоящая (синканная с Google-таблицей) матрица, а при её отсутствии — вшитая; раньше тут всегда брали вшитую,
+  // из-за чего вкладки Астаны и подписи вкладок из таблицы в Справочниках не появлялись
+  const realMatching = matchingBase
   const [tab, setTab] = useState<Tab>('suppliers')
   // Товары — не вкладка по умолчанию (открывается Компании), а расчёт
   // "уже известных названий за все периоды" (см. otherPeriodsRows ниже) —
