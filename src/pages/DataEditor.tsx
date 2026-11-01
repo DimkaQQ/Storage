@@ -826,6 +826,12 @@ export default function DataEditor() {
           {matrixSyncMsg && (
             <span className={`chip ${matrixSyncMsg === 'Обновлено' ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>{matrixSyncMsg}</span>
           )}
+          {!matrixSyncMsg && !(realMatching.tabsByTarget?.astana?.length) && (
+            <span className="chip border-warn/40 bg-warn/10 text-warn" title="Вкладки таблицы Астаны не загружены: Настройки iiko → таблица Астаны → ID таблицы → «Обновить»">Таблица Астаны не загружена</span>
+          )}
+          {!matrixSyncMsg && !!realMatching.tabsByTarget && !realMatching.tabTitles && (
+            <span className="chip border-warn/40 bg-warn/10 text-warn" title="Нажмите «Обновить», чтобы названия вкладок были как в таблице">Нужно «Обновить»</span>
+          )}
           <button
             onClick={refreshFromMatrix}
             disabled={matrixSyncing}
