@@ -2,7 +2,8 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
-import { syncMatrix } from '../lib/api'
+import { useAuth } from '../lib/auth'
+import { syncMatrix, fetchPeriods, fetchDataset } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
@@ -564,38 +565,55 @@ export default function DataEditor() {
   // «Перейти на ручной режим»: фиксируем текущие привязки товаров И поставщиков (то, что сейчас сопоставляется
   // автоматически — по тексту, алиасам таблицы или похожему названию), сохраняем и выключаем автоматику.
   const [switching, setSwitching] = useState(false)
-  const supplierFreezeItems = useMemo(() => {
-    const out: { key: string; value: SupplierLink }[] = []
-    const seen = new Set<string>()
-    for (const r of allKnownRows) {
-      if (!r.supplier) continue
-      const canon = supplierAliasFor(matching, matchRestaurant(edits, r.restaurant), r.supplier)
-      if (!canon) continue
-      // только канон, который реально есть на вкладке этой точки (иначе привязка «в никуда»)
-      if (matching.supplierOrder && matching.supplierOrder[`${norm(matchRestaurant(edits, r.restaurant))}::${norm(canon)}`] == null) continue
-      const key = `${norm(matchRestaurant(edits, r.restaurant))}::${norm(r.supplier)}`
-      if (edits.supplierLinks[key] || seen.has(key)) continue
-      seen.add(key)
-      out.push({ key, value: { restaurant: r.restaurant, rawSupplier: r.supplier, canon } })
-    }
-    return out
-  }, [allKnownRows, matching, edits])
   const statusLoaded = status != null
-  const goManual = () => {
-    if (!statusLoaded) return
-    if (freezeCandidates.length) setProductLinks(freezeCandidates)
-    if (supplierFreezeItems.length) setSupplierLinks(supplierFreezeItems)
+  const authUser = useAuth().user
+  // Однократная «заморозка» связей (версия 2): проходим ВСЕ периоды с сервера в прежнем автоматическом режиме и
+  // записываем в программу то, что раньше находилось само — товары (по тексту: «По матрице» и «Заказ не по матрице»)
+  // и поставщиков (по алиасам таблицы/похожему названию). Потом включаем флаг. Дальше автоматики нет.
+  const goManual = async () => {
+    const list = await fetchPeriods()
+    if (!list) throw new Error('не получили список периодов')
+    const prodItems: { key: string; value: ProductLink }[] = []
+    const supItems: { key: string; value: SupplierLink }[] = []
+    const seenP = new Set<string>(), seenS = new Set<string>()
+    const autoMatching = withSupplierLinks(matchingBase, edits, false) // прежнее автоматическое сопоставление поставщиков
+    for (const p of list ?? []) {
+      const data = await fetchDataset(p.period)
+      if (!data || !data.restaurants) throw new Error(`период ${p.period} не загрузился`)
+      const parsedP = parseDataset(data)
+      const autoRows = computeRows(parsedP.base, edits, matchingBase, parsedP.restaurants, false)
+      for (const r of autoRows) {
+        if (!r.supplier || r.unit == null) continue
+        const restKey = norm(matchRestaurant(edits, r.restaurant))
+        const canon = supplierAliasFor(autoMatching, matchRestaurant(edits, r.restaurant), r.supplier)
+        if (canon && (!autoMatching.supplierOrder || autoMatching.supplierOrder[`${restKey}::${norm(canon)}`] != null)) {
+          const sk = `${restKey}::${norm(r.supplier)}`
+          if (!edits.supplierLinks[sk] && !seenS.has(sk)) { seenS.add(sk); supItems.push({ key: sk, value: { restaurant: r.restaurant, rawSupplier: r.supplier, canon } }) }
+        }
+        if (!r.productRaw || (r.status !== 'ok' && r.status !== 'wrongSupplier')) continue
+        const supNorm = r.matchedKey ? r.matchedKey.split('::')[1] : norm(canon ?? r.supplier)
+        const target = r.matchedKey ? r.matchedKey.split('::')[2] : norm(r.productRaw)
+        if (!supNorm || !target) continue
+        const packKey = r.isPackSensitive && r.pack ? normPack(r.pack) : ''
+        const key = `${restKey}::${supNorm}::${norm(r.productRaw)}::${packKey}`
+        if (edits.productLinks[key] || seenP.has(key)) continue
+        seenP.add(key)
+        prodItems.push({ key, value: { targetProduct: target, supplier: supplierDisplayByNorm.get(supNorm) ?? supNorm, rawProduct: r.productRaw, pack: packKey, restaurant: r.restaurant } })
+      }
+    }
+    if (prodItems.length) setProductLinks(prodItems)
+    if (supItems.length) setSupplierLinks(supItems)
     setSwitching(true)
   }
-  // Ручной режим — единственный: при первом заходе администратора один раз фиксируем текущие связи
-  // (то, что раньше находилось автоматически) и включаем флаг. Дальше кнопок нет, всё вручную.
+  // Ручной режим — единственный: при заходе администратора один раз (версия 2) фиксируем текущие связи
+  // и включаем флаг. Дальше кнопок нет, всё вручную.
   const autoTried = useRef(false)
   useEffect(() => {
-    if (autoTried.current || !statusLoaded || manualMode || switching || allKnownRows.length === 0) return
+    if (autoTried.current || !statusLoaded || authUser?.role !== 'admin' || (status?.manualFreeze ?? 0) >= 2 || switching) return
     autoTried.current = true
-    goManual()
+    goManual().catch((e) => console.warn('Заморозка связей не удалась', e))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusLoaded, manualMode, allKnownRows.length])
+  }, [statusLoaded, status?.manualFreeze, authUser?.role])
   useEffect(() => {
     if (!switching) return
     ;(async () => {
@@ -1102,7 +1120,7 @@ export default function DataEditor() {
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-[20%]">Основное название <InfoTip text="Название точки, по которому закупки из iiko сопоставлены с вкладкой матрицы. Это не сырое название склада в iiko (там, например, «Кухня склад Олово(Olovo1-Satpaeva)»): сервер сам приводит складские названия к основному по таблице в коде. Здесь не редактируется." /></th>
+                  <th className="th w-[20%]">Название из iiko <InfoTip text="Название склада ровно так, как его прислал iiko (например «Кухня склад Олово(Olovo1-Satpaeva)»). Если у точки несколько складов — через «;». Для данных, загруженных до этого обновления, пока показано название точки — перезагрузите период в «Обновление», и появятся складские названия. Здесь не редактируется." /></th>
                   <th className="th w-[20%]">Название у нас <InfoTip text="Как точка будет называться в этом приложении (Обзор, Проверка цен, выбор точек, Excel). Влияет только на подпись — закупки и матрица по-прежнему привязаны к основному названию. Пока не задано — подписью служит название выбранной вкладки матрицы (или основное название, если вкладка не выбрана)." /></th>
                   <th className="th w-[10%]">Город <InfoTip text="Выберите город — в списке «Вкладка матрицы» останутся вкладки таблицы этого города. У уже настроенных точек ничего не меняется." /></th>
                   <th className="th w-[22%]">Вкладка матрицы <InfoTip text="С какой вкладкой Google-таблицы сверяются закупки этой точки. Если название точки из iiko совпало с названием вкладки — выбрана сама. Для нового ресторана выберите его вкладку из списка (все вкладки таблицы читаются при синке матрицы) — дальше закупки и план тянутся по ней, товары и поставщики проставляются во вкладке «Товары»." /></th>
@@ -1230,7 +1248,7 @@ export default function DataEditor() {
                     <tr key={r.name} className="row-hover hover:bg-ink-800/40">
                       <td className="td overflow-hidden text-fg-400">
                         <span className="flex min-w-0 items-center gap-2">
-                          <IPin width={14} height={14} className="shrink-0 text-fg-600" /><HoverName text={r.name} className="min-w-0 flex-1" />
+                          <IPin width={14} height={14} className="shrink-0 text-fg-600" /><HoverName text={r.stores?.length ? r.stores.join('; ') : r.name} className="min-w-0 flex-1" />
                         </span>
                       </td>
                       <td className="td"><EditableText value={r.alias ?? r.name} onCommit={(v) => {

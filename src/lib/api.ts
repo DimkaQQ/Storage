@@ -12,6 +12,7 @@ export interface SyncStatus {
   positions?: number
   syncing?: boolean
   schedule?: { autoEnabled: boolean; interval: string }
+  manualFreeze?: number  // версия «заморозки» связей (2 — зафиксированы по всем периодам, включая «заказ не по матрице»)
   manualLinks?: boolean  // ручной режим сопоставления включён (автоматика выключена)
 }
 
@@ -55,9 +56,9 @@ export const fetchPeriods = () => get<PeriodMeta[]>('/api/periods')
 export const fetchStatus = () => get<SyncStatus>('/api/status')
 export const fetchSettings = () => get<IikoSettings>('/api/settings')
 /** Включить/выключить ручной режим сопоставления (только админ). */
-export async function setManualLinks(enabled: boolean): Promise<boolean> {
+export async function setManualLinks(enabled: boolean, freezeVersion?: number): Promise<boolean> {
   try {
-    const r = await fetch('/api/manual-links', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ enabled }) })
+    const r = await fetch('/api/manual-links', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ enabled, ...(freezeVersion ? { freezeVersion } : {}) }) })
     return r.ok
   } catch { return false }
 }

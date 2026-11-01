@@ -301,6 +301,7 @@ interface RawItem {
 }
 interface RawRestaurant {
   name: string
+  stores?: string[]
   entity: string
   brand: string
   city: string
@@ -1727,7 +1728,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
 
 export interface SupplierAgg { name: string; count: number; isNew: boolean }
 export interface ProductAgg { name: string; count: number; restaurantCount: number }
-export interface VenueMeta { name: string; entity: string; brand: string; city: string; category: string; alias?: string; matrix?: string }  // matrix — вкладка матрицы, к которой привязана точка (см. matchRestaurant); name — как точка называется в iiko (ключ везде), alias — своё название только для показа в этом приложении
+export interface VenueMeta { name: string; entity: string; brand: string; city: string; category: string; stores?: string[]; alias?: string; matrix?: string }  // matrix — вкладка матрицы, к которой привязана точка (см. matchRestaurant); name — как точка называется в iiko (ключ везде), alias — своё название только для показа в этом приложении
 
 /** Everything derived from a dataset — parsed once, either from the bundle or the API. */
 export interface Parsed {
@@ -1838,7 +1839,7 @@ export function parseDataset(data: RawDataset, matching: MatchingTable = bundled
     base,
     suppliers: [...sm.values()].sort((a, b) => b.count - a.count),
     products: [...pm.values()].sort((a, b) => b.count - a.count),
-    restaurants: restaurantsIn.map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category })),
+    restaurants: restaurantsIn.map((r) => ({ name: r.name, entity: r.entity, brand: r.brand, city: r.city, category: r.category, stores: r.stores })),
     period: data.periodLabel,
     city: data.city,
     category: data.category,

@@ -565,6 +565,7 @@ async function iikoServerFacts(settings, period) {
       lastSupplier = supplier
       return {
         restaurant: resolveStoreRestaurant(row['Store']),
+        stores: row['Store'] ? [String(row['Store'])] : [],
         supplier,
         product,
         pack: row['Product.MeasureUnit'] || '',
@@ -1066,8 +1067,8 @@ async function fetchAssortmentFacts(settings, period) {
         const pack = (it.containerId && info.containers.get(it.containerId)) || info.mainUnit || ''
         const key = `${norm(restaurant)}::${norm(supplierName)}::${norm(info.name)}::${norm(pack)}`
         const prev = byKey.get(key)
-        if (prev) { prev.qty += it.amount; prev.sum += it.sum }
-        else byKey.set(key, { restaurant, supplier: supplierName, product: info.name, pack, qty: it.amount, sum: it.sum })
+        if (prev) { prev.qty += it.amount; prev.sum += it.sum; if (!prev.stores.includes(storeName)) prev.stores.push(storeName) }
+        else byKey.set(key, { restaurant, stores: [storeName], supplier: supplierName, product: info.name, pack, qty: it.amount, sum: it.sum })
         names.add(norm(info.name))
       }
     })

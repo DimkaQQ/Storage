@@ -72,6 +72,8 @@ export function buildDataset(facts, venues, periodMeta) {
     if (!byVenue.has(f.restaurant)) byVenue.set(f.restaurant, [])
     byVenue.get(f.restaurant).push(f)
   }
+  // названия складов ровно как их прислал iiko (для Справочников → Точки)
+  const storesOf = (list) => [...new Set(list.flatMap((f) => f.stores || []).filter(Boolean))].sort()
   const restaurants = [...byVenue.entries()].map(([name, list]) => {
     const meta_ = meta.get(name) || {}
     return {
@@ -80,6 +82,7 @@ export function buildDataset(facts, venues, periodMeta) {
       brand: meta_.brand || name,
       city: cityForRestaurant(name),
       category: meta_.category || 'Кухня',
+      stores: storesOf(list),
       items: list.map((f) => ({
         s: f.supplier || '',
         p: f.product,

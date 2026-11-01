@@ -208,12 +208,13 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json(getDataset(req.auth.orgId, period))
 })
 
-app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId), manualLinks: getSettings(req.auth.orgId).manualLinks === true }))
+app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId), manualLinks: getSettings(req.auth.orgId).manualLinks === true, manualFreeze: Number(getSettings(req.auth.orgId).manualFreeze) || 0 }))
 
 // Ручной режим сопоставления (см. CLAUDE.md): включается один раз после «Перейти на ручной режим» в Справочниках —
 // все связи товаров и поставщиков фиксируются в программе, автоматика (совпадение по тексту, подбор по похожему названию) выключается.
 app.post('/api/manual-links', requireAuth, requireAdmin, (req, res) => {
-  saveSettings(req.auth.orgId, { manualLinks: req.body?.enabled === true })
+  const v = Number(req.body?.freezeVersion)
+  saveSettings(req.auth.orgId, { manualLinks: req.body?.enabled === true, ...(req.body?.enabled === true && Number.isFinite(v) && v > 0 ? { manualFreeze: v } : {}) })
   res.json({ ok: true, manualLinks: req.body?.enabled === true })
 })
 
