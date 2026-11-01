@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { MATRIX_SNAPSHOTS } from './features'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -13,6 +13,7 @@ function normalize(p: any): Edits {
     productPackOverride: p?.productPackOverride ?? {},
     packAliases: p?.packAliases ?? {},
     productLinks: p?.productLinks ?? {},
+    supplierLinks: p?.supplierLinks ?? {},
     planOverrides: p?.planOverrides ?? {},
     venueOverrides: p?.venueOverrides ?? {},
     newVenues: p?.newVenues ?? {},
@@ -60,17 +61,18 @@ function diffKeys<T>(current: Record<string, T>, target: Record<string, T>): str
 // renameProduct/productPackOverride/packAliases/planOverrides — нигде в
 // интерфейсе уже не вызываются) по-прежнему сохраняются сразу же, как и
 // раньше.
-type CatalogFields = Pick<Edits, 'supplierRenames' | 'venueOverrides' | 'newVenues' | 'acknowledgedSuppliers' | 'productLinks'>
+type CatalogFields = Pick<Edits, 'supplierRenames' | 'venueOverrides' | 'newVenues' | 'acknowledgedSuppliers' | 'productLinks' | 'supplierLinks'>
 const pickCatalog = (e: Edits): CatalogFields => ({
   supplierRenames: e.supplierRenames, venueOverrides: e.venueOverrides, newVenues: e.newVenues,
-  acknowledgedSuppliers: e.acknowledgedSuppliers, productLinks: e.productLinks,
+  acknowledgedSuppliers: e.acknowledgedSuppliers, productLinks: e.productLinks, supplierLinks: e.supplierLinks,
 })
 const catalogIsDirty = (baseline: CatalogFields, current: CatalogFields): boolean =>
   diffKeys(baseline.supplierRenames, current.supplierRenames).length > 0 ||
   diffKeys(baseline.venueOverrides, current.venueOverrides).length > 0 ||
   diffKeys(baseline.newVenues, current.newVenues).length > 0 ||
   diffKeys(baseline.acknowledgedSuppliers, current.acknowledgedSuppliers).length > 0 ||
-  diffKeys(baseline.productLinks, current.productLinks).length > 0
+  diffKeys(baseline.productLinks, current.productLinks).length > 0 ||
+  diffKeys(baseline.supplierLinks, current.supplierLinks).length > 0
 
 /**
  * Undo reverts local state instantly, but the server only knows individual
@@ -110,6 +112,8 @@ async function syncUndoToServer(current: Edits, target: Edits): Promise<boolean>
     results.push(applyEditOp('setRowColor', { key: k, value: target.rowColors[k] ?? null }))
   for (const k of diffKeys(current.ambiguousChoices, target.ambiguousChoices))
     results.push(applyEditOp('setAmbiguousChoice', { key: k, value: target.ambiguousChoices[k] ?? null }))
+  const undoSup = diffKeys(current.supplierLinks, target.supplierLinks).map((k) => ({ key: k, value: target.supplierLinks[k] ?? null }))
+  for (let i = 0; i < undoSup.length; i += 500) results.push(applyEditOp('setSupplierLinks', { items: undoSup.slice(i, i + 500) }))
   const oks = await Promise.all(results)
   return oks.every(Boolean)
 }
@@ -131,6 +135,9 @@ async function pushCatalogDiff(baseline: CatalogFields, current: CatalogFields):
   const linkItems = diffKeys(baseline.productLinks, current.productLinks).map((k) => ({ key: k, value: current.productLinks[k] ?? null }))
   for (let i = 0; i < linkItems.length; i += 500)
     results.push(applyEditOp('setProductLinks', { items: linkItems.slice(i, i + 500) }))
+  const supItems = diffKeys(baseline.supplierLinks, current.supplierLinks).map((k) => ({ key: k, value: current.supplierLinks[k] ?? null }))
+  for (let i = 0; i < supItems.length; i += 500)
+    results.push(applyEditOp('setSupplierLinks', { items: supItems.slice(i, i + 500) }))
   const oks = await Promise.all(results)
   return oks.every(Boolean)
 }
@@ -169,6 +176,11 @@ function describeCatalogChanges(baseline: CatalogFields, current: CatalogFields)
   for (const k of bulk ? linkKeys.filter((k) => !current.productLinks[k]?.targetProduct) : linkKeys) {
     const next = current.productLinks[k]
     out.push(!next ? `Товар: привязка снята` : !next.targetProduct ? `Товар «${next.rawProduct}» (${next.restaurant}): отвязан от матрицы` : `Товар «${next.rawProduct}» (${next.restaurant}): привязан к «${next.targetProduct}»`)
+  }
+  for (const k of diffKeys(baseline.supplierLinks, current.supplierLinks)) {
+    const next = current.supplierLinks[k]
+    const raw = (next ?? baseline.supplierLinks[k])
+    out.push(next ? `Компания «${raw.rawSupplier}» (${raw.restaurant}): привязана к «${next.canon}»` : `Компания «${raw?.rawSupplier ?? k}» (${raw?.restaurant ?? ''}): привязка снята`)
   }
   return out
 }
@@ -220,6 +232,7 @@ interface Ctx {
   setProductPackOverride: (product: string, value: boolean | null) => void
   setPackAlias: (key: string, value: PackAlias | null) => void
   setProductLink: (key: string, value: ProductLink | null) => void
+  setSupplierLinks: (items: { key: string; value: SupplierLink | null }[]) => void  // ручные привязки поставщиков (черновик в edits, на сервер уходит по «Сохранить»)
   setProductLinks: (items: { key: string; value: ProductLink | null }[]) => void  // пачкой — одним обновлением ("Зафиксировать связи")
   // Черновик привязки из «Нет в матрице» — ТОЛЬКО для показа в самом поле
   // (что реально напечатали/выбрали), ни на rows, ни на computeRows нигде
@@ -571,6 +584,11 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // вшитая демо-матрица вместо реальной.
   const matchingIsStale = !backendMatching
   const rows = useMemo(() => computeRows(parsed.base, edits, matching, parsed.restaurants), [parsed, edits, matching])
+  // Поставщик, которого вручную привязали к матрице (edits.supplierLinks), больше не «новый»
+  const suppliers = useMemo(() => {
+    const linked = new Set(Object.values(edits.supplierLinks).map((l) => l.rawSupplier))
+    return linked.size === 0 ? parsed.suppliers : parsed.suppliers.map((s) => (s.isNew && linked.has(s.name) ? { ...s, isNew: false } : s))
+  }, [parsed.suppliers, edits.supplierLinks])
 
   // key = "товар::поставщик" (composed by the caller — DataEditor). Ставит
   // значение или удаляет запись, если очистили поле.
@@ -664,6 +682,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
   }, [updateEdits])
 
+  const setSupplierLinks = useCallback((items: { key: string; value: SupplierLink | null }[]) => {
+    updateEdits((e) => {
+      const next = { ...e.supplierLinks }
+      for (const { key, value } of items) { if (value === null) delete next[key]; else next[key] = value }
+      return { ...e, supplierLinks: next }
+    })
+  }, [updateEdits])
+
   const setProductLinks = useCallback((items: { key: string; value: ProductLink | null }[]) => {
     updateEdits((e) => {
       const next = { ...e.productLinks }
@@ -727,6 +753,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       productPackOverride: e.productPackOverride ?? {},
       packAliases: e.packAliases ?? {},
       productLinks: e.productLinks ?? {},
+      supplierLinks: e.supplierLinks ?? {},
       planOverrides: e.planOverrides ?? {},
       venueOverrides: e.venueOverrides ?? {},
       newVenues: e.newVenues ?? {},
@@ -745,6 +772,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     Object.keys(edits.productPackOverride).length +
     Object.keys(edits.packAliases).length +
     Object.keys(edits.productLinks).length +
+    Object.keys(edits.supplierLinks).length +
     Object.keys(edits.planOverrides).length +
     Object.keys(edits.venueOverrides).length +
     Object.keys(edits.newVenues).length +
@@ -763,12 +791,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const value: Ctx = {
     edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, city: parsed.city, category: parsed.category,
-    restaurants, suppliers: parsed.suppliers, products: parsed.products,
+    restaurants, suppliers, products: parsed.products,
     backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setProductLinks, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setProductLinks, setSupplierLinks, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
     reset, replaceAll, undo, canUndo,
     saveError,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,

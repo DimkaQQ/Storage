@@ -43,6 +43,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS product_pack_override (org_id TEXT NOT NULL, product TEXT NOT NULL, pack_matters INTEGER NOT NULL, PRIMARY KEY (org_id, product));
   CREATE TABLE IF NOT EXISTS pack_aliases     (org_id TEXT NOT NULL, key TEXT NOT NULL, target_pack TEXT NOT NULL, supplier TEXT NOT NULL, product TEXT NOT NULL, raw_pack TEXT NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS product_links    (org_id TEXT NOT NULL, key TEXT NOT NULL, target_product TEXT NOT NULL, supplier TEXT NOT NULL, raw_product TEXT NOT NULL, pack TEXT NOT NULL DEFAULT '', PRIMARY KEY (org_id, key));
+  CREATE TABLE IF NOT EXISTS supplier_links   (org_id TEXT NOT NULL, key TEXT NOT NULL, restaurant TEXT NOT NULL, raw_supplier TEXT NOT NULL, canon TEXT NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS plan_overrides    (org_id TEXT NOT NULL, key TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS row_comments      (org_id TEXT NOT NULL, key TEXT NOT NULL, text TEXT NOT NULL, PRIMARY KEY (org_id, key));
   CREATE TABLE IF NOT EXISTS row_colors        (org_id TEXT NOT NULL, key TEXT NOT NULL, color TEXT NOT NULL, PRIMARY KEY (org_id, key));
@@ -63,7 +64,7 @@ try { db.exec('ALTER TABLE venue_overrides ADD COLUMN matrix TEXT') } catch { /*
 // максимум придётся привязать заново, зато не утекут в другой ресторан.
 try { db.exec("ALTER TABLE product_links ADD COLUMN restaurant TEXT NOT NULL DEFAULT ''") } catch { /* столбец уже есть */ }
 
-const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'plan_overrides', 'row_comments', 'row_colors', 'ambiguous_choices']
+const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'supplier_links', 'plan_overrides', 'row_comments', 'row_colors', 'ambiguous_choices']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
 
@@ -96,6 +97,9 @@ export function getEditsForOrg(orgId) {
   const productLinks = Object.fromEntries(
     db.prepare('SELECT key, target_product, supplier, raw_product, pack, restaurant FROM product_links WHERE org_id=?').all(orgId)
       .map((r) => [r.key, { targetProduct: r.target_product, supplier: r.supplier, rawProduct: r.raw_product, pack: r.pack || '', restaurant: r.restaurant || '' }]))
+  const supplierLinks = Object.fromEntries(
+    db.prepare('SELECT key, restaurant, raw_supplier, canon FROM supplier_links WHERE org_id=?').all(orgId)
+      .map((r) => [r.key, { restaurant: r.restaurant, rawSupplier: r.raw_supplier, canon: r.canon }]))
   const planOverrides = Object.fromEntries(
     db.prepare('SELECT key, price FROM plan_overrides WHERE org_id=?').all(orgId).map((r) => [r.key, r.price]))
   const rowComments = Object.fromEntries(
@@ -104,7 +108,7 @@ export function getEditsForOrg(orgId) {
     db.prepare('SELECT key, color FROM row_colors WHERE org_id=?').all(orgId).map((r) => [r.key, r.color]))
   const ambiguousChoices = Object.fromEntries(
     db.prepare('SELECT key, price, label FROM ambiguous_choices WHERE org_id=?').all(orgId).map((r) => [r.key, { price: r.price, label: r.label ?? null }]))
-  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, planOverrides, rowComments, rowColors, ambiguousChoices }
+  return { productRenames, supplierRenames, venueOverrides, newVenues, acknowledgedSuppliers, productPackOverride, packAliases, productLinks, supplierLinks, planOverrides, rowComments, rowColors, ambiguousChoices }
 }
 
 function hasAnyRows(orgId) {
@@ -242,6 +246,22 @@ export function setProductLink(orgId, key, value) {
   `).run(orgId, k, String(v.targetProduct || ''), String(v.supplier || ''), String(v.rawProduct || ''), String(v.pack || ''), String(v.restaurant || ''))
 }
 
+/** value: { restaurant, rawSupplier, canon } — «это название поставщика из iiko в этой точке = вот этот поставщик из матрицы»; null — снять. */
+export function setSupplierLink(orgId, key, value) {
+  const k = str(key)
+  if (!k) return
+  if (value === null || value === undefined || !str(value.canon)) { db.prepare('DELETE FROM supplier_links WHERE org_id=? AND key=?').run(orgId, k); return }
+  db.prepare(`
+    INSERT INTO supplier_links (org_id, key, restaurant, raw_supplier, canon) VALUES (?,?,?,?,?)
+    ON CONFLICT(org_id, key) DO UPDATE SET restaurant=excluded.restaurant, raw_supplier=excluded.raw_supplier, canon=excluded.canon
+  `).run(orgId, k, String(value.restaurant || ''), String(value.rawSupplier || ''), String(value.canon))
+}
+
+export function setSupplierLinks(orgId, items) {
+  if (!Array.isArray(items)) return
+  tx(() => { for (const it of items) if (it && typeof it === 'object') setSupplierLink(orgId, it.key, it.value) })
+}
+
 /** items: [{ key, value }] — пачка setProductLink одной транзакцией («Зафиксировать связи» создаёт тысячи привязок разом). */
 export function setProductLinks(orgId, items) {
   if (!Array.isArray(items)) return
@@ -357,6 +377,12 @@ export function replaceAllEdits(orgId, e) {
       const v = plainObject(vRaw)
       db.prepare('INSERT INTO product_links (org_id, key, target_product, supplier, raw_product, pack, restaurant) VALUES (?,?,?,?,?,?,?)')
         .run(orgId, k, String(v.targetProduct || ''), String(v.supplier || ''), String(v.rawProduct || ''), String(v.pack || ''), String(v.restaurant || ''))
+    }
+    for (const [key, vRaw] of Object.entries(plainObject(edits.supplierLinks))) {
+      const k = str(key); if (!k) continue
+      const v = plainObject(vRaw)
+      if (!str(v.canon)) continue
+      db.prepare('INSERT INTO supplier_links (org_id, key, restaurant, raw_supplier, canon) VALUES (?,?,?,?,?)').run(orgId, k, String(v.restaurant || ''), String(v.rawSupplier || ''), String(v.canon))
     }
     for (const [key, price] of Object.entries(plainObject(edits.planOverrides))) {
       const k = str(key); if (!k) continue

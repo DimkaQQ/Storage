@@ -185,6 +185,24 @@ export function supplierAliasFor(matching: MatchingTable, restaurant: string, ra
     ?? null
 }
 
+const supplierLinksCache = new WeakMap<MatchingTable, { links: Record<string, SupplierLink>; venueOverrides: Edits['venueOverrides']; out: MatchingTable }>()
+/**
+ * Матрица + ручные привязки поставщиков из программы: те же ключи, что у колонки D (`ресторан::iiko-текст` → канон),
+ * поэтому supplierAliasFor/anySupplierAlias и всё сопоставление работают без изменений. Ручная привязка побеждает.
+ * Кэш по ссылке на матрицу и на карту привязок, чтобы не пересобирать матрицу на каждый пересчёт.
+ */
+export function withSupplierLinks(matching: MatchingTable, edits: Pick<Edits, 'supplierLinks' | 'venueOverrides'>): MatchingTable {
+  const links = edits.supplierLinks ?? {}
+  if (Object.keys(links).length === 0) return matching
+  const hit = supplierLinksCache.get(matching)
+  if (hit && hit.links === links && hit.venueOverrides === edits.venueOverrides) return hit.out
+  const alias = { ...matching.supplierAlias }
+  for (const l of Object.values(links)) alias[`${norm(matchRestaurant(edits, l.restaurant))}::${norm(l.rawSupplier)}`] = l.canon
+  const out = { ...matching, supplierAlias: alias }
+  supplierLinksCache.set(matching, { links, venueOverrides: edits.venueOverrides, out })
+  return out
+}
+
 /**
  * Для мест БЕЗ привязки к конкретной закупке (Справочники → Компании,
  * счётчик "новых" поставщиков, автоподсказки при переименовании) — тот же
@@ -438,6 +456,9 @@ export interface PackAlias { targetPack: string; supplier: string; product: stri
 const DETACHED = '\u0001отвязано'
 export interface ProductLink { targetProduct: string; supplier: string; rawProduct: string; pack: string; restaurant: string }
 
+/** Ручная привязка «поставщик из iiko = поставщик из матрицы» для одной точки (вместо колонки D таблицы, которую удалят). */
+export interface SupplierLink { restaurant: string; rawSupplier: string; canon: string }
+
 export interface Edits {
   productRenames: Record<string, string>   // "товар::поставщик::фасовка" (raw, как в iiko) -> название из матрицы для этой ровно позиции
   supplierRenames: Record<string, string>  // iiko-имя поставщика (raw) -> название из матрицы — только подпись (HoverName/"Справочник"), на сопоставление с матрицей не влияет
@@ -445,6 +466,7 @@ export interface Edits {
   productPackOverride: Record<string, boolean> // original product name -> фасовка важна для сопоставления? true = обязательна (строгое совпадение), false = не важна (сравниваем без учёта фасовки). ЗАДЕЛ НА БУДУЩЕЕ: поле хранится/синхронизируется (localStorage, SQLite, undo), но resolveRowPlan его пока НИГДЕ не читает и нет ни одного места в UI, которое бы его выставляло — реально ни на что не влияет. Не удалено на случай, если у кого-то уже есть сохранённые значения; дописать использование в resolveRowPlan или снести целиком — отдельная задача.
   packAliases: Record<string, PackAlias>   // "поставщик(канон)::товар::фасовка как в iiko" (норм.) -> правка
   productLinks: Record<string, ProductLink> // "поставщик(канон)::iiko-название" (норм.) -> привязка к строке матрицы, см. ProductLink
+  supplierLinks: Record<string, SupplierLink> // "ресторан(норм.)::iiko-название поставщика(норм.)" -> ручная привязка к поставщику матрицы, см. SupplierLink
   planOverrides: Record<string, number>    // legacy — ручные план-цены больше не выставляются из приложения (цена только из матрицы), поле остаётся только чтобы не потерять то, что уже сохранено у существующих организаций
   venueOverrides: Record<string, VenuePatch> // restaurant name -> corrected город/бренд/юрлицо/категория
   newVenues: Record<string, true>          // точки, добавленные вручную (ещё нет закупок в iiko)
@@ -453,7 +475,7 @@ export interface Edits {
   ambiguousChoices: Record<string, AmbiguousVariant>  // buildRowKey(...) -> какой из нескольких вариантов (см. AmbiguousVariant) реально был куплен — выбор на КОНКРЕТНУЮ закупку конкретного периода, не на поставщик+товар вообще (другая закупка/другой месяц разруливается заново)
 }
 export const EMPTY_EDITS: Edits = {
-  productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, productLinks: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
+  productRenames: {}, supplierRenames: {}, acknowledgedSuppliers: {}, productPackOverride: {}, packAliases: {}, productLinks: {}, supplierLinks: {}, planOverrides: {}, venueOverrides: {}, newVenues: {},
   rowComments: {}, rowColors: {}, ambiguousChoices: {},
 }
 
@@ -1323,7 +1345,7 @@ export const isExcludedPair = (supplier: string, product: string) => {
 
 /** Builds display rows by applying edits and resolving plan/status. */
 export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = []): Row[] {
-  const matching = scopedMatching(matchingIn, linkTargets(edits))
+  const matching = withSupplierLinks(scopedMatching(matchingIn, linkTargets(edits)), edits)
   const mr = (restaurant: string) => matchRestaurant(edits, restaurant)
   // Поставщики, которых попросили убрать из "Проверки цен" ЦЕЛИКОМ (не
   // просто статусом "Нет в матрице") — иначе они захламляют сортировку по

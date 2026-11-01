@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, ProductLink, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
+import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { syncMatrix } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
@@ -60,9 +60,11 @@ export default function DataEditor() {
   const {
     edits, rows, renameSupplier, setVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setProductLinks, pendingProductLinks, stageProductLink, undo, canUndo,
-    suppliers: suppliersBase, restaurants, matching, periodKey, refreshMatrix,
+    suppliers: suppliersBase, restaurants, matching: matchingBase, periodKey, refreshMatrix, setSupplierLinks,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,
   } = useEdits()
+  // матрица + ручные привязки поставщиков из программы (см. withSupplierLinks в lib/data.ts)
+  const matching = useMemo(() => withSupplierLinks(matchingBase, edits), [matchingBase, edits.supplierLinks, edits.venueOverrides])
   // "N правок" — раньше было просто число без объяснений; теперь клик по
   // чипу раскрывает список, какая именно строка поменялась (см.
   // catalogChanges в lib/edits.tsx).
@@ -693,6 +695,28 @@ export default function DataEditor() {
   // + уже введённые вручную правки), чтобы не плодить разные написания
   // одного и того же поставщика/товара: набрали "ази" — нашли "Азик Трейд",
   // даже если он уже был переименован кем-то другим, а не только в матрице.
+  // Название компании из матрицы в поле «Компании»: если выбран поставщик из матрицы — это РУЧНАЯ ПРИВЯЗКА
+  // (хранится в программе, не зависит от колонки D таблицы) для каждой точки, где компанию покупали и где этот
+  // поставщик есть в матрице; пустое поле снимает ручные привязки; любой другой текст — как раньше, только подпись.
+  const commitSupplierName = (raw: string, v: string) => {
+    const value = v.trim()
+    const canonical = canonicalSupplierNames.find((c) => c === value)
+    const rests = new Set(allKnownRows.filter((r) => r.supplier === raw && (!editorRestaurant || r.restaurant === editorRestaurant)).map((r) => r.restaurant))
+    const items: { key: string; value: SupplierLink | null }[] = []
+    let linked = 0
+    for (const rest of rests) {
+      const restNorm = norm(matchRestaurant(edits, rest))
+      const key = `${restNorm}::${norm(raw)}`
+      if (canonical && matching.supplierOrder?.[`${restNorm}::${norm(canonical)}`] !== undefined) {
+        items.push({ key, value: { restaurant: rest, rawSupplier: raw, canon: canonical } }); linked++
+      } else if (edits.supplierLinks[key]) items.push({ key, value: null }) // старая привязка там, где нового поставщика нет в матрице, или пустое/иное значение — снимаем
+    }
+    if (items.length > 0) setSupplierLinks(items)
+    if (canonical && linked === 0) window.alert(`«${canonical}» не найден в матрице ни у одной точки, где покупали «${raw}» — сохранено только как подпись.`)
+    else if (canonical && linked < rests.size) window.alert(`Привязано в ${linked} из ${rests.size} точек: в остальных такого поставщика нет в матрице.`)
+    renameSupplier(raw, canonical && linked > 0 ? '' : v)
+  }
+
   const supplierNameSuggestions = useMemo(
     () => [...new Set([...canonicalSupplierNames, ...Object.values(edits.supplierRenames)])].sort((a, b) => a.localeCompare(b)).map((label) => ({ label })),
     [canonicalSupplierNames, edits.supplierRenames],
@@ -1059,10 +1083,11 @@ export default function DataEditor() {
                             <ProductLabelSuggest
                               value={supplierRename ?? canon ?? ''}
                               suggestions={supplierNameSuggestions}
-                              onCommit={(v) => renameSupplier(s.name, v)}
+                              onCommit={(v) => commitSupplierName(s.name, v)}
                               className={supplierRename ? undefined : canon ? 'text-good' : undefined}
                             />
                             {supplierRename && <span className="chip shrink-0 border-transparent bg-brand-500/10 text-[10px] text-brand-300">правка</span>}
+                            {Object.values(edits.supplierLinks).some((l) => l.rawSupplier === s.name && (!editorRestaurant || l.restaurant === editorRestaurant)) && <span className="chip shrink-0 border-transparent bg-good/10 text-[10px] text-good">вручную</span>}
                           </div>
                           {!canon && (
                             acknowledged ? (
