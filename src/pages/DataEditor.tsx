@@ -1159,7 +1159,6 @@ export default function DataEditor() {
                               className={supplierRename ? undefined : canon ? 'text-good' : undefined}
                             />
                             {supplierRename && <span className="chip shrink-0 border-transparent bg-brand-500/10 text-[10px] text-brand-300">правка</span>}
-                            {Object.values(edits.supplierLinks).some((l) => l.rawSupplier === s.name && (!editorRestaurant || l.restaurant === editorRestaurant)) && <span className="chip shrink-0 border-transparent bg-good/10 text-[10px] text-good">вручную</span>}
                           </div>
                           {!canon && (
                             acknowledged ? (
