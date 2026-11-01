@@ -581,17 +581,25 @@ export default function DataEditor() {
   const statusLoaded = status != null
   const goManual = () => {
     if (!statusLoaded) return
-    if (!window.confirm(`Перейти на ручной режим?\n\nЗафиксируем текущие связи: товаров — ${freezeCandidates.length}, поставщиков — ${supplierFreezeItems.length}. Они останутся как есть. После этого программа ничего не сопоставляет сама: новые товары и поставщики приходят без привязок, их привязываете вы в Справочниках.`)) return
     if (freezeCandidates.length) setProductLinks(freezeCandidates)
     if (supplierFreezeItems.length) setSupplierLinks(supplierFreezeItems)
     setSwitching(true)
   }
+  // Ручной режим — единственный: при первом заходе администратора один раз фиксируем текущие связи
+  // (то, что раньше находилось автоматически) и включаем флаг. Дальше кнопок нет, всё вручную.
+  const autoTried = useRef(false)
+  useEffect(() => {
+    if (autoTried.current || !statusLoaded || manualMode || switching || allKnownRows.length === 0) return
+    autoTried.current = true
+    goManual()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusLoaded, manualMode, allKnownRows.length])
   useEffect(() => {
     if (!switching) return
     ;(async () => {
       const saved = await saveCatalog()
       const ok = saved && await enableManualMode()
-      if (!ok) window.alert('Не удалось включить ручной режим (нужны права администратора и сохранение связей). Ничего не потеряно — попробуйте ещё раз.')
+      if (!ok) console.warn('Ручной режим не включён (нужны права администратора и сохранение связей)')
       setSwitching(false)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -830,16 +838,6 @@ export default function DataEditor() {
             title="Отменить последнее изменение"
             className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
           ><IUndo width={16} height={16} /> Отменить</button>
-          {manualMode ? (
-            <span className="chip border-good/30 bg-good/10 text-good" title="Автоматика выключена: закупки сопоставляются только по привязкам из Справочников">Ручной режим</span>
-          ) : (
-            <button
-              onClick={goManual}
-              disabled={switching}
-              title="Зафиксировать все текущие связи и выключить автоматическое сопоставление"
-              className="btn border border-warn/40 bg-warn/10 text-warn hover:bg-warn/20 disabled:opacity-60"
-            >{switching ? 'Переключаю…' : 'Перейти на ручной режим'}</button>
-          )}
           {freezeCandidates.length > 0 && (
             <button
               onClick={freezeLinks}
