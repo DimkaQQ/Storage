@@ -1349,6 +1349,11 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   for (const k of Object.keys(matching.planPairs)) pairKeysWithMatrix.add(k)
   for (const k of Object.keys(matching.planPairsByPack)) pairKeysWithMatrix.add(pairKeyOf(k))
   for (const k of Object.keys(matching.noPriceExact)) pairKeysWithMatrix.add(pairKeyOf(k))
+  // Пара «поставщик::товар» в матрице хоть у КАКОГО-ТО ресторана — для исключённых поставщиков (Асип) этого
+  // достаточно, чтобы закупку показать и в другой точке (как «Заказ не по матрице»), а не прятать:
+  // живой случай — Асип/Говядина вырезка прайсована у Tangirs, но куплена в Олово 2 (461 тыс. ₸ пропадали).
+  const supplierProductAnywhere = new Set<string>()
+  for (const k of pairKeysWithMatrix) supplierProductAnywhere.add(k.split('::').slice(1, 3).join('::'))
   // Не еда (расходники бара — см. EXCLUDED_CATEGORIES в server/src/iiko.js,
   // категория "Расходные материалы") и не закупка вовсе ("Ввод остатков" —
   // ручная коррекция остатка в iiko, не реальная покупка у поставщика) —
@@ -1370,8 +1375,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, mr(b.restaurant), b.supplier0) ?? b.supplier0)
     if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) {
-      const pairKey = `${norm(mr(b.restaurant))}::${canon}::${norm(b.product0)}`
-      if (!pairKeysWithMatrix.has(pairKey)) return false
+      if (!supplierProductAnywhere.has(`${canon}::${norm(b.product0)}`)) return false
     }
     if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
     if (isExcludedPair(b.supplier0, b.product0) || isExcludedPair(canon, b.product0)) return false
