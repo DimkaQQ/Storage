@@ -12,6 +12,7 @@ export interface SyncStatus {
   positions?: number
   syncing?: boolean
   schedule?: { autoEnabled: boolean; interval: string }
+  manualLinks?: boolean  // ручной режим сопоставления включён (автоматика выключена)
 }
 
 export interface IikoSettings {
@@ -53,6 +54,13 @@ export const fetchDataset = (period?: string) => get<any>(period ? `/api/data?pe
 export const fetchPeriods = () => get<PeriodMeta[]>('/api/periods')
 export const fetchStatus = () => get<SyncStatus>('/api/status')
 export const fetchSettings = () => get<IikoSettings>('/api/settings')
+/** Включить/выключить ручной режим сопоставления (только админ). */
+export async function setManualLinks(enabled: boolean): Promise<boolean> {
+  try {
+    const r = await fetch('/api/manual-links', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ enabled }) })
+    return r.ok
+  } catch { return false }
+}
 export const fetchEdits = () => get<any>('/api/edits')
 
 export async function saveSettings(s: Partial<IikoSettings>): Promise<IikoSettings | null> {

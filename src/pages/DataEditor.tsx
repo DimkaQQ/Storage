@@ -60,11 +60,11 @@ export default function DataEditor() {
   const {
     edits, rows, renameSupplier, setVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setProductLinks, pendingProductLinks, stageProductLink, undo, canUndo,
-    suppliers: suppliersBase, restaurants, matching: matchingBase, periodKey, refreshMatrix, setSupplierLinks,
+    suppliers: suppliersBase, restaurants, matching: matchingBase, periodKey, refreshMatrix, setSupplierLinks, manualMode, enableManualMode, status,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,
   } = useEdits()
   // матрица + ручные привязки поставщиков из программы (см. withSupplierLinks в lib/data.ts)
-  const matching = useMemo(() => withSupplierLinks(matchingBase, edits), [matchingBase, edits.supplierLinks, edits.venueOverrides])
+  const matching = useMemo(() => withSupplierLinks(matchingBase, edits, manualMode), [matchingBase, edits.supplierLinks, edits.venueOverrides, manualMode])
   // "N правок" — раньше было просто число без объяснений; теперь клик по
   // чипу раскрывает список, какая именно строка поменялась (см.
   // catalogChanges в lib/edits.tsx).
@@ -385,10 +385,12 @@ export default function DataEditor() {
     const all: Row[] = []
     for (const p of BUNDLED_PERIODS) {
       const m = bundledMatching(p.period)
-      all.push(...computeRows(parseDataset(bundledDataset(p.period), m).base, EMPTY_EDITS, m))
+      // ручной режим: совпадение зависит только от привязок — их и подставляем (остальные правки на productRaw не влияют)
+      const e = manualMode ? { ...EMPTY_EDITS, productLinks: edits.productLinks, supplierLinks: edits.supplierLinks, venueOverrides: edits.venueOverrides } : EMPTY_EDITS
+      all.push(...computeRows(parseDataset(bundledDataset(p.period), m).base, e, m, [], manualMode))
     }
     return all
-  }, [productsVisited])
+  }, [productsVisited, manualMode, manualMode ? edits.productLinks : null, manualMode ? edits.supplierLinks : null, manualMode ? edits.venueOverrides : null])
   const allKnownRows = useMemo(() => [...rows, ...otherPeriodsRows], [rows, otherPeriodsRows])
 
   // Автопоиск для колонки «Название из iiko» у строки матрицы — реально
@@ -546,7 +548,7 @@ export default function DataEditor() {
     const out: { key: string; value: ProductLink }[] = []
     const seen = new Set<string>()
     for (const r of allKnownRows) {
-      if (r.unit == null || !r.matchedKey || !r.productRaw || r.status !== 'ok') continue
+      if (!r.matchedKey || !r.productRaw || r.status !== 'ok') continue
       const [restNorm, supNorm, targetProduct] = r.matchedKey.split('::')
       if (!restNorm || !supNorm || !targetProduct) continue
       const packKey = r.isPackSensitive && r.pack ? normPack(r.pack) : ''
@@ -557,6 +559,44 @@ export default function DataEditor() {
     }
     return out
   }, [allKnownRows, edits, supplierDisplayByNorm])
+  // «Перейти на ручной режим»: фиксируем текущие привязки товаров И поставщиков (то, что сейчас сопоставляется
+  // автоматически — по тексту, алиасам таблицы или похожему названию), сохраняем и выключаем автоматику.
+  const [switching, setSwitching] = useState(false)
+  const supplierFreezeItems = useMemo(() => {
+    const out: { key: string; value: SupplierLink }[] = []
+    const seen = new Set<string>()
+    for (const r of allKnownRows) {
+      if (!r.supplier) continue
+      const canon = supplierAliasFor(matching, matchRestaurant(edits, r.restaurant), r.supplier)
+      if (!canon) continue
+      // только канон, который реально есть на вкладке этой точки (иначе привязка «в никуда»)
+      if (matching.supplierOrder && matching.supplierOrder[`${norm(matchRestaurant(edits, r.restaurant))}::${norm(canon)}`] == null) continue
+      const key = `${norm(matchRestaurant(edits, r.restaurant))}::${norm(r.supplier)}`
+      if (edits.supplierLinks[key] || seen.has(key)) continue
+      seen.add(key)
+      out.push({ key, value: { restaurant: r.restaurant, rawSupplier: r.supplier, canon } })
+    }
+    return out
+  }, [allKnownRows, matching, edits])
+  const statusLoaded = status != null
+  const goManual = () => {
+    if (!statusLoaded) return
+    if (!window.confirm(`Перейти на ручной режим?\n\nЗафиксируем текущие связи: товаров — ${freezeCandidates.length}, поставщиков — ${supplierFreezeItems.length}. Они останутся как есть. После этого программа ничего не сопоставляет сама: новые товары и поставщики приходят без привязок, их привязываете вы в Справочниках.`)) return
+    if (freezeCandidates.length) setProductLinks(freezeCandidates)
+    if (supplierFreezeItems.length) setSupplierLinks(supplierFreezeItems)
+    setSwitching(true)
+  }
+  useEffect(() => {
+    if (!switching) return
+    ;(async () => {
+      const saved = await saveCatalog()
+      const ok = saved && await enableManualMode()
+      if (!ok) window.alert('Не удалось включить ручной режим (нужны права администратора и сохранение связей). Ничего не потеряно — попробуйте ещё раз.')
+      setSwitching(false)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [switching])
+
   const freezeLinks = () => {
     if (freezeCandidates.length === 0) return
     if (!window.confirm(`Зафиксировать ${freezeCandidates.length} связей «название из iiko → строка матрицы» в программе? Это ничего не меняет в Проверке цен сейчас; применится после «Сохранить».`)) return
@@ -790,6 +830,16 @@ export default function DataEditor() {
             title="Отменить последнее изменение"
             className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
           ><IUndo width={16} height={16} /> Отменить</button>
+          {manualMode ? (
+            <span className="chip border-good/30 bg-good/10 text-good" title="Автоматика выключена: закупки сопоставляются только по привязкам из Справочников">Ручной режим</span>
+          ) : (
+            <button
+              onClick={goManual}
+              disabled={switching}
+              title="Зафиксировать все текущие связи и выключить автоматическое сопоставление"
+              className="btn border border-warn/40 bg-warn/10 text-warn hover:bg-warn/20 disabled:opacity-60"
+            >{switching ? 'Переключаю…' : 'Перейти на ручной режим'}</button>
+          )}
           {freezeCandidates.length > 0 && (
             <button
               onClick={freezeLinks}
@@ -1140,7 +1190,7 @@ export default function DataEditor() {
                     // сопоставление прямо сейчас, даже без единой покупки.
                     const fromMatrixKey = capitalize(row.productSegment)
                     const primary = explicitLink && matchedNames.includes(explicitLink) ? explicitLink
-                      : matchedNames[0] ?? explicitLink ?? (row.noName || isDetached(row) ? '' : fromMatrixKey)
+                      : matchedNames[0] ?? explicitLink ?? (manualMode || row.noName || isDetached(row) ? '' : fromMatrixKey)
                     const extra = matchedNames.filter((n) => n !== primary)
                     return (
                       <tr key={row.key} className="row-hover hover:bg-ink-800/40">
@@ -1155,7 +1205,7 @@ export default function DataEditor() {
                             <ProductLabelSuggest
                               value={primary}
                               suggestions={allIikoNameOptions}
-                              placeholder={row.noName || isDetached(row) ? 'Впишите название из iiko' : undefined}
+                              placeholder={manualMode || row.noName || isDetached(row) ? 'Выберите название из iiko' : undefined}
                               onCommit={(v) => commitMatrixIikoName(row, primary, v)}
                             />
                             {extra.length > 0 && (

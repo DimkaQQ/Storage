@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { MATRIX_SNAPSHOTS } from './features'
 import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
-import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, Venues, SyncStatus, PeriodMeta } from './api'
+import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 
@@ -232,6 +232,8 @@ interface Ctx {
   setProductPackOverride: (product: string, value: boolean | null) => void
   setPackAlias: (key: string, value: PackAlias | null) => void
   setProductLink: (key: string, value: ProductLink | null) => void
+  manualMode: boolean  // автоматика сопоставления выключена: только привязки из Справочников
+  enableManualMode: () => Promise<boolean>
   setSupplierLinks: (items: { key: string; value: SupplierLink | null }[]) => void  // ручные привязки поставщиков (черновик в edits, на сервер уходит по «Сохранить»)
   setProductLinks: (items: { key: string; value: ProductLink | null }[]) => void  // пачкой — одним обновлением ("Зафиксировать связи")
   // Черновик привязки из «Нет в матрице» — ТОЛЬКО для показа в самом поле
@@ -583,12 +585,15 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // смысле: с Google-таблицей вообще ещё ни разу не синкались, и показана
   // вшитая демо-матрица вместо реальной.
   const matchingIsStale = !backendMatching
-  const rows = useMemo(() => computeRows(parsed.base, edits, matching, parsed.restaurants), [parsed, edits, matching])
+  const manualMode = !!status?.manualLinks
+  const rows = useMemo(() => computeRows(parsed.base, edits, matching, parsed.restaurants, manualMode), [parsed, edits, matching, manualMode])
   // Поставщик, которого вручную привязали к матрице (edits.supplierLinks), больше не «новый»
   const suppliers = useMemo(() => {
     const linked = new Set(Object.values(edits.supplierLinks).map((l) => l.rawSupplier))
+    // ручной режим: «новый» = нет ручной привязки (автосопоставления больше нет)
+    if (manualMode) return parsed.suppliers.map((s) => ({ ...s, isNew: !linked.has(s.name) }))
     return linked.size === 0 ? parsed.suppliers : parsed.suppliers.map((s) => (s.isNew && linked.has(s.name) ? { ...s, isNew: false } : s))
-  }, [parsed.suppliers, edits.supplierLinks])
+  }, [parsed.suppliers, edits.supplierLinks, manualMode])
 
   // key = "товар::поставщик" (composed by the caller — DataEditor). Ставит
   // значение или удаляет запись, если очистили поле.
@@ -681,6 +686,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       return { ...e, productLinks: next }
     })
   }, [updateEdits])
+
+  const enableManualMode = useCallback(async () => {
+    const ok = await setManualLinks(true)
+    if (ok) await reloadStatus()
+    return ok
+  }, [reloadStatus])
 
   const setSupplierLinks = useCallback((items: { key: string; value: SupplierLink | null }[]) => {
     updateEdits((e) => {
@@ -796,7 +807,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setProductLinks, setSupplierLinks, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setProductLinks, setSupplierLinks, manualMode, enableManualMode, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
     reset, replaceAll, undo, canUndo,
     saveError,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,

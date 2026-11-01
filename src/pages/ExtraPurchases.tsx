@@ -15,7 +15,7 @@ interface Line { fact: ExtraFact; row: Row }
  * это отдельная таблица для решения, что из этого стоит добавлять.
  */
 export default function ExtraPurchases({ period }: { period: string }) {
-  const { edits, matching, restaurants, periodKey } = useEdits()
+  const { edits, matching, restaurants, periodKey, manualMode } = useEdits()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [facts, setFacts] = useState<ExtraFact[] | null>(null)
@@ -47,10 +47,10 @@ export default function ExtraPurchases({ period }: { period: string }) {
       comment: null, isTotalRow: false,
     }))
     const byId = new Map(kept.map((f, i) => ['x' + i, f] as const))
-    return computeRows(base, edits, matching, restaurants)
+    return computeRows(base, edits, matching, restaurants, manualMode)
       .filter((r) => r.status !== 'notPurchased' && byId.has(r.id))
       .map((row) => ({ fact: byId.get(row.id)!, row }))
-  }, [facts, edits, matching, restaurants, periodKey])
+  }, [facts, edits, matching, restaurants, periodKey, manualMode])
 
   const filtered = useMemo(() => {
     const n = q.trim().toLowerCase()

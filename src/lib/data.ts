@@ -39,6 +39,9 @@ export interface MatchingTable {
   // matching-*.json) его не содержат, тогда сортировка по этому полю
   // просто не работает (все поставщики равны между собой), без ошибок.
   supplierOrder?: Record<string, number>
+  // РУЧНОЙ РЕЖИМ (см. withSupplierLinks): сопоставление только по привязкам из программы, без совпадения по тексту и подбора по похожему названию
+  manual?: boolean
+  manualAlias?: Record<string, string>  // только ручные привязки поставщиков: `ресторан::iiko-текст` -> канон
   // same keys as planPairs/planPairsByPack -> true, если у этой строки
   // матрицы пустая колонка E ("Наименования как в iiko") — строку всё
   // равно не пропускаем (см. syncMatrix в server/src/sheets.js, nameBasis),
@@ -179,27 +182,32 @@ function fuzzySupplierMatch(matching: MatchingTable, restaurant: string, rawSupp
 
 export function supplierAliasFor(matching: MatchingTable, restaurant: string, rawSupplier: string): string | null {
   const r = norm(restaurant)
+  if (matching.manual) return matching.manualAlias?.[`${r}::${norm(rawSupplier)}`] ?? null // ручной режим: только привязки из программы
   return matching.supplierAlias[`${r}::${norm(rawSupplier)}`]
     ?? matching.supplierAlias[norm(rawSupplier)]
     ?? fuzzySupplierMatch(matching, r, rawSupplier)
     ?? null
 }
 
-const supplierLinksCache = new WeakMap<MatchingTable, { links: Record<string, SupplierLink>; venueOverrides: Edits['venueOverrides']; out: MatchingTable }>()
+const supplierLinksCache = new WeakMap<MatchingTable, { links: Record<string, SupplierLink>; venueOverrides: Edits['venueOverrides']; manual: boolean; out: MatchingTable }>()
 /**
  * Матрица + ручные привязки поставщиков из программы: те же ключи, что у колонки D (`ресторан::iiko-текст` → канон),
  * поэтому supplierAliasFor/anySupplierAlias и всё сопоставление работают без изменений. Ручная привязка побеждает.
+ * manual (ручной режим) — автоматика выключена полностью: поставщик определяется ТОЛЬКО по привязкам из программы
+ * (matching.manualAlias), товар — только по productLinks (см. resolveRowPlan); матрица даёт названия и цены.
  * Кэш по ссылке на матрицу и на карту привязок, чтобы не пересобирать матрицу на каждый пересчёт.
  */
-export function withSupplierLinks(matching: MatchingTable, edits: Pick<Edits, 'supplierLinks' | 'venueOverrides'>): MatchingTable {
+export function withSupplierLinks(matching: MatchingTable, edits: Pick<Edits, 'supplierLinks' | 'venueOverrides'>, manual = false): MatchingTable {
   const links = edits.supplierLinks ?? {}
-  if (Object.keys(links).length === 0) return matching
+  if (!manual && Object.keys(links).length === 0) return matching
   const hit = supplierLinksCache.get(matching)
-  if (hit && hit.links === links && hit.venueOverrides === edits.venueOverrides) return hit.out
-  const alias = { ...matching.supplierAlias }
-  for (const l of Object.values(links)) alias[`${norm(matchRestaurant(edits, l.restaurant))}::${norm(l.rawSupplier)}`] = l.canon
-  const out = { ...matching, supplierAlias: alias }
-  supplierLinksCache.set(matching, { links, venueOverrides: edits.venueOverrides, out })
+  if (hit && hit.links === links && hit.venueOverrides === edits.venueOverrides && hit.manual === manual) return hit.out
+  const manualAlias: Record<string, string> = {}
+  for (const l of Object.values(links)) manualAlias[`${norm(matchRestaurant(edits, l.restaurant))}::${norm(l.rawSupplier)}`] = l.canon
+  const out: MatchingTable = manual
+    ? { ...matching, manual: true, manualAlias }
+    : { ...matching, supplierAlias: { ...matching.supplierAlias, ...manualAlias } }
+  supplierLinksCache.set(matching, { links, venueOverrides: edits.venueOverrides, manual, out })
   return out
 }
 
@@ -240,6 +248,11 @@ function fuzzySupplierMatchAny(matching: MatchingTable, rawSupplier: string): st
 
 export function anySupplierAlias(matching: MatchingTable, rawSupplier: string): string | null {
   const flat = norm(rawSupplier)
+  if (matching.manual) {
+    const suffix = `::${flat}`
+    for (const k in matching.manualAlias) if (k.endsWith(suffix)) return matching.manualAlias[k]
+    return null
+  }
   if (matching.supplierAlias[flat] != null) return matching.supplierAlias[flat]
   const suffix = `::${flat}`
   for (const k in matching.supplierAlias) if (k.endsWith(suffix)) return matching.supplierAlias[k]
@@ -1057,7 +1070,7 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const productLink = (productLinkKeyByPack && edits.productLinks[productLinkKeyByPack]) ?? edits.productLinks[productLinkKeyFlat]
   // targetProduct === '' — явная ОТВЯЗКА («эту закупку к матрице не привязывать»): прямое совпадение текста
   // тоже не срабатывает, закупка остаётся «Нет в матрице», пока не привяжут заново
-  const product = productLink ? (productLink.targetProduct ? norm(productLink.targetProduct) : DETACHED) : norm(b.product0)
+  const product = productLink ? (productLink.targetProduct ? norm(productLink.targetProduct) : DETACHED) : matching.manual ? DETACHED : norm(b.product0)
 
   // Ручная правка "эта фасовка из iiko на самом деле вот эта фасовка из
   // матрицы" — живых правок больше нет (UI в Справочниках убрали: угадывать
@@ -1344,8 +1357,8 @@ export const isExcludedPair = (supplier: string, product: string) => {
 }
 
 /** Builds display rows by applying edits and resolving plan/status. */
-export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = []): Row[] {
-  const matching = withSupplierLinks(scopedMatching(matchingIn, linkTargets(edits)), edits)
+export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = [], manual = false): Row[] {
+  const matching = withSupplierLinks(scopedMatching(matchingIn, linkTargets(edits)), edits, manual)
   const mr = (restaurant: string) => matchRestaurant(edits, restaurant)
   // Поставщики, которых попросили убрать из "Проверки цен" ЦЕЛИКОМ (не
   // просто статусом "Нет в матрице") — иначе они захламляют сортировку по
