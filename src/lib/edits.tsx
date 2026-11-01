@@ -803,7 +803,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
-    backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus,
+    backendOnline, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,

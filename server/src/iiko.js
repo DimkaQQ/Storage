@@ -3,7 +3,7 @@ import { getSeedPeriods, getSeedPeriod } from './store.js'
 
 const sha1 = (s) => createHash('sha1').update(s).digest('hex')
 
-const withTimeout = async (url, opts = {}, ms = 20000) => {
+const withTimeoutOnce = async (url, opts = {}, ms = 20000) => {
   const ctrl = new AbortController()
   let timedOut = false
   const t = setTimeout(() => { timedOut = true; ctrl.abort() }, ms)
@@ -21,6 +21,19 @@ const withTimeout = async (url, opts = {}, ms = 20000) => {
   } finally {
     clearTimeout(t)
   }
+}
+
+// Разовый «Connect Timeout» до iiko (сеть VPS моргнула) не должен ронять весь синк — до 3 попыток; таймаут самого ответа не повторяем.
+const withTimeout = async (url, opts = {}, ms = 20000) => {
+  let lastErr
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { return await withTimeoutOnce(url, opts, ms) } catch (e) {
+      lastErr = e
+      if (!/CONNECT_TIMEOUT|Connect Timeout|ECONNRESET|EAI_AGAIN/i.test(String(e?.message))) throw e
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
+    }
+  }
+  throw lastErr
 }
 
 const normStoreKey = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()

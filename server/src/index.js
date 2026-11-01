@@ -519,7 +519,7 @@ const MATRIX_SNAPSHOTS = process.env.MATRIX_SNAPSHOTS === '1'
 let matrixSyncQueue = Promise.resolve()
 const inMatrixQueue = (fn) => { const run = matrixSyncQueue.then(fn, fn); matrixSyncQueue = run.catch(() => {}); return run }
 
-app.post('/api/matrix/sync', requireAuth, requireAdmin, (req, res) => inMatrixQueue(async () => {
+async function matrixSyncHandler(req, res) {
   const orgId = req.auth.orgId
   const settings = getSettings(orgId)
   const astana = req.body?.target === 'astana'
@@ -585,7 +585,27 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, (req, res) => inMatrixQu
   } catch (e) {
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
-}))
+}
+
+// Синк таблицы идёт долго (десяток вкладок + сеть до Google), а перед сервером бывает прокси с коротким
+// лимитом — тогда браузер получал не JSON, а страницу ошибки («The string did not match the expected pattern»).
+// Поэтому отвечаем сразу «принято», а результат клиент берёт опросом GET /api/matrix/sync-status.
+const matrixJobs = {}
+app.post('/api/matrix/sync', requireAuth, requireAdmin, (req, res) => {
+  const key = `${req.auth.orgId}:${req.body?.target === 'astana' ? 'astana' : 'almaty'}`
+  if (matrixJobs[key]?.running) return res.status(409).json({ ok: false, message: 'Обновление матрицы уже выполняется' })
+  matrixJobs[key] = { running: true }
+  res.json({ ok: true, started: true })
+  inMatrixQueue(async () => {
+    const out = { code: 200, body: null, status(c) { this.code = c; return this }, json(b) { this.body = b } }
+    try { await matrixSyncHandler(req, out) } catch (e) { out.body = { ok: false, message: String(e?.message || e) } }
+    matrixJobs[key] = { running: false, result: out.body ?? { ok: false, message: 'Нет ответа' } }
+  })
+})
+app.get('/api/matrix/sync-status', requireAuth, (req, res) => {
+  const j = matrixJobs[`${req.auth.orgId}:${req.query.target === 'astana' ? 'astana' : 'almaty'}`]
+  res.json(j ? { running: !!j.running, result: j.result ?? null } : { running: false, result: null })
+})
 
 app.get('/api/matching', requireAuth, (req, res) => {
   // ?period=YYYY-MM — матрица, действующая для этого месяца (см. resolveMatrixFor);

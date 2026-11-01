@@ -264,7 +264,21 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
 export async function syncMatrix(target?: 'almaty' | 'astana', period?: string): Promise<{ ok: boolean; message?: string; rows?: number; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number }> {
   try {
     const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}), ...(period ? { period } : {}) }) })
-    return await r.json()
+    const text = await r.text()
+    let first: any = null
+    try { first = JSON.parse(text) } catch { /* не JSON — ниже сообщим код ответа */ }
+    if (!first) return { ok: false, message: `Сервер ответил не так, как ожидалось (HTTP ${r.status}) — возможно, он перезапускается или прокси оборвал запрос. Попробуйте ещё раз.` }
+    if (!first.started) return first // старый сервер отвечал результатом сразу / ошибка запуска
+    // синк идёт в фоне — результат берём опросом (до ~5 минут)
+    for (let i = 0; i < 150; i++) {
+      await new Promise((res) => setTimeout(res, 2000))
+      try {
+        const sr = await fetch(`/api/matrix/sync-status?target=${target === 'astana' ? 'astana' : 'almaty'}`, { headers: authHeaders() })
+        const st = await sr.json()
+        if (st && !st.running) return st.result ?? { ok: false, message: 'Результат обновления неизвестен' }
+      } catch { /* разовый сбой сети — пробуем дальше */ }
+    }
+    return { ok: false, message: 'Обновление идёт дольше обычного — подождите минуту и нажмите «Обновить» ещё раз.' }
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 /** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. period — матрица, действующая для этого месяца (снимок месяца, иначе ближайший более ранний). */
