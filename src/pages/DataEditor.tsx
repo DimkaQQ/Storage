@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
+import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, ProductLink, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { syncMatrix } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
@@ -59,7 +59,7 @@ function HoverTip({ text, children }: { text: string; children: ReactNode }) {
 export default function DataEditor() {
   const {
     edits, rows, renameSupplier, setVenue,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, pendingProductLinks, stageProductLink, undo, canUndo,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setProductLinks, pendingProductLinks, stageProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching, periodKey, refreshMatrix,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,
   } = useEdits()
@@ -493,6 +493,13 @@ export default function DataEditor() {
     return map
   }, [allKnownRows])
 
+  // Отвязана ли строка вручную: для её собственного названия (совпадавшего по тексту) стоит отвязка — поле пустое
+  const isDetached = (row: MatrixRow) => {
+    const pk = (packCountByTarget.get(`${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}`) ?? 1) > 1 ? row.pack : ''
+    const l = edits.productLinks[`${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}::${pk}`]
+    return !!l && l.targetProduct === ''
+  }
+
   const commitMatrixIikoName = (row: MatrixRow, displayedName: string, nextRaw: string) => {
     const next = nextRaw.trim()
     if (next === displayedName) return
@@ -506,17 +513,52 @@ export default function DataEditor() {
     // под которым она реально лежит, чтобы снять её точно, а не мимо.
     const explicit = resolveExplicitLink(row)
     if (explicit) setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(explicit.rawProduct)}::${explicit.pack}`, null)
+    // Фасовка строки матрицы в ключе привязки нужна, только если у этого
+    // названия в матрице их вообще несколько (ассортимент) — а если она
+    // одна, привязка без фасовки (плоский ключ) сработает для любой закупки
+    // этого названия, независимо от того, как именно iiko у себя записал
+    // фасовку (см. комментарий у packCountByTarget).
+    const groupKey = `${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}`
+    const packMatters = (packCountByTarget.get(groupKey) ?? 1) > 1
+    const linkPack = packMatters ? row.pack : ''
+    // ОТВЯЗКА: программа независима от матрицы — убрали/заменили название, и закупки под СТАРЫМ
+    // названием больше к этой строке не цепляются, даже если оно совпадает с матрицей по тексту.
+    // Отвязка = привязка с пустым targetProduct (см. DETACHED в data.ts). Нужна только для названий,
+    // которые совпадали по тексту (иначе без привязки они и так не совпадут).
+    const oldNames = new Set<string>([...(matchedRawNamesByKey.get(row.key) ?? []), ...(explicit ? [explicit.rawProduct] : []), displayedName])
+    for (const name of oldNames) {
+      if (!name || norm(name) === norm(next) || norm(name) !== row.productSegment) continue
+      setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(name)}::${linkPack}`, { targetProduct: '', supplier: row.supplier, rawProduct: name, pack: linkPack, restaurant: row.restaurant })
+    }
     if (next) {
-      // Фасовка строки матрицы в ключе новой привязки нужна, только если
-      // у этого названия в матрице их вообще несколько (ассортимент) — а
-      // если она одна, привязка без фасовки (плоский ключ) сработает для
-      // любой закупки этого названия, независимо от того, как именно iiko
-      // у себя записал фасовку (см. комментарий у packCountByTarget).
-      const groupKey = `${row.restaurantNorm}::${row.supplierNorm}::${row.productSegment}`
-      const packMatters = (packCountByTarget.get(groupKey) ?? 1) > 1
-      const linkPack = packMatters ? row.pack : ''
       setProductLink(`${row.restaurantNorm}::${row.supplierNorm}::${norm(next)}::${linkPack}`, { targetProduct: row.productSegment, supplier: row.supplier, rawProduct: next, pack: linkPack, restaurant: row.restaurant })
     }
+  }
+
+  // «Зафиксировать связи» — собственная копия связей «название из iiko → строка матрицы»: все закупки,
+  // которые сейчас цепляются к матрице просто совпадением текста, получают явную привязку в самой
+  // программе. Дальше переименование/удаление строки в Google-таблице молча ничего не перепривяжет,
+  // а отвязка в Товарах (очистить поле) держится насовсем. Новые строки матрицы по-прежнему
+  // подхватываются текстом, пока их не зафиксируют.
+  const freezeCandidates = useMemo(() => {
+    const out: { key: string; value: ProductLink }[] = []
+    const seen = new Set<string>()
+    for (const r of allKnownRows) {
+      if (r.unit == null || !r.matchedKey || !r.productRaw || r.status !== 'ok') continue
+      const [restNorm, supNorm, targetProduct] = r.matchedKey.split('::')
+      if (!restNorm || !supNorm || !targetProduct) continue
+      const packKey = r.isPackSensitive && r.pack ? normPack(r.pack) : ''
+      const key = `${norm(matchRestaurant(edits, r.restaurant))}::${supNorm}::${norm(r.productRaw)}::${packKey}`
+      if (edits.productLinks[key] || seen.has(key)) continue
+      seen.add(key)
+      out.push({ key, value: { targetProduct, supplier: supplierDisplayByNorm.get(supNorm) ?? supNorm, rawProduct: r.productRaw, pack: packKey, restaurant: r.restaurant } })
+    }
+    return out
+  }, [allKnownRows, edits, supplierDisplayByNorm])
+  const freezeLinks = () => {
+    if (freezeCandidates.length === 0) return
+    if (!window.confirm(`Зафиксировать ${freezeCandidates.length} связей «название из iiko → строка матрицы» в программе? Это ничего не меняет в Проверке цен сейчас; применится после «Сохранить».`)) return
+    setProductLinks(freezeCandidates)
   }
 
   // «Нет в матрице» — закупки этого периода, для которых ни прямое
@@ -724,6 +766,13 @@ export default function DataEditor() {
             title="Отменить последнее изменение"
             className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
           ><IUndo width={16} height={16} /> Отменить</button>
+          {freezeCandidates.length > 0 && (
+            <button
+              onClick={freezeLinks}
+              title="Сохранить в программе текущие связи с матрицей (по названию), чтобы они не зависели от Google-таблицы"
+              className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750"
+            >Зафиксировать связи ({fmt(freezeCandidates.length)})</button>
+          )}
           <button
             onClick={saveCatalog}
             disabled={!catalogDirty || savingCatalog}
@@ -858,7 +907,8 @@ export default function DataEditor() {
                     // (Map хранит null) от "вообще не трогали" (ключа нет).
                     const hasPending = pendingProductLinks.has(u.key)
                     const pendingLink = pendingProductLinks.get(u.key)
-                    const currentLink = hasPending ? pendingLink : edits.productLinks[u.key]
+                    const storedLink = edits.productLinks[u.key]
+                    const currentLink = hasPending ? pendingLink : (storedLink && storedLink.targetProduct ? storedLink : undefined)  // отвязка (пустой target) — не привязка
                     const currentLabel = currentLink
                       ? (options.find((o) => o.targetProduct === norm(currentLink.targetProduct))?.label ?? currentLink.targetProduct)
                       : ''
@@ -1065,7 +1115,7 @@ export default function DataEditor() {
                     // сопоставление прямо сейчас, даже без единой покупки.
                     const fromMatrixKey = capitalize(row.productSegment)
                     const primary = explicitLink && matchedNames.includes(explicitLink) ? explicitLink
-                      : matchedNames[0] ?? explicitLink ?? (row.noName ? '' : fromMatrixKey)
+                      : matchedNames[0] ?? explicitLink ?? (row.noName || isDetached(row) ? '' : fromMatrixKey)
                     const extra = matchedNames.filter((n) => n !== primary)
                     return (
                       <tr key={row.key} className="row-hover hover:bg-ink-800/40">
@@ -1080,7 +1130,7 @@ export default function DataEditor() {
                             <ProductLabelSuggest
                               value={primary}
                               suggestions={allIikoNameOptions}
-                              placeholder={row.noName ? 'Впишите название из iiko' : undefined}
+                              placeholder={row.noName || isDetached(row) ? 'Впишите название из iiko' : undefined}
                               onCommit={(v) => commitMatrixIikoName(row, primary, v)}
                             />
                             {extra.length > 0 && (

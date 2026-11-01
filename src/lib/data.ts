@@ -434,6 +434,8 @@ export interface PackAlias { targetPack: string; supplier: string; product: stri
  * плоской привязки), только для показа/обратного поиска в Справочниках,
  * на сам лукап (там используется сам ключ, не эти поля) не влияют.
  */
+/** Подстановка вместо названия товара для отвязанной закупки — такого ключа в матрице не бывает. */
+const DETACHED = '\u0001отвязано'
 export interface ProductLink { targetProduct: string; supplier: string; rawProduct: string; pack: string; restaurant: string }
 
 export interface Edits {
@@ -1031,7 +1033,9 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   const productLinkKeyByPack = rawPack ? `${restaurant}::${supplierCanon}::${norm(b.product0)}::${rawPack}` : null
   const productLinkKeyFlat = `${restaurant}::${supplierCanon}::${norm(b.product0)}::`
   const productLink = (productLinkKeyByPack && edits.productLinks[productLinkKeyByPack]) ?? edits.productLinks[productLinkKeyFlat]
-  const product = productLink ? norm(productLink.targetProduct) : norm(b.product0)
+  // targetProduct === '' — явная ОТВЯЗКА («эту закупку к матрице не привязывать»): прямое совпадение текста
+  // тоже не срабатывает, закупка остаётся «Нет в матрице», пока не привяжут заново
+  const product = productLink ? (productLink.targetProduct ? norm(productLink.targetProduct) : DETACHED) : norm(b.product0)
 
   // Ручная правка "эта фасовка из iiko на самом деле вот эта фасовка из
   // матрицы" — живых правок больше нет (UI в Справочниках убрали: угадывать

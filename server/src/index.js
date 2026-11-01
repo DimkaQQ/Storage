@@ -662,6 +662,7 @@ const EDIT_OPS = {
   setProductPackOverride: (orgId, { product, value }) => editsDb.setProductPackOverride(orgId, product, value),
   setPackAlias: (orgId, { key, value }) => editsDb.setPackAlias(orgId, key, value),
   setProductLink: (orgId, { key, value }) => editsDb.setProductLink(orgId, key, value),
+  setProductLinks: (orgId, { items }) => editsDb.setProductLinks(orgId, items),
   setPlanOverride: (orgId, { key, value }) => editsDb.setPlanOverride(orgId, key, value),
   setRowComment: (orgId, { key, value }) => editsDb.setRowComment(orgId, key, value),
   setRowColor: (orgId, { key, value }) => editsDb.setRowColor(orgId, key, value),

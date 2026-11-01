@@ -242,6 +242,12 @@ export function setProductLink(orgId, key, value) {
   `).run(orgId, k, String(v.targetProduct || ''), String(v.supplier || ''), String(v.rawProduct || ''), String(v.pack || ''), String(v.restaurant || ''))
 }
 
+/** items: [{ key, value }] — пачка setProductLink одной транзакцией («Зафиксировать связи» создаёт тысячи привязок разом). */
+export function setProductLinks(orgId, items) {
+  if (!Array.isArray(items)) return
+  tx(() => { for (const it of items) if (it && typeof it === 'object') setProductLink(orgId, it.key, it.value) })
+}
+
 /** value: число — план цена вручную из Справочников; null — снять правку (вернуться к цене из матрицы). Не число (в т.ч. NaN от мусорного ввода) — молча игнорируем, не затираем существующую правку невалидным значением. */
 export function setPlanOverride(orgId, key, value) {
   const k = str(key)

@@ -127,8 +127,10 @@ async function pushCatalogDiff(baseline: CatalogFields, current: CatalogFields):
     results.push(applyEditOp(current.newVenues[k] ? 'addVenue' : 'removeVenue', { name: k }))
   for (const k of diffKeys(baseline.acknowledgedSuppliers, current.acknowledgedSuppliers))
     results.push(applyEditOp(current.acknowledgedSuppliers[k] ? 'acknowledgeSupplier' : 'unacknowledgeSupplier', { rawName: k }))
-  for (const k of diffKeys(baseline.productLinks, current.productLinks))
-    results.push(applyEditOp('setProductLink', { key: k, value: current.productLinks[k] ?? null }))
+  // Привязки — пачками по 500 (после «Зафиксировать связи» их тысячи), а не по запросу на каждую
+  const linkItems = diffKeys(baseline.productLinks, current.productLinks).map((k) => ({ key: k, value: current.productLinks[k] ?? null }))
+  for (let i = 0; i < linkItems.length; i += 500)
+    results.push(applyEditOp('setProductLinks', { items: linkItems.slice(i, i + 500) }))
   const oks = await Promise.all(results)
   return oks.every(Boolean)
 }
@@ -159,9 +161,14 @@ function describeCatalogChanges(baseline: CatalogFields, current: CatalogFields)
     out.push(current.newVenues[k] ? `Добавлена новая точка «${k}»` : `Удалена добавленная точка «${k}»`)
   for (const k of diffKeys(baseline.acknowledgedSuppliers, current.acknowledgedSuppliers))
     out.push(current.acknowledgedSuppliers[k] ? `Компания «${k}»: подтверждена как новый поставщик` : `Компания «${k}»: возвращена в «Нет в справочнике»`)
-  for (const k of diffKeys(baseline.productLinks, current.productLinks)) {
+  const linkKeys = diffKeys(baseline.productLinks, current.productLinks)
+  // Снятия и отвязки показываем всегда поштучно; массовые новые привязки («Зафиксировать связи») — одной строкой
+  const addedKeys = linkKeys.filter((k) => current.productLinks[k]?.targetProduct)
+  const bulk = addedKeys.length > 30
+  if (bulk) out.push(`Привязок товаров добавлено/изменено: ${addedKeys.length} (в т.ч. «Зафиксировать связи»)`)
+  for (const k of bulk ? linkKeys.filter((k) => !current.productLinks[k]?.targetProduct) : linkKeys) {
     const next = current.productLinks[k]
-    out.push(next ? `Товар «${next.rawProduct}» (${next.restaurant}): привязан к «${next.targetProduct}»` : `Товар: привязка снята`)
+    out.push(!next ? `Товар: привязка снята` : !next.targetProduct ? `Товар «${next.rawProduct}» (${next.restaurant}): отвязан от матрицы` : `Товар «${next.rawProduct}» (${next.restaurant}): привязан к «${next.targetProduct}»`)
   }
   return out
 }
@@ -213,6 +220,7 @@ interface Ctx {
   setProductPackOverride: (product: string, value: boolean | null) => void
   setPackAlias: (key: string, value: PackAlias | null) => void
   setProductLink: (key: string, value: ProductLink | null) => void
+  setProductLinks: (items: { key: string; value: ProductLink | null }[]) => void  // пачкой — одним обновлением ("Зафиксировать связи")
   // Черновик привязки из «Нет в матрице» — ТОЛЬКО для показа в самом поле
   // (что реально напечатали/выбрали), ни на rows, ни на computeRows нигде
   // не влияет, пока не нажата «Сохранить» (см. saveCatalog). Раньше
@@ -656,6 +664,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     })
   }, [updateEdits])
 
+  const setProductLinks = useCallback((items: { key: string; value: ProductLink | null }[]) => {
+    updateEdits((e) => {
+      const next = { ...e.productLinks }
+      for (const { key, value } of items) { if (value === null) delete next[key]; else next[key] = value }
+      return { ...e, productLinks: next }
+    })
+  }, [updateEdits])
+
   // Ручная плановая цена (Справочники → Товары → «План») — key в той же
   // ключевой области, что и matching.planPairsByPack/planPairs (см.
   // resolveRowPlan). null — снять правку, вернуться к цене из матрицы.
@@ -752,7 +768,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,
-    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
+    acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setProductLinks, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
     reset, replaceAll, undo, canUndo,
     saveError,
     catalogDirty, catalogChanges, savingCatalog, saveCatalog,
