@@ -109,6 +109,7 @@ function orgPaths(orgId) {
     status: join(dir, 'status.json'),
     venues: join(dir, 'venues.json'),
     matrix: join(dir, 'matrix.json'),
+    catalog: join(dir, 'catalog.json'),
   }
 }
 const orgDatasetPath = (orgId, period) => join(orgDir(orgId), `dataset-${period}.json`)
@@ -274,6 +275,9 @@ export function getMatrix(orgId) {
   return read(orgPaths(orgId).matrix, null)
 }
 export const saveMatrix = (orgId, m) => write(orgPaths(orgId).matrix, m)
+// Каталог названий iiko (слепок колонок D/E/F матрицы) — собственные данные программы, «Сбросить всё» его не трогает
+export const getCatalog = (orgId) => read(orgPaths(orgId).catalog, null)
+export const saveCatalog = (orgId, c) => write(orgPaths(orgId).catalog, c)
 
 // Снимки матрицы по месяцам: цены, зафиксированные «за этот месяц» (кнопка
 // «Загрузить цены на период» в Настройки iiko). Файл назван matrixsnap-*, а не
@@ -398,6 +402,7 @@ export function exportOrgData(orgId) {
     status: getStatus(orgId),
     datasets,
     matrix: getMatrix(orgId),
+    catalog: getCatalog(orgId),
     matrixSnapshots: Object.fromEntries(listMatrixSnapshots(orgId).map((p) => [p, getMatrixSnapshot(orgId, p)])),
   }
 }

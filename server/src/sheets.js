@@ -149,6 +149,35 @@ export async function testConnection({ googleSheetId, googleServiceAccountKey },
 }
 
 /**
+ * Колонки матрицы ищем по ЗАГОЛОВКАМ, а не по буквам: заказчик собирается удалить из таблицы колонки
+ * D/E/F (названия iiko/фасовка) и N…AF — буквы тогда съедут. Шапку ищем в первых строках (у вкладки
+ * «Renee» она на 3-й строке, у остальных на 2-й). Нет заголовка «…поставщика основного» (чужая/старая
+ * раскладка) — прежние фиксированные позиции C..I и данные с 3-й строки.
+ * rows — значения вкладки, начиная с КОЛОНКИ C и СТРОКИ 1. Индексы колонок считаются от C; -1 — колонки нет
+ * (например, E удалена). dataStart — индекс первой строки данных.
+ */
+export function detectColumns(rows) {
+  const norms = (r) => (r || []).map((x) => String(x ?? '').replace(/\s+/g, ' ').trim().toLowerCase())
+  for (let ri = 0; ri < Math.min(rows?.length ?? 0, 8); ri++) {
+    const h = norms(rows[ri])
+    const sup = h.findIndex((x) => x.includes('поставщика основного'))
+    if (sup === -1) continue
+    const find = (pred) => h.findIndex((x, i) => i > sup && pred(x))
+    return {
+      sup,
+      alias: find((x) => x.includes('названия компаний как в iiko')),
+      name: find((x) => x.includes('наименования как в iiko')),
+      pack: find((x) => x.includes('фасовка как в iiko')),
+      price: find((x) => x.replace(/\s+/g, '').startsWith('ценаза1кг')),
+      label: find((x) => x.startsWith('наименование') && !x.includes('iiko') && !x.includes('поставщика')),
+      dataStart: ri + 1,
+      legacy: false,
+    }
+  }
+  return { sup: 0, alias: 1, name: 2, pack: 3, price: 5, label: 6, dataStart: 2, legacy: true }
+}
+
+/**
  * Читает всю матрицу целиком (без привязки к периоду — таблица клиента
  * живая, отражает текущие договорные цены на момент чтения, а не цены "за
  * такой-то месяц") и возвращает объект в формате MatchingTable
@@ -196,7 +225,8 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   // конца реальных данных листа. Фиксированный потолок в 5000 строк рос бы
   // молча: превысила бы таблица его — часть строк матрицы тихо пропала бы
   // из синка без единой ошибки.
-  const ranges = sheets.flatMap((t) => [`'${t.replace(/'/g, "''")}'!C3:I`])
+  // C1:AF — с шапкой: колонки ищем по заголовкам, а не по номерам (см. detectColumns)
+  const ranges = sheets.flatMap((t) => [`'${t.replace(/'/g, "''")}'!C1:AF`])
   const valueRanges = await batchGetValues(token, googleSheetId, ranges)
 
   const supplierAlias = {}
@@ -233,6 +263,8 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   // списком "допишите название в iiko" вместо того, чтобы делать вид,
   // что сопоставление уже надёжное.
   const noIikoName = {}
+  // есть ли в таблице колонка «Наименования как в iiko» (E) хоть на одной вкладке — по ней решаем, снимать ли слепок в каталог или накладывать каталог
+  let hasIikoNames = false
   // norm-имя -> основное название вкладки (только вкладки, где нашлись строки) — список для выбора в Справочниках → Точки.
   const restaurantNames = {}
   // norm-имя -> название вкладки ровно как написано в таблице (у известных вкладок основное название отличается: 'Renee' -> 'Рене') — подпись в выборе вкладки в Справочниках.
@@ -241,12 +273,17 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   sheets.forEach((title, i) => {
     const restaurantDisplay = sheetToRestaurant[title] ?? String(title).replace(/\s+/g, ' ').trim()
     const restaurant = norm(restaurantDisplay)
-    const rows = valueRanges[i]?.values || []
+    const allRows = valueRanges[i]?.values || []
+    const cols = detectColumns(allRows)
+    if (cols.name >= 0) hasIikoNames = true
+    const rows = allRows.slice(cols.dataStart)
     // Свой счётчик на каждую вкладку/ресторан — "первый поставщик этой
     // вкладки" получает 0, следующий новый — 1, и т.д.
     let nextSupplierOrder = 0
     for (const row of rows) {
-      const [supplierCanonRaw, iikoCompanyRaw, iikoNameRaw, packRaw, , priceRaw, labelRaw] = row
+      const at = (idx) => (idx >= 0 ? row[idx] : undefined)
+      const supplierCanonRaw = at(cols.sup), iikoCompanyRaw = at(cols.alias), iikoNameRaw = at(cols.name)
+      const packRaw = at(cols.pack), priceRaw = at(cols.price), labelRaw = at(cols.label)
       // E (iiko-название) иногда пустая, хотя поставщик и их собственное
       // описание (I) заполнены — черновая строка, название под iiko ещё не
       // решили. Раньше такую строку целиком пропускали — она ни разу не
@@ -326,7 +363,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
 
   return {
     matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName, restaurantNames, tabTitles },
-    summary: { conflicts, sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
+    summary: { conflicts, hasIikoNames, sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
 
@@ -377,4 +414,75 @@ export function mergeMatching(a, b, restaurantNames) {
     restaurantNames: replaceScoped(a.restaurantNames ?? {}, b.restaurantNames ?? {}),
     tabTitles: replaceScoped(a.tabTitles ?? {}, b.tabTitles ?? {}),
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Каталог названий iiko («слепок D/E/F»).
+ *
+ * Заказчик удалит из Google-таблицы колонки D/E/F (названия компаний/товаров/фасовка как в iiko).
+ * Поэтому, пока они есть, каждый синк запоминает их в собственном каталоге программы; после удаления
+ * свежая матрица (без E/D/F: ключи строятся из описания I, фасовки нет) накладывается на каталог —
+ * ключи строк возвращаются к «iiko-названию + фасовке», а цены берутся свежие из таблицы.
+ * Строка опознаётся по ресторан + поставщик (C) + описание (I).
+ * ------------------------------------------------------------------ */
+
+const identityOf = (key, label) => {
+  const [restaurant, supplier] = key.split('::')
+  return label ? `${restaurant}::${supplier}::${norm(label)}` : null
+}
+const allKeysOf = (m) => [...new Set([...Object.keys(m.planPairsByPack || {}), ...Object.keys(m.planPairs || {}), ...Object.keys(m.noPriceExact || {})])]
+
+/** Прибавляет к каталогу строки/алиасы свежей матрицы (только пока E/D заполнены); старое не стирает. */
+export function mergeCatalog(prev, m) {
+  const rows = { ...(prev?.rows ?? {}) }
+  // строки без E не затирают уже запомненные «настоящие» с тем же описанием (смешанные/ободранные вкладки)
+  const known = new Set(Object.entries(rows).filter(([, r]) => !r.noName).map(([k, r]) => identityOf(k, r.label)))
+  for (const key of allKeysOf(m)) {
+    if (m.noIikoName?.[key] && known.has(identityOf(key, m.productLabels?.[key]))) continue
+    const label = m.productLabels?.[key] ?? ''
+    const price = m.planPairsByPack?.[key] ?? m.planPairs?.[key] ?? null
+    // price — только чтобы различать строки-двойники с одинаковым описанием; noName — E была пустой (ключ из описания I)
+    rows[key] = { label, price, ...(m.noIikoName?.[key] ? { noName: true } : {}) }
+    // у строки появилось настоящее iiko-название — старый ключ «из описания» (noName) с тем же описанием больше не нужен
+    if (!m.noIikoName?.[key]) {
+      const id = identityOf(key, label)
+      for (const [k, r] of Object.entries(rows)) if (k !== key && r.noName && identityOf(k, r.label) === id) delete rows[k]
+    }
+  }
+  return { savedAt: new Date().toISOString(), rows, supplierAlias: { ...(prev?.supplierAlias ?? {}), ...(m.supplierAlias ?? {}) } }
+}
+
+/** Накладывает каталог на «ободранную» матрицу: возвращает matching с прежними ключами (iiko-название + фасовка). */
+export function applyCatalog(m, catalog) {
+  if (!catalog?.rows) return m
+  // идентичность -> очередь ключей каталога (в порядке сохранения)
+  const queues = new Map()
+  for (const [key, row] of Object.entries(catalog.rows)) {
+    const id = identityOf(key, row.label)
+    if (!id) continue
+    if (!queues.has(id)) queues.set(id, [])
+    queues.get(id).push(key)
+  }
+  const used = new Set()
+  const remap = new Map()
+  const keys = allKeysOf(m)
+  for (const key of keys) if (!m.noIikoName?.[key]) { remap.set(key, key); used.add(key) } // строки со своим E остаются как есть (в т.ч. вернувшиеся после удаления колонок)
+  for (const key of keys) {
+    if (remap.has(key)) continue
+    const id = identityOf(key, m.productLabels?.[key])
+    const price = m.planPairsByPack?.[key] ?? m.planPairs?.[key] ?? null
+    const free = id ? (queues.get(id) ?? []).filter((k) => !used.has(k)) : []
+    // двойники (одно описание у одного поставщика): сперва та же цена, потом по порядку
+    const cand = free.find((k) => (catalog.rows[k].price ?? null) === price) ?? free[0]
+    if (cand) { remap.set(key, cand); used.add(cand) } else remap.set(key, key)
+  }
+  const out = { ...m, planPairs: {}, planPairsByPack: {}, productLabels: {}, noPriceExact: {}, noIikoName: {}, ambiguous: {}, supplierAlias: { ...(catalog.supplierAlias ?? {}), ...(m.supplierAlias ?? {}) } }
+  const hasPack = (k) => k.split('::').length > 3
+  for (const [k, price] of Object.entries(m.planPairsByPack ?? {})) { const nk = remap.get(k); (hasPack(nk) ? out.planPairsByPack : out.planPairs)[nk] = price }
+  for (const [k, price] of Object.entries(m.planPairs ?? {})) { const nk = remap.get(k); (hasPack(nk) ? out.planPairsByPack : out.planPairs)[nk] = price }
+  for (const k of Object.keys(m.noPriceExact ?? {})) out.noPriceExact[remap.get(k)] = true
+  for (const [k, label] of Object.entries(m.productLabels ?? {})) out.productLabels[remap.get(k) ?? k] = label
+  for (const k of Object.keys(m.noIikoName ?? {})) { const nk = remap.get(k) ?? k; if (nk === k || catalog.rows[nk]?.noName) out.noIikoName[nk] = true } // перепривязанные строки больше не «без названия» (кроме тех, у кого и в каталоге E была пустой)
+  for (const [k, v] of Object.entries(m.ambiguous ?? {})) out.ambiguous[remap.get(k) ?? k] = v
+  return out
 }

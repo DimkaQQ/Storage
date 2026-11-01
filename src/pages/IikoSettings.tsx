@@ -63,7 +63,7 @@ export default function IikoSettings() {
   const [snapshots, setSnapshots] = useState<{ period: string; periodLabel: string }[]>([])
   const loadSnapshots = () => { if (!MATRIX_SNAPSHOTS) return; fetchMatrixSnapshots().then((r) => r && setSnapshots(r.periods)) }
   useEffect(() => { if (MATRIX_SNAPSHOTS) loadSnapshots() }, [])
-  const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string; period?: string | null; conflicts?: string[] } | null>(null)
+  const [matrixSyncResult, setMatrixSyncResult] = useState<{ ok: boolean; message?: string; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number } | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [rawExporting, setRawExporting] = useState(false)
@@ -74,7 +74,7 @@ export default function IikoSettings() {
   const [astanaTesting, setAstanaTesting] = useState(false)
   const [astanaTestResult, setAstanaTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [astanaSyncing, setAstanaSyncing] = useState(false)
-  const [astanaSyncResult, setAstanaSyncResult] = useState<{ ok: boolean; message?: string; period?: string | null; conflicts?: string[] } | null>(null)
+  const [astanaSyncResult, setAstanaSyncResult] = useState<{ ok: boolean; message?: string; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number } | null>(null)
   const [columnsLoading, setColumnsLoading] = useState(false)
   const [columnsResult, setColumnsResult] = useState<{ ok: boolean; columns?: unknown; message?: string } | null>(null)
   const [sampleLoading, setSampleLoading] = useState(false)
@@ -842,7 +842,7 @@ export default function IikoSettings() {
           {matrixSyncResult && (
             <span className={`chip ${matrixSyncResult.ok && matrixSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {matrixSyncResult.ok && !matrixSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-              {matrixSyncResult.ok ? (matrixSyncResult.period ? `Цены зафиксированы за ${matrixSyncResult.period}` : 'Матрица обновлена') + (matrixSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${matrixSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : matrixSyncResult.message}
+              {matrixSyncResult.ok ? (matrixSyncResult.period ? `Цены зафиксированы за ${matrixSyncResult.period}` : 'Матрица обновлена') + (matrixSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${matrixSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') + (matrixSyncResult.catalogOverlay ? ` · названия iiko взяты из каталога программы (без названия осталось: ${matrixSyncResult.catalogUnmatched ?? 0})` : matrixSyncResult.catalogRows ? ` · каталог названий iiko: ${matrixSyncResult.catalogRows} строк` : '') : matrixSyncResult.message}
             </span>
           )}
         </div>
@@ -885,7 +885,7 @@ export default function IikoSettings() {
           {astanaSyncResult && (
             <span className={`chip ${astanaSyncResult.ok && astanaSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : astanaSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {astanaSyncResult.ok && !astanaSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-              {astanaSyncResult.ok ? (astanaSyncResult.period ? `Цены зафиксированы за ${astanaSyncResult.period}` : 'Матрица обновлена') + (astanaSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${astanaSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : astanaSyncResult.message}
+              {astanaSyncResult.ok ? (astanaSyncResult.period ? `Цены зафиксированы за ${astanaSyncResult.period}` : 'Матрица обновлена') + (astanaSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${astanaSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') + (astanaSyncResult.catalogOverlay ? ` · названия iiko взяты из каталога программы (без названия осталось: ${astanaSyncResult.catalogUnmatched ?? 0})` : astanaSyncResult.catalogRows ? ` · каталог названий iiko: ${astanaSyncResult.catalogRows} строк` : '') : astanaSyncResult.message}
             </span>
           )}
         </div>

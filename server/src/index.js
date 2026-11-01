@@ -6,11 +6,11 @@ import {
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
-  getMatrix, saveMatrix, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, resolveMatrixFor, exportOrgData, resetOrgData,
+  getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, resolveMatrixFor, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
-import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
+import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
@@ -534,11 +534,24 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, (req, res) => inMatrixQu
     // (свои вкладки — из sheetMap и прошлых синков этого города — не считаются занятыми)
     const own = new Set([...Object.values(sheetMap), ...(prev?.tabsByTarget?.[target] ?? [])].map(normKey))
     const reserved = [...Object.values(otherMap), ...(prev?.tabsByTarget?.[otherTarget] ?? [])].filter((n) => !own.has(normKey(n)))
-    const { matching, summary } = await syncMatrix(
+    let { matching, summary } = await syncMatrix(
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       sheetMap,
       reserved,
     )
+    // Каталог названий iiko: пока колонки D/E/F в таблице есть — запоминаем их; когда их удалят — накладываем каталог.
+    // applyCatalog трогает только строки без iiko-названия, поэтому его безопасно применять всегда (в т.ч. к смешанным вкладкам).
+    const catalog = getCatalog(orgId)
+    if (!summary.hasIikoNames && !catalog) {
+      // Не затираем хорошую матрицу «ободранной»: без каталога синк не делаем вовсе
+      return res.status(409).json({ ok: false, message: 'В таблице нет колонки «Наименования как в iiko» (или нет строк матрицы), а каталога названий в программе ещё нет — синк отменён, прежняя матрица сохранена. Сначала синхронизируйте таблицу, пока колонки D/E/F на месте.' })
+    }
+    if (catalog) {
+      matching = applyCatalog(matching, catalog)
+      if (!summary.hasIikoNames) { summary.catalogOverlay = true; summary.catalogUnmatched = Object.keys(matching.noIikoName ?? {}).length }
+    }
+    if (summary.hasIikoNames) saveCatalog(orgId, mergeCatalog(catalog, matching))
+    summary.catalogRows = Object.keys((getCatalog(orgId) ?? {}).rows ?? {}).length
     if (summary.conflicts.length) console.warn(`[matrix] ${target}: пропущены вкладки с занятым названием: ${summary.conflicts.join(', ')}`)
     // Мёрджим с уже сохранённой матрицей, а не перезаписываем — иначе синк
     // Астаны стирал бы уже синканную Алматы (и наоборот), т.к. обе живут в
