@@ -1375,7 +1375,9 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
   base = base.filter((b) => {
     const canon = norm(supplierAliasFor(matching, mr(b.restaurant), b.supplier0) ?? b.supplier0)
     if (EXCLUDED_SUPPLIERS.has(norm(b.supplier0)) || EXCLUDED_SUPPLIERS.has(canon)) {
-      if (!supplierProductAnywhere.has(`${canon}::${norm(b.product0)}`)) return false
+      // каноническое имя ищем и по другим точкам: у Олово 2 в матрице нет Асипа, а у Tangirs он есть под своим каноном
+      const canonAny = norm(anySupplierAlias(matching, b.supplier0) ?? canon)
+      if (!supplierProductAnywhere.has(`${canon}::${norm(b.product0)}`) && !supplierProductAnywhere.has(`${canonAny}::${norm(b.product0)}`)) return false
     }
     if (EXCLUDED_PRODUCTS.has(norm(b.product0))) return false
     if (isExcludedPair(b.supplier0, b.product0) || isExcludedPair(canon, b.product0)) return false
