@@ -1352,6 +1352,19 @@ const EXCLUDED_PAIRS: [string, string][] = ([
   ['асип', 'фрукты овощи'],
   ['асип', 'фрукты овощи зелень'],
 ] as [string, string][]).map(([s, p]) => [stripQuotes(norm(s)), exclProduct(p)])
+// «Мягкие» пары: прячем закупку, только если матрица её НЕ знает вообще (статус «Нет в матрице»);
+// если позиция прайсована у точки («По матрице») или назначена другому поставщику («Заказ не по матрице») — остаётся. Свежие позиции Azik Trade, которых нет в отчёте клиента
+// (не категория «Овощи…» в iiko, поэтому отсекаем парой). Чеснок сушёный и воду НЕ трогаем — они не свежие.
+const SOFT_EXCLUDED_PAIRS: [string, string][] = ([
+  ['azik trade', 'инжир'],
+  ['azik trade', 'клубника местная'],
+  ['azik trade', 'перец рамиро'],
+  ['azik trade', 'шалфей'],
+] as [string, string][]).map(([s, p]) => [stripQuotes(norm(s)), exclProduct(p)])
+const isSoftExcludedPair = (supplier: string, product: string) => {
+  const sup = stripQuotes(norm(supplier)), prod = exclProduct(product)
+  return SOFT_EXCLUDED_PAIRS.some(([s, p]) => p === prod && sup.includes(s))
+}
 export const isExcludedPair = (supplier: string, product: string) => {
   const sup = stripQuotes(norm(supplier)), prod = exclProduct(product)
   return EXCLUDED_PAIRS.some(([s, p]) => p === prod && sup.includes(s))
@@ -1721,7 +1734,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     }
   }
 
-  return rows
+  return rows.filter((r) => !(r.status === 'nomatrix' && isSoftExcludedPair(r.supplier, r.productRaw)))
 }
 
 /* ---------- reference lists for the editor ---------- */
