@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchOrgDataExport, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -59,6 +59,8 @@ export default function IikoSettings() {
   type SyncRes = { ok: boolean; message?: string; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number }
   const [matrixSyncResult, setMatrixSyncResult] = useState<SyncRes | null>(null)
   // Астана — отдельная таблица, свои test/sync, тот же сервисный аккаунт.
+  const [exporting, setExporting] = useState(false)
+  const [exportResult, setExportResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [astanaTesting, setAstanaTesting] = useState(false)
   const [astanaTestResult, setAstanaTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [astanaSyncing, setAstanaSyncing] = useState(false)
@@ -121,6 +123,25 @@ export default function IikoSettings() {
     setAstanaSyncResult(r)
     if (r.ok) { await refreshMatrix(); loadSnapshots() }
     setAstanaSyncing(false)
+  }
+
+  // Резервная копия всех данных (закупки, матрицы, каталог, привязки) — скачивается файлом на это устройство.
+  // Настройки подключения (пароль iiko, ключ Google) в неё не входят.
+  const downloadBackup = async () => {
+    setExporting(true); setExportResult(null)
+    const r = await fetchOrgDataExport()
+    setExporting(false)
+    if (!r.ok) { setExportResult(r); return }
+    const blob = new Blob([JSON.stringify(r.data)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `proverka-tsen-backup-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+    setExportResult({ ok: true })
   }
 
   if (!backendOnline || !form) {
@@ -365,6 +386,25 @@ export default function IikoSettings() {
       <div className="flex items-center gap-3">
         <button onClick={save} className="btn bg-brand-500 text-white hover:bg-brand-600">Сохранить настройки</button>
         {saved && <span className="chip border-good/30 bg-good/10 text-good"><ICheck width={13} height={13} /> Сохранено</span>}
+      </div>
+
+      {/* резервная копия */}
+      <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
+        <div>
+          <div className="text-sm font-semibold text-fg-50">Резервная копия</div>
+          <div className="text-xs text-fg-500">Все данные программы одним файлом: закупки, матрицы, связи и правки. Пароли и ключи в файл не входят.</div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={downloadBackup} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+            <ISync width={16} height={16} className={exporting ? 'animate-spin' : ''} /> {exporting ? 'Готовлю файл…' : 'Скачать бэкап'}
+          </button>
+          {exportResult && (
+            <span className={`chip ${exportResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {exportResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+              {exportResult.ok ? 'Скачано' : exportResult.message}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   )
