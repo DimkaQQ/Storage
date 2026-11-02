@@ -1354,12 +1354,13 @@ const EXCLUDED_PAIRS: [string, string][] = ([
 ] as [string, string][]).map(([s, p]) => [stripQuotes(norm(s)), exclProduct(p)])
 // «Мягкие» пары: прячем закупку, только если матрица её НЕ знает вообще (статус «Нет в матрице»);
 // если позиция прайсована у точки («По матрице») или назначена другому поставщику («Заказ не по матрице») — остаётся. Свежие позиции Azik Trade, которых нет в отчёте клиента
-// (не категория «Овощи…» в iiko, поэтому отсекаем парой). Чеснок сушёный и воду НЕ трогаем — они не свежие.
+// (не категория «Овощи…» в iiko, поэтому отсекаем парой). Чеснок сушёный не трогаем (не свежий); воду газ. добавили по просьбе.
 const SOFT_EXCLUDED_PAIRS: [string, string][] = ([
   ['azik trade', 'инжир'],
   ['azik trade', 'клубника местная'],
   ['azik trade', 'перец рамиро'],
   ['azik trade', 'шалфей'],
+  ['azik trade', 'вода газ.( алекс/тассай) л.'],
 ] as [string, string][]).map(([s, p]) => [stripQuotes(norm(s)), exclProduct(p)])
 const isSoftExcludedPair = (supplier: string, product: string) => {
   const sup = stripQuotes(norm(supplier)), prod = exclProduct(product)
