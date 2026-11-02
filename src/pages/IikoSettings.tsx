@@ -32,7 +32,7 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants } = useEdits()
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -59,6 +59,8 @@ export default function IikoSettings() {
   type SyncRes = { ok: boolean; message?: string; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number }
   const [matrixSyncResult, setMatrixSyncResult] = useState<SyncRes | null>(null)
   // Астана — отдельная таблица, свои test/sync, тот же сервисный аккаунт.
+  // Название склада так, как его прислал iiko (из загруженных закупок); пока для точки нет — показываем её название
+  const iikoName = (name: string) => restaurants.find((r) => r.name === name)?.stores?.join('; ') || name
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [astanaTesting, setAstanaTesting] = useState(false)
@@ -330,8 +332,8 @@ export default function IikoSettings() {
         <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
         <div className="mt-3 flex flex-wrap gap-2">
           {venues.enabled.map((name) => (
-            <span key={name} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
-              <IStore width={13} height={13} />{name}
+            <span key={name} title={name} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
+              <IStore width={13} height={13} />{iikoName(name)}
               <button
                 disabled={removingVenue === name}
                 onClick={async () => { setRemovingVenue(name); await disableVenueByName(name); setRemovingVenue(null) }}
