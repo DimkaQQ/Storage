@@ -363,7 +363,7 @@ export async function iikoServerExtraFacts(settings, period) {
       if (restaurant === null) continue // закрытый бренд — осознанно вне данных
       const kitchen = resolveStoreRestaurant(store) !== null
       const category = categoryName
-      const catExcluded = EXCLUDED_CATEGORIES.has(norm(category)) && !CATEGORY_EXCLUSION_OVERRIDES.has(norm(product))
+      const catExcluded = EXCLUDED_CATEGORIES.has(norm(category)) && !CATEGORY_EXCLUSION_OVERRIDES.has(norm(product)) && !scopedAllowed(product, restaurant)
       if (kitchen && !catExcluded) continue // уже в Проверке цен
       out.push({
         restaurant, store, category,
@@ -604,13 +604,13 @@ async function iikoServerFacts(settings, period) {
       // ассортиментом, чтобы не попали ни через OLAP, ни через накладные.
       if (assortment.produceNames?.size) {
         const before = facts.length
-        facts = facts.filter((f) => !assortment.produceNames.has(norm(f.product)))
+        facts = facts.filter((f) => !assortment.produceNames.has(norm(f.product)) || scopedAllowed(f.product, f.restaurant))
         stats.excludedProduce = before - facts.length
       }
       if (assortment.facts.length) {
         facts = facts.filter((f) => !assortment.names.has(norm(f.product)))
         const assortmentFacts = assortment.produceNames?.size
-          ? assortment.facts.filter((f) => !assortment.produceNames.has(norm(f.product)))
+          ? assortment.facts.filter((f) => !assortment.produceNames.has(norm(f.product)) || scopedAllowed(f.product, f.restaurant))
           : assortment.facts
         facts.push(...assortmentFacts)
         stats.assortmentFacts = assortmentFacts.length
@@ -842,6 +842,28 @@ const CATEGORY_EXCLUSION_OVERRIDES = new Set([
   // в закупках клиента (его отчёт) их нет, поэтому в Проверку цен они не попадают и с матрицей не сверяются
   // (они остаются видны в «Что добавится, если брать всё» в Настройках iiko).
 ].map(norm))
+
+// Разрешения ПО ТОЧКАМ: эти свежие позиции в отчёте клиента (его Q–U) есть только у перечисленных точек — там они
+// сверяются с матрицей, у остальных точек остаются отсечёнными по категории (в их закупках клиент их не держит).
+const SCOPED_CATEGORY_OVERRIDES = new Map([
+  ['мука для пасты', ['ЦФК']],
+  ['трюфель св.', ['Рене']],
+  ['салат шпинат с/м.', ['Six coffee&wine 2']],
+  ['ягода смородина  св.', ['Ле Дом', 'Олово 2 (Достык)']],
+  ['огурцы бочковые', ['Ле Дом']],
+  ['чиабатта', ['Сирена']],
+  ['бобы пророщеные', ['Six coffee&wine 1']],
+  ['лук сухой жаренный', ['Tangirs', 'Акку']],
+  ['ягоды свежие в асс', ['Six coffee&wine 1', 'Six coffee&wine 2']],
+  ['ягода голубика св.', ['Pasta la vista (Богенбай)', 'Ле Дом', 'Олово 2 (Достык)', 'Сирена']],
+  ['ягода малина св.', ['Ле Дом', 'Сирена']],
+  ['ягода ежевика св.', ['Сирена']],
+  ['ягода клубника св.', ['Ле Дом', 'Олово 2 (Достык)']],
+  ['ягода ежемалина св.', ['Ле Дом']],
+  ['ягода слива', ['Six coffee&wine 2', 'Олово 2 (Достык)']],
+  ['шпажки бамбуковые', ['Ле Дом']],
+].map(([name, rests]) => [norm(name), new Set(rests)]))
+const scopedAllowed = (name, restaurant) => SCOPED_CATEGORY_OVERRIDES.get(norm(name))?.has(restaurant) === true
 
 export async function fetchAssortmentIndex(settings) {
   const { base, token } = await iikoServerAuth(settings)
