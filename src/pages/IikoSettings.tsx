@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchFullExport, IikoSettings as Settings } from '../lib/api'
@@ -61,6 +61,17 @@ export default function IikoSettings() {
   // Астана — отдельная таблица, свои test/sync, тот же сервисный аккаунт.
   // Название склада так, как его прислал iiko (из загруженных закупок); пока для точки нет — показываем её название
   const iikoName = (name: string) => restaurants.find((r) => r.name === name)?.stores?.join('; ') || name
+  // после завершения загрузки индикатор на несколько секунд «вспыхивает» зелёным
+  const [justLoaded, setJustLoaded] = useState(false)
+  const wasSyncing = useRef(false)
+  useEffect(() => {
+    const was = wasSyncing.current
+    wasSyncing.current = syncing
+    if (was && !syncing && status?.lastResult === 'ok') {
+      setJustLoaded(true)
+      setTimeout(() => setJustLoaded(false), 5000)
+    }
+  }, [syncing, status?.lastResult])
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [astanaTesting, setAstanaTesting] = useState(false)
@@ -174,14 +185,10 @@ export default function IikoSettings() {
       <div className="card space-y-5 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className={`grid h-11 w-11 place-items-center rounded-xl ${status?.lastResult === 'error' ? 'bg-bad/10 text-bad' : 'bg-good/10 text-good'}`}><ISync width={20} height={20} /></span>
+            <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand-500/10 text-brand-300"><ISync width={20} height={20} /></span>
             <div>
               <div className="text-sm font-semibold text-fg-50">Данные из iiko</div>
-              <div className="text-xs text-fg-500">
-                Обновлено: <span className="text-fg-300">{ago(status?.lastSync ?? null)}</span>
-                {status?.positions ? <> · {status.positions} позиций</> : null}
-                {status?.lastResult === 'error' && <span className="text-bad"> · ошибка: {status.message}</span>}
-              </div>
+              <div className="text-xs text-fg-500">Закупки по накладным за выбранный месяц</div>
             </div>
           </div>
           <button
@@ -197,6 +204,36 @@ export default function IikoSettings() {
             {syncing ? 'Загружаю…' : 'Загрузить текущий месяц'}
           </button>
         </div>
+
+        {/* индикатор: что и когда загружено */}
+        {(() => {
+          const loaded = status?.loaded?.length ? status.loaded : null
+          const what = loaded
+            ? loaded.map((l) => `${l.periodLabel} — ${l.rows.toLocaleString('ru-RU')} строк`).join(' · ')
+            : status?.positions ? `${status.positions.toLocaleString('ru-RU')} строк` : ''
+          const base = 'flex flex-wrap items-center gap-2 rounded-xl border px-4 py-3 text-sm transition-shadow duration-500'
+          if (syncing) return (
+            <div className={`${base} border-brand-500/40 bg-brand-500/10 text-brand-300`}>
+              <ISync width={16} height={16} className="animate-spin" /> Загружаю данные из iiko… подождите, это может занять до минуты
+            </div>
+          )
+          if (status?.lastResult === 'ok') return (
+            <div className={`${base} border-good/40 bg-good/10 text-good ${justLoaded ? 'ring-2 ring-good/70 shadow-lg shadow-good/20' : ''}`}>
+              <ICheck width={16} height={16} />
+              <span className="font-semibold">Загружено</span>
+              {what && <span className="text-fg-200">· {what}</span>}
+              <span className="text-fg-400">· {ago(status.lastSync ?? null)}</span>
+            </div>
+          )
+          if (status?.lastResult === 'error') return (
+            <div className={`${base} border-bad/40 bg-bad/10 text-bad`}>
+              <IClose width={16} height={16} />
+              <span className="font-semibold">Не загрузилось</span>
+              <span className="text-fg-300">· {status.message}</span>
+            </div>
+          )
+          return <div className={`${base} border-ink-600 bg-ink-800/40 text-fg-400`}>Ещё не загружали — нажмите «Загрузить текущий месяц»</div>
+        })()}
 
         <div className="flex flex-wrap items-center gap-3 border-t border-ink-700/60 pt-4">
           <div className="text-sm text-fg-300">Загрузить за другой месяц</div>

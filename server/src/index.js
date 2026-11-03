@@ -83,6 +83,7 @@ async function runSync(orgId, trigger, explicitPeriod) {
       : [explicitPeriod ? { period: explicitPeriod, periodLabel: periodLabelFor(explicitPeriod) } : resolveLivePeriod(settings)]
     if (!targets.length) throw new Error('Нет ни одного периода для загрузки')
     let positions = 0
+    const loaded = [] // что именно загрузили: период и число строк — для индикатора на странице «Обновление»
     const fetchStatsByPeriod = []
     for (const periodMeta of targets) {
       const facts = await fetchFacts(settings, periodMeta.period)
@@ -105,6 +106,7 @@ async function runSync(orgId, trigger, explicitPeriod) {
       }
       saveDataset(orgId, periodMeta.period, built)
       positions += facts.length
+      loaded.push({ period: periodMeta.period, periodLabel: periodMeta.periodLabel, rows: facts.length })
     }
     if (!positions) throw new Error('Провайдер вернул пустой список закупок')
     // Диагностика по сырому ответу iikoServer прямо в сообщении статуса —
@@ -125,6 +127,7 @@ async function runSync(orgId, trigger, explicitPeriod) {
       source: settings.provider,
       trigger,
       positions,
+      loaded,
       message: `Загружено ${positions} позиций${statsNote}`,
     }
     saveStatus(orgId, status)

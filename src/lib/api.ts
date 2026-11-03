@@ -10,6 +10,7 @@ export interface SyncStatus {
   source: string | null
   message?: string
   positions?: number
+  loaded?: { period: string; periodLabel: string; rows: number }[]  // что загрузили при последнем обновлении
   syncing?: boolean
   schedule?: { autoEnabled: boolean; interval: string }
   manualFreeze?: number  // версия «заморозки» связей (2 — зафиксированы по всем периодам, включая «заказ не по матрице»)
