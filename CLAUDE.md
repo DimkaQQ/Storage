@@ -248,7 +248,7 @@ Google-таблице.
 Помимо VPS приложение можно запустить на ОДНОМ компьютере клиента: сервер сам отдаёт сайт (`STATIC_DIR`, без nginx), другие
 компьютеры и телефоны в той же сети Wi-Fi открывают его по адресу `http://<IP компьютера>:8080`. Сборка архива —
 `./local/build-package.sh` (результат в `local-build/`, в git не попадает): `pricecheck-local-win.zip` (со встроенным Node.js
-для Windows) и `pricecheck-local.zip` (Mac/Linux, нужен Node 22.13+). Запуск — `start.bat` / `start.sh` → `launcher.mjs`
+для Windows) и `pricecheck-local.zip` (Mac/Linux, нужен Node 22.13+). Запуск — `start.bat` (при первом запуске создаёт фоновую задачу Windows `PriceCheck` от SYSTEM на старт компьютера → `run-service.bat` с перезапуском после сбоя) / `start.sh` → `launcher.mjs`
 (создаёт `config.json` с портом и случайным паролем админа, данные — папка `data`). Инструкция для клиента — `local/README.txt`.
 Перенос данных с VPS: `FULL=1 ./backup.sh` (полная копия с паролями!) → содержимое в папку `data` остановленной программы.
 Обновление программы у клиента: заменить `dist` и `server`, не трогая `data` и `config.json`.
