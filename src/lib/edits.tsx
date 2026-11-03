@@ -489,7 +489,9 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     loadEdits()
     loadVenues().then(() => {
       loadPeriods().then((list) => {
-        const initial = (list && list.length ? list[list.length - 1].period : null) ?? periodKey
+        // по умолчанию — последний МЕСЯЦ («YYYY-MM»); отрезки «с … по …» сами периодом по умолчанию не становятся
+        const months = (list ?? []).filter((p) => /^\d{4}-\d{2}$/.test(p.period))
+        const initial = (months.length ? months[months.length - 1].period : list && list.length ? list[list.length - 1].period : null) ?? periodKey
         setPeriodKey(initial)
         loadData(initial)
         if (MATRIX_SNAPSHOTS) loadMatching(initial)

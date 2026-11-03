@@ -1356,6 +1356,9 @@ export async function testConnection(settings) {
  * резолвленный ключ, что уходит в saveDataset), при этом тихо игнорировался.
  */
 function periodRange(period) {
+  // «с даты по дату»: ключ вида 2026-10-01..2026-10-07 (день, неделя, любой отрезок)
+  const range = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(String(period))
+  if (range) return { from: range[1], to: range[2] }
   const [y, m] = period.split('-').map(Number)
   const pad = (n) => String(n).padStart(2, '0')
   const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`

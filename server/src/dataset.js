@@ -21,7 +21,17 @@ export const cityForRestaurant = (name) => (ASTANA_RESTAURANTS.has(name) ? 'Ас
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
 /** period — "YYYY-MM". Для явно указанного прошлого периода (см. /api/sync с period в теле), не только current/prev-month. */
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
 export function periodLabelFor(period) {
+  // отрезок «с даты по дату»: «7 октября 2026», «1–7 октября 2026», «28 октября – 3 ноября 2026»
+  const range = /^(\d{4})-(\d{2})-(\d{2})\.\.(\d{4})-(\d{2})-(\d{2})$/.exec(String(period))
+  if (range) {
+    const [y1, m1, d1, y2, m2, d2] = range.slice(1).map(Number)
+    if (y1 === y2 && m1 === m2 && d1 === d2) return `${d1} ${MONTHS_GEN[m1 - 1]} ${y1}`
+    if (y1 === y2 && m1 === m2) return `${d1}–${d2} ${MONTHS_GEN[m1 - 1]} ${y1}`
+    if (y1 === y2) return `${d1} ${MONTHS_GEN[m1 - 1]} – ${d2} ${MONTHS_GEN[m2 - 1]} ${y1}`
+    return `${d1} ${MONTHS_GEN[m1 - 1]} ${y1} – ${d2} ${MONTHS_GEN[m2 - 1]} ${y2}`
+  }
   const [y, m] = period.split('-').map(Number)
   return `${MONTHS[m - 1]} ${y}`
 }

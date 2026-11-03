@@ -61,7 +61,20 @@ let syncing = {}
 // валидация формы, а единственная защита от выхода пути за пределы папки
 // организации (см. аудит path traversal в /api/data). Один общий регэксп на
 // оба места (/api/data, /api/sync), чтобы они не разъехались при правке.
-const isValidPeriod = (p) => /^\d{4}-\d{2}$/.test(String(p))
+const MONTH_RE = /^\d{4}-\d{2}$/
+const RANGE_RE = /^(\d{4})-(\d{2})-(\d{2})\.\.(\d{4})-(\d{2})-(\d{2})$/
+const isValidPeriod = (p) => {
+  const s = String(p)
+  if (MONTH_RE.test(s)) return true
+  // «с даты по дату» (день, неделя, любой отрезок до ~3 месяцев): 2026-10-01..2026-10-07
+  const m = RANGE_RE.exec(s)
+  if (!m) return false
+  const a = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])), b = new Date(Date.UTC(+m[4], +m[5] - 1, +m[6]))
+  const ok = (d, y, mo, day) => d.getUTCFullYear() === y && d.getUTCMonth() === mo - 1 && d.getUTCDate() === day
+  if (!ok(a, +m[1], +m[2], +m[3]) || !ok(b, +m[4], +m[5], +m[6])) return false
+  const days = (b - a) / 86400000
+  return days >= 0 && days <= 92
+}
 
 /**
  * Pulls facts from the configured provider and rebuilds the dataset for one
@@ -207,10 +220,11 @@ app.get('/api/data', requireAuth, (req, res) => {
   // потенциально к файлам другой организации. /api/sync уже проверяет
   // формат так же — здесь просто не хватало той же проверки.
   if (req.query.period !== undefined && !isValidPeriod(req.query.period)) {
-    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
+    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM или ГГГГ-ММ-ДД..ГГГГ-ММ-ДД' })
   }
   const periods = listDatasetPeriods(req.auth.orgId)
-  const period = req.query.period || periods.at(-1)?.period
+  // по умолчанию — последний МЕСЯЦ (отрезки «с … по …» не должны становиться периодом по умолчанию)
+  const period = req.query.period || (periods.filter((p) => MONTH_RE.test(p.period)).at(-1) ?? periods.at(-1))?.period
   if (!period) return res.json({ restaurants: [] })
   res.json(getDataset(req.auth.orgId, period))
 })
@@ -228,7 +242,7 @@ app.post('/api/manual-links', requireAuth, requireAdmin, (req, res) => {
 app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
   const period = req.body?.period
   if (period !== undefined && !isValidPeriod(period)) {
-    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
+    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM или ГГГГ-ММ-ДД..ГГГГ-ММ-ДД' })
   }
   const orgId = req.auth.orgId
   if (syncing[orgId]) return res.status(409).json({ ok: false, message: 'Обновление уже выполняется' })
@@ -418,7 +432,7 @@ app.get('/api/iiko/product-sample', requireAuth, requireAdmin, async (req, res) 
  */
 app.get('/api/debug/dataset-items', requireAuth, requireAdmin, (req, res) => {
   if (req.query.period !== undefined && !isValidPeriod(req.query.period)) {
-    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM' })
+    return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM или ГГГГ-ММ-ДД..ГГГГ-ММ-ДД' })
   }
   const periods = listDatasetPeriods(req.auth.orgId)
   const period = req.query.period || periods.at(-1)?.period

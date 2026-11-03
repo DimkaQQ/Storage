@@ -45,6 +45,13 @@ export default function IikoSettings() {
   const [historicalResult, setHistoricalResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const historicalMonth = historicalMonthNum ? `${historicalYear}-${String(historicalMonthNum).padStart(2, '0')}` : ''
   const maxHistoricalMonth = historicalYear === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
+  // «за период с … по …» — день, неделя, любой отрезок (до ~3 месяцев)
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const todayIso = iso(nowDate)
+  const [rangeFrom, setRangeFrom] = useState('')
+  const [rangeTo, setRangeTo] = useState('')
+  const rangeOk = !!rangeFrom && !!rangeTo && rangeFrom <= rangeTo
+  const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return iso(d) }
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
@@ -275,12 +282,6 @@ export default function IikoSettings() {
           >
             <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Загружаю…' : 'Загрузить'}
           </button>
-          {historicalResult && (
-            <span className={`chip ${historicalResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
-              {historicalResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-              {historicalResult.ok ? 'Загружено — переключил на этот месяц' : historicalResult.message}
-            </span>
-          )}
         </div>
 
         <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
@@ -297,6 +298,37 @@ export default function IikoSettings() {
             {checkChip(testResult)}
           </div>
         </details>
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-ink-700/60 pt-4">
+          <div className="text-sm text-fg-300">Загрузить за период</div>
+          <label className="flex items-center gap-2 text-xs text-fg-400">с
+            <input type="date" value={rangeFrom} max={todayIso} onChange={(e) => { setRangeFrom(e.target.value); setHistoricalResult(null) }}
+              className="rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-fg-400">по
+            <input type="date" value={rangeTo} max={todayIso} onChange={(e) => { setRangeTo(e.target.value); setHistoricalResult(null) }}
+              className="rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+          </label>
+          <button
+            onClick={async () => { if (!rangeOk) return; setHistoricalResult(null); setHistoricalResult(await syncHistoricalPeriod(`${rangeFrom}..${rangeTo}`)) }}
+            disabled={syncing || !rangeOk}
+            className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60"
+          >
+            <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Загружаю…' : 'Загрузить'}
+          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => { setRangeFrom(daysAgo(1)); setRangeTo(daysAgo(1)); setHistoricalResult(null) }} className="chip border-ink-600 text-fg-400 hover:text-fg-200">Вчера</button>
+            <button onClick={() => { setRangeFrom(daysAgo(7)); setRangeTo(daysAgo(1)); setHistoricalResult(null) }} className="chip border-ink-600 text-fg-400 hover:text-fg-200">Последние 7 дней</button>
+          </div>
+          {rangeFrom && rangeTo && rangeFrom > rangeTo && <span className="chip border-bad/30 bg-bad/10 text-bad">Дата «с» позже даты «по»</span>}
+        </div>
+
+        {historicalResult && (
+            <span className={`chip ${historicalResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {historicalResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+              {historicalResult.ok ? 'Загружено — переключил на этот период' : historicalResult.message}
+            </span>
+          )}
       </div>
 
       {/* матрица (план-цены из Google-таблицы) — только обновление, доступы спрятаны */}
