@@ -21,7 +21,7 @@ stage() { # $1 = папка
 
 echo "→ Пакет для Windows (с Node.js $NODE_VER)…"
 W="$OUT/pricecheck"; stage "$W"
-cp local/start.bat local/open-firewall.bat local/autostart-on.bat local/autostart-off.bat "$W/"
+cp local/start.bat local/open-firewall.bat local/autostart-off.bat "$W/"
 ZIPFILE="$OUT/node-win.zip"
 [ -f "$ZIPFILE" ] || curl -fsSL -o "$ZIPFILE" "https://nodejs.org/dist/v$NODE_VER/node-v$NODE_VER-win-x64.zip"
 python3 -I - "$ZIPFILE" "$W/node" "$NODE_VER" <<'PY'

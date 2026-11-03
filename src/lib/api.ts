@@ -233,11 +233,12 @@ async function errorMessage(r: Response): Promise<string> {
   return `HTTP ${r.status}${r.status === 401 || r.status === 403 ? ' — нет доступа, нужны права админа' : ''}`
 }
 /** Бэкап всех данных организации (кроме настроек подключения) — скачивается как файл, см. IikoSettings.tsx. */
-export async function fetchOrgDataExport(): Promise<{ ok: true; data: unknown } | { ok: false; message: string }> {
+/** Полная копия всей папки данных (restore.tar — с паролями и доступами) — для переноса на другой компьютер и восстановления. */
+export async function fetchFullExport(): Promise<{ ok: true; blob: Blob } | { ok: false; message: string }> {
   try {
-    const r = await fetch('/api/org-data/export', { headers: authHeaders() })
+    const r = await fetch('/api/org-data/full-export', { headers: authHeaders() })
     if (!r.ok) return { ok: false, message: await errorMessage(r) }
-    return { ok: true, data: await r.json() }
+    return { ok: true, blob: await r.blob() }
   } catch (e) { return { ok: false, message: errMsg(e) } }
 }
 /** Безвозвратный сброс всех данных организации (факты/матрицы/правки/включённые точки) — настройки подключения не трогает. */

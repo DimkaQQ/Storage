@@ -407,3 +407,8 @@ export function replaceAllEdits(orgId, e) {
     }
   })
 }
+
+/** Согласованный снимок базы правок в отдельный файл (для переноса на другой компьютер; «живой» файл с WAL копировать нельзя). */
+export function snapshotTo(path) {
+  db.exec(`VACUUM INTO '${String(path).replace(/'/g, "''")}'`)
+}

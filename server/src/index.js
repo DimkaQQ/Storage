@@ -12,6 +12,7 @@ import {
   getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, resolveMatrixFor, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
+import { buildDataTar } from './migration.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
@@ -661,6 +662,17 @@ app.get('/api/org-data/export', requireAuth, requireAdmin, (req, res) => {
     res.json({ ...exportOrgData(req.auth.orgId), edits: editsDb.getEditsForOrg(req.auth.orgId) })
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.stack || e?.message || e) })
+  }
+})
+
+// Полная копия ВСЕЙ папки данных (включая пароли и ключи) — для переноса на другой компьютер / бэкапа с возможностью восстановления.
+app.get('/api/org-data/full-export', requireAuth, requireAdmin, (_req, res) => {
+  try {
+    const tar = buildDataTar()
+    res.set({ 'Content-Type': 'application/x-tar', 'Content-Disposition': 'attachment; filename="restore.tar"', 'Content-Length': String(tar.length) })
+    res.send(tar)
+  } catch (e) {
+    res.status(500).json({ ok: false, message: String(e?.message || e) })
   }
 })
 

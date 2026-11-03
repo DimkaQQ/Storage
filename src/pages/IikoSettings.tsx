@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchOrgDataExport, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchFullExport, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -127,18 +127,17 @@ export default function IikoSettings() {
     setAstanaSyncing(false)
   }
 
-  // Резервная копия всех данных (закупки, матрицы, каталог, привязки) — скачивается файлом на это устройство.
-  // Настройки подключения (пароль iiko, ключ Google) в неё не входят.
+  // Резервная копия: ВСЁ, что есть в программе (закупки, матрицы, связи, пользователи, доступы к iiko и Google), одним файлом
+  // restore.tar. Его кладут рядом с установленной программой — она сама разворачивает данные при первом запуске.
   const downloadBackup = async () => {
     setExporting(true); setExportResult(null)
-    const r = await fetchOrgDataExport()
+    const r = await fetchFullExport()
     setExporting(false)
     if (!r.ok) { setExportResult(r); return }
-    const blob = new Blob([JSON.stringify(r.data)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
+    const url = URL.createObjectURL(r.blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `proverka-tsen-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = 'restore.tar'
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -394,7 +393,7 @@ export default function IikoSettings() {
       <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
         <div>
           <div className="text-sm font-semibold text-fg-50">Резервная копия</div>
-          <div className="text-xs text-fg-500">Все данные программы одним файлом: закупки, матрицы, связи и правки. Пароли и ключи в файл не входят.</div>
+          <div className="text-xs text-fg-500">Всё, что есть в программе, одним файлом restore.tar: закупки, матрицы, связи, пользователи и доступы. В файле пароли и ключи — не отправляйте его посторонним.</div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button onClick={downloadBackup} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
