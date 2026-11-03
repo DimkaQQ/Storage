@@ -1,4 +1,7 @@
 import express from 'express'
+import { existsSync } from 'node:fs'
+import { join as joinPath } from 'node:path'
+import { networkInterfaces } from 'node:os'
 import cron from 'node-cron'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
@@ -737,6 +740,21 @@ app.post('/api/edits/op', requireAuth, (req, res) => {
   }
 })
 
+/* ---------- локальный режим: сервер сам отдаёт сайт (без nginx) ---------- */
+// STATIC_DIR — папка с собранным фронтендом (dist). Задан в «локальной установке» на одном компьютере:
+// тогда сайт и API работают с одного адреса/порта, и открыть его можно с любого компьютера в той же сети.
+const STATIC_DIR = process.env.STATIC_DIR
+if (STATIC_DIR && existsSync(joinPath(STATIC_DIR, 'index.html'))) {
+  app.use(express.static(STATIC_DIR, {
+    setHeaders: (res, filePath) => {
+      if (filePath.includes('/assets/') || filePath.includes('\\assets\\')) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      else res.setHeader('Cache-Control', 'no-cache, must-revalidate')
+    },
+  }))
+  // любая не-API страница — index.html (SPA)
+  app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(joinPath(STATIC_DIR, 'index.html')))
+}
+
 /* ---------- scheduler (one cron task per org) ---------- */
 
 const CRON = { hourly: '0 * * * *', daily: '0 3 * * *', weekly: '0 3 * * 1', monthly: '0 3 1 * *' }
@@ -760,4 +778,9 @@ const PORT = process.env.PORT || 8090
 app.listen(PORT, () => {
   for (const org of listOrgs()) armSchedule(org.id)
   console.log(`pricecheck-api on :${PORT} (${listOrgs().length} орг., мультитенант)`)
+  if (STATIC_DIR) {
+    const ips = Object.values(networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address)
+    console.log(`Откройте в браузере: http://localhost:${PORT}`)
+    for (const ip of ips) console.log(`Для других компьютеров в этой сети:  http://${ip}:${PORT}`)
+  }
 })

@@ -6,3 +6,4 @@ dist-ssr
 .vite
 server/data
 server/node_modules
+local-build

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Резервная копия ВСЕХ данных приложения (закупки, матрицы, каталог названий, связи/правки).
 # Запускать на VPS из папки проекта:   ./backup.sh
-# Секреты (пароль iiko, ключ Google, пароли пользователей) в копию НЕ попадают — их нет в архиве.
+# Секреты (пароль iiko, ключ Google, пароли пользователей, ключ подписи входа) в копию НЕ попадают — их нет в архиве.
+#
+# Перенос на компьютер клиента («локальная установка», папка local/): нужна ПОЛНАЯ копия, вместе с пользователями
+# и настройками подключения — запускайте  FULL=1 ./backup.sh  (в архиве будут пароли! Не отправляйте его посторонним).
+# Содержимое архива (папку data) положите в папку data установленной программы, пока она остановлена.
 #
 # По умолчанию копия кладётся локально в ~/pricecheck-backups. Чтобы ещё и отправить её на GitHub,
 # создайте ОТДЕЛЬНЫЙ ПРИВАТНЫЙ репозиторий (данные нельзя класть в репозиторий с кодом) и запустите:
@@ -25,11 +29,17 @@ echo "→ Копирую данные из контейнера…"
 docker cp pricecheck-api:/app/data "$TMP/data"
 # в копии — свежий снимок базы, а не «живой» файл; секреты убираем
 mv "$TMP/data/edits.backup.db" "$TMP/data/edits.db"
-rm -f "$TMP/data/edits.db-wal" "$TMP/data/edits.db-shm" "$TMP/data/users.json"
-find "$TMP/data" -name 'settings.json' -delete
+rm -f "$TMP/data/edits.db-wal" "$TMP/data/edits.db-shm" "$TMP/data/jwt-secret.txt"
+if [ "${FULL:-}" != "1" ]; then
+  rm -f "$TMP/data/users.json"
+  find "$TMP/data" -name 'settings.json' -delete
+else
+  echo "⚠ ПОЛНАЯ копия: в архиве пароли и ключи — храните и передавайте только владельцу."
+fi
 docker exec pricecheck-api rm -f /app/data/edits.backup.db
 
-FILE="$OUT/pricecheck-backup-$STAMP.tar.gz"
+SUFFIX=""; [ "${FULL:-}" = "1" ] && SUFFIX="-FULL"
+FILE="$OUT/pricecheck-backup$SUFFIX-$STAMP.tar.gz"
 tar -czf "$FILE" -C "$TMP" data
 echo "✓ Готово: $FILE ($(du -h "$FILE" | cut -f1))"
 
