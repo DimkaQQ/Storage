@@ -542,26 +542,6 @@ export default function DataEditor() {
     }
   }
 
-  // «Зафиксировать связи» — собственная копия связей «название из iiko → строка матрицы»: все закупки,
-  // которые сейчас цепляются к матрице просто совпадением текста, получают явную привязку в самой
-  // программе. Дальше переименование/удаление строки в Google-таблице молча ничего не перепривяжет,
-  // а отвязка в Товарах (очистить поле) держится насовсем. Новые строки матрицы по-прежнему
-  // подхватываются текстом, пока их не зафиксируют.
-  const freezeCandidates = useMemo(() => {
-    const out: { key: string; value: ProductLink }[] = []
-    const seen = new Set<string>()
-    for (const r of allKnownRows) {
-      if (!r.matchedKey || !r.productRaw || r.status !== 'ok') continue
-      const [restNorm, supNorm, targetProduct] = r.matchedKey.split('::')
-      if (!restNorm || !supNorm || !targetProduct) continue
-      const packKey = r.isPackSensitive && r.pack ? normPack(r.pack) : ''
-      const key = `${norm(matchRestaurant(edits, r.restaurant))}::${supNorm}::${norm(r.productRaw)}::${packKey}`
-      if (edits.productLinks[key] || seen.has(key)) continue
-      seen.add(key)
-      out.push({ key, value: { targetProduct, supplier: supplierDisplayByNorm.get(supNorm) ?? supNorm, rawProduct: r.productRaw, pack: packKey, restaurant: r.restaurant } })
-    }
-    return out
-  }, [allKnownRows, edits, supplierDisplayByNorm])
   // «Перейти на ручной режим»: фиксируем текущие привязки товаров И поставщиков (то, что сейчас сопоставляется
   // автоматически — по тексту, алиасам таблицы или похожему названию), сохраняем и выключаем автоматику.
   const [switching, setSwitching] = useState(false)
@@ -642,12 +622,6 @@ export default function DataEditor() {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [switching])
-
-  const freezeLinks = () => {
-    if (freezeCandidates.length === 0) return
-    if (!window.confirm(`Зафиксировать ${freezeCandidates.length} связей «название из iiko → строка матрицы» в программе? Это ничего не меняет в Проверке цен сейчас; применится после «Сохранить».`)) return
-    setProductLinks(freezeCandidates)
-  }
 
   // «Нет в матрице» — закупки этого периода, для которых ни прямое
   // совпадение текста, ни привязка не нашли ни строки в матрице вообще
@@ -882,13 +856,6 @@ export default function DataEditor() {
             title="Отменить последнее изменение"
             className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
           ><IUndo width={16} height={16} /> Отменить</button>
-          {freezeCandidates.length > 0 && (
-            <button
-              onClick={freezeLinks}
-              title="Сохранить в программе текущие связи с матрицей (по названию), чтобы они не зависели от Google-таблицы"
-              className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750"
-            >Зафиксировать связи ({fmt(freezeCandidates.length)})</button>
-          )}
           <button
             onClick={saveCatalog}
             disabled={!catalogDirty || savingCatalog}
