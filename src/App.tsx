@@ -20,7 +20,7 @@ declare const __BUILD_TIME__: string
 type PageId = 'dashboard' | 'pricecheck' | 'data' | 'iiko' | 'users'
 
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string; adminOnly?: boolean }[] = [
-  { id: 'dashboard', label: 'Обзор', icon: IGauge, hint: 'Ключевые показатели' },
+  { id: 'dashboard', label: 'Анализ потерь', icon: IGauge, hint: 'Ключевые показатели' },
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
   { id: 'data', label: 'Справочники', icon: IDatabase, hint: 'Компании, товары, точки' },
   { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko', adminOnly: true },
