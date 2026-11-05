@@ -27,7 +27,7 @@ export default function LoginPage() {
             <ISpark className="text-white" />
           </div>
           <div>
-            <div className="text-lg font-bold text-fg-50">Проверка цен</div>
+            <div className="text-lg font-bold text-fg-50">HoReCa Закупки.kz</div>
             <div className="text-xs text-fg-500">Мониторинг закупок</div>
           </div>
         </div>

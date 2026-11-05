@@ -117,7 +117,7 @@ export default function App() {
               <ISpark className="text-white" />
             </div>
             <div>
-              <div className="text-[15px] font-bold leading-tight text-fg-50">Проверка цен</div>
+              <div className="text-[15px] font-bold leading-tight text-fg-50">HoReCa Закупки.kz</div>
               <div className="text-[11px] text-fg-500">Мониторинг закупок</div>
             </div>
           </div>
@@ -230,7 +230,7 @@ export default function App() {
             ))}
 
             <footer className="px-0 pb-2 pt-6 text-center text-[11px] text-fg-600">
-              Проверка закупочных цен · план (матрица) против факта (iiko) · {period} · сборка {__BUILD_TIME__} UTC
+              HoReCa Закупки.kz · план (матрица) против факта (iiko) · {period} · сборка {__BUILD_TIME__} UTC
             </footer>
           </main>
         </div>
@@ -244,7 +244,7 @@ export default function App() {
           </div>
           <h2 className="text-base font-semibold text-fg-50">Только для десктопа</h2>
           <p className="mt-2 text-sm text-fg-400">
-            Дашборд «Проверка цен» рассчитан на большой экран. Откройте приложение на компьютере
+            Дашборд «HoReCa Закупки.kz» рассчитан на большой экран. Откройте приложение на компьютере
             с шириной окна не менее 1100&nbsp;px.
           </p>
         </div>
