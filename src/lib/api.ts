@@ -235,9 +235,9 @@ async function errorMessage(r: Response): Promise<string> {
 }
 /** Бэкап всех данных организации (кроме настроек подключения) — скачивается как файл, см. IikoSettings.tsx. */
 /** Полная копия всей папки данных (restore.tar — с паролями и доступами) — для переноса на другой компьютер и восстановления. */
-export async function fetchFullExport(): Promise<{ ok: true; blob: Blob } | { ok: false; message: string }> {
+export async function fetchFullExport(withSecrets = true): Promise<{ ok: true; blob: Blob } | { ok: false; message: string }> {
   try {
-    const r = await fetch('/api/org-data/full-export', { headers: authHeaders() })
+    const r = await fetch(withSecrets ? '/api/org-data/full-export' : '/api/org-data/full-export?secrets=0', { headers: authHeaders() })
     if (!r.ok) return { ok: false, message: await errorMessage(r) }
     return { ok: true, blob: await r.blob() }
   } catch (e) { return { ok: false, message: errMsg(e) } }

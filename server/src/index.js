@@ -683,10 +683,11 @@ app.get('/api/org-data/export', requireAuth, requireAdmin, (req, res) => {
 })
 
 // Полная копия ВСЕЙ папки данных (включая пароли и ключи) — для переноса на другой компьютер / бэкапа с возможностью восстановления.
-app.get('/api/org-data/full-export', requireAuth, requireAdmin, (_req, res) => {
+app.get('/api/org-data/full-export', requireAuth, requireAdmin, (req, res) => {
   try {
-    const tar = buildDataTar()
-    res.set({ 'Content-Type': 'application/x-tar', 'Content-Disposition': 'attachment; filename="restore.tar"', 'Content-Length': String(tar.length) })
+    const withSecrets = req.query.secrets !== '0' // ?secrets=0 — копия без паролей и пользователей (можно отправлять разработчику)
+    const tar = buildDataTar(withSecrets)
+    res.set({ 'Content-Type': 'application/x-tar', 'Content-Disposition': `attachment; filename="${withSecrets ? 'restore.tar' : 'data-no-passwords.tar'}"`, 'Content-Length': String(tar.length) })
     res.send(tar)
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.message || e) })

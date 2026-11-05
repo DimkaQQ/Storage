@@ -147,15 +147,15 @@ export default function IikoSettings() {
 
   // Резервная копия: ВСЁ, что есть в программе (закупки, матрицы, связи, пользователи, доступы к iiko и Google), одним файлом
   // restore.tar. Его кладут рядом с установленной программой — она сама разворачивает данные при первом запуске.
-  const downloadBackup = async () => {
+  const downloadBackup = async (withSecrets = true) => {
     setExporting(true); setExportResult(null)
-    const r = await fetchFullExport()
+    const r = await fetchFullExport(withSecrets)
     setExporting(false)
     if (!r.ok) { setExportResult(r); return }
     const url = URL.createObjectURL(r.blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'restore.tar'
+    a.download = withSecrets ? 'restore.tar' : 'data-no-passwords.tar'
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -465,8 +465,11 @@ export default function IikoSettings() {
           <div className="text-xs text-fg-500">Всё, что есть в программе, одним файлом restore.tar: закупки, матрицы, связи, пользователи и доступы. В файле пароли и ключи — не отправляйте его посторонним.</div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={downloadBackup} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+          <button onClick={() => downloadBackup(true)} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
             <ISync width={16} height={16} className={exporting ? 'animate-spin' : ''} /> {exporting ? 'Готовлю файл…' : 'Скачать бэкап'}
+          </button>
+          <button onClick={() => downloadBackup(false)} disabled={exporting} title="Те же данные, но без паролей, ключей и пользователей — такой файл можно отправлять разработчику" className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+            Скачать копию без паролей
           </button>
           {exportResult && (
             <span className={`chip ${exportResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>

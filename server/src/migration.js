@@ -37,26 +37,42 @@ function header(name, size, mtime) {
   return b
 }
 
-function walk(dir, base, out) {
+// из settings.json убираем только секреты (пароль/логин iiko, ключ Google); остальное (флаги, расписание) оставляем —
+// иначе копия вела бы себя иначе, чем оригинал (например, без ручного режима)
+const SECRET_FIELDS = ['password', 'login', 'apiLogin', 'googleServiceAccountKey']
+function sanitizeSettings(buf) {
+  try {
+    const o = JSON.parse(buf.toString('utf8'))
+    for (const f of SECRET_FIELDS) if (f in o) o[f] = ''
+    return Buffer.from(JSON.stringify(o, null, 2))
+  } catch { return Buffer.from('{}') }
+}
+
+function walk(dir, base, out, withSecrets) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name)
     const rel = base ? `${base}/${name}` : name
     const st = statSync(full)
-    if (st.isDirectory()) walk(full, rel, out)
-    else if (!SKIP.has(rel)) out.push({ rel, full, mtime: st.mtimeMs })
+    if (st.isDirectory()) walk(full, rel, out, withSecrets)
+    else if (SKIP.has(rel)) continue
+    else if (!withSecrets && name === 'users.json') continue // пользователи и хэши паролей
+    else if (!withSecrets && name === 'settings.json') out.push({ rel, full, mtime: st.mtimeMs, sanitize: true }) // настройки — без секретов
+    else out.push({ rel, full, mtime: st.mtimeMs })
   }
 }
 
-export function buildDataTar() {
+// withSecrets=false — копия «для разработчика»: без настроек подключения (пароль iiko, ключ Google) и без пользователей
+export function buildDataTar(withSecrets = true) {
   const files = []
-  walk(DATA_DIR, '', files)
+  walk(DATA_DIR, '', files, withSecrets)
   const tmp = join(tmpdir(), `pricecheck-edits-${randomBytes(6).toString('hex')}.db`)
   snapshotTo(tmp)
   files.push({ rel: 'edits.db', full: tmp, mtime: Date.now() })
   const parts = []
   try {
     for (const f of files) {
-      const data = readFileSync(f.full)
+      let data = readFileSync(f.full)
+      if (f.sanitize) data = sanitizeSettings(data)
       parts.push(header(f.rel, data.length, f.mtime), data)
       const pad = (512 - (data.length % 512)) % 512
       if (pad) parts.push(Buffer.alloc(pad))
