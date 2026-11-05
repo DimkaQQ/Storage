@@ -601,6 +601,24 @@ export default function DataEditor() {
         prodItems.push({ key, value: { targetProduct: target, supplier: supplierDisplayByNorm.get(supNorm) ?? supNorm, rawProduct: r.productRaw, pack: packKey, restaurant: r.restaurant } })
       }
     }
+    // Строки матрицы с названием из колонки E, которых ещё ни разу не закупали (привязка «из закупки» их не создаёт):
+    // тоже фиксируем — иначе «кому назначен товар» (Заказ не по матрице) потеряет таких поставщиков.
+    const haveTriple = new Set<string>()
+    for (const k of [...Object.keys(edits.productLinks), ...prodItems.map((i) => i.key)]) {
+      const l = edits.productLinks[k] ?? prodItems.find((i) => i.key === k)?.value
+      if (l?.targetProduct) haveTriple.add(k.split('::').slice(0, 2).join('::') + '::' + norm(l.targetProduct))
+    }
+    const names = matchingBase.restaurantNames ?? {}
+    const matrixKeys = new Set([...Object.keys(matchingBase.planPairs), ...Object.keys(matchingBase.planPairsByPack), ...Object.keys(matchingBase.noPriceExact)])
+    for (const k of matrixKeys) {
+      if (matchingBase.noIikoName?.[k]) continue
+      const [restN, supN, prodN] = k.split('::')
+      if (!restN || !supN || !prodN || !names[restN]) continue
+      const triple = `${restN}::${supN}::${prodN}`
+      if (haveTriple.has(triple)) continue
+      haveTriple.add(triple)
+      prodItems.push({ key: `${triple}::`, value: { targetProduct: prodN, supplier: supplierDisplayByNorm.get(supN) ?? supN, rawProduct: prodN.charAt(0).toUpperCase() + prodN.slice(1), pack: '', restaurant: names[restN] } })
+    }
     if (prodItems.length) setProductLinks(prodItems)
     if (supItems.length) setSupplierLinks(supItems)
     setSwitching(true)
@@ -609,7 +627,7 @@ export default function DataEditor() {
   // и включаем флаг. Дальше кнопок нет, всё вручную.
   const autoTried = useRef(false)
   useEffect(() => {
-    if (autoTried.current || !statusLoaded || authUser?.role !== 'admin' || (status?.manualFreeze ?? 0) >= 2 || switching) return
+    if (autoTried.current || !statusLoaded || authUser?.role !== 'admin' || (status?.manualFreeze ?? 0) >= 3 || switching) return
     autoTried.current = true
     goManual().catch((e) => console.warn('Заморозка связей не удалась', e))
     // eslint-disable-next-line react-hooks/exhaustive-deps

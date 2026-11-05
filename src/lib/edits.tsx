@@ -690,7 +690,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   }, [updateEdits])
 
   const enableManualMode = useCallback(async () => {
-    const ok = await setManualLinks(true, 2)
+    const ok = await setManualLinks(true, 3)
     if (ok) await reloadStatus()
     return ok
   }, [reloadStatus])

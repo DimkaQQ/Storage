@@ -13,7 +13,7 @@ export interface SyncStatus {
   loaded?: { period: string; periodLabel: string; rows: number }[]  // что загрузили при последнем обновлении
   syncing?: boolean
   schedule?: { autoEnabled: boolean; interval: string }
-  manualFreeze?: number  // версия «заморозки» связей (2 — зафиксированы по всем периодам, включая «заказ не по матрице»)
+  manualFreeze?: number  // версия «заморозки» связей (3 — плюс все строки матрицы с названием из E; 2 — зафиксированы по всем периодам, включая «заказ не по матрице»)
   manualLinks?: boolean  // ручной режим сопоставления включён (автоматика выключена)
 }
 

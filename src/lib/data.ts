@@ -592,11 +592,29 @@ interface DesignatedIndex {
 // он неизменяемый (bundledMatching() всегда возвращает тот же объект для
 // того же периода), так что кэш безопасен и не устаревает молча.
 const designatedIndexCache = new WeakMap<MatchingTable, DesignatedIndex>()
+// Ручной режим: «кто назначен на товар» считаем ТОЛЬКО по привязкам из Справочников (а не по тексту колонки E матрицы) —
+// строка поставщика без привязки в Справочниках не считается назначенной. Кэши — по ссылке на productLinks / набор пар.
+const linkedPairsCache = new WeakMap<object, Set<string>>()
+const designatedLinkedCache = new WeakMap<MatchingTable, WeakMap<Set<string>, DesignatedIndex>>()
+function linkedPairsOf(links: Record<string, ProductLink>): Set<string> {
+  const hit = linkedPairsCache.get(links)
+  if (hit) return hit
+  const out = new Set<string>()
+  for (const [key, l] of Object.entries(links)) {
+    if (!l.targetProduct) continue // пустая цель — отвязка
+    const [restaurant, supplier] = key.split('::')
+    out.add(`${restaurant}::${supplier}::${norm(l.targetProduct)}`)
+  }
+  linkedPairsCache.set(links, out)
+  return out
+}
 const knownFlatIndexCache = new WeakMap<MatchingTable, Set<string>>()
 
-function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
-  const cached = designatedIndexCache.get(matching)
+function buildDesignatedIndex(matching: MatchingTable, linked?: Set<string>): DesignatedIndex {
+  const cached = linked ? designatedLinkedCache.get(matching)?.get(linked) : designatedIndexCache.get(matching)
   if (cached) return cached
+  // linked задан — в индекс попадают только строки матрицы, к которым есть привязка из Справочников
+  const isLinked = (restaurant: string, supplier: string, product: string) => !linked || linked.has(`${restaurant}::${supplier}::${product}`)
   const byPack = new Map<string, Set<string>>()
   const byProduct = new Map<string, Set<string>>()
   const byProductFlatOnly = new Map<string, Set<string>>()
@@ -609,11 +627,13 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
   }
   for (const key of Object.keys(matching.planPairs)) {
     const [restaurant, supplier, product] = key.split('::')
+    if (!isLinked(restaurant, supplier, product)) continue
     add(byProduct, `${restaurant}::${product}`, supplier)
     add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
   }
   for (const key of Object.keys(matching.planPairsByPack)) {
     const [restaurant, supplier, product, pack] = key.split('::')
+    if (!isLinked(restaurant, supplier, product)) continue
     add(byProduct, `${restaurant}::${product}`, supplier)
     add(byPack, `${restaurant}::${product}::${pack}`, supplier)
     add(bySupplierProduct, `${restaurant}::${supplier}::${product}`, pack)
@@ -627,6 +647,7 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
   for (const key of Object.keys(matching.noPriceExact)) {
     const parts = key.split('::')
     const [restaurant, supplier, product, pack] = parts
+    if (!isLinked(restaurant, supplier, product)) continue
     add(byProduct, `${restaurant}::${product}`, supplier)
     if (parts.length === 4) {
       add(byPack, `${restaurant}::${product}::${pack}`, supplier)
@@ -634,7 +655,10 @@ function buildDesignatedIndex(matching: MatchingTable): DesignatedIndex {
     } else add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
   }
   const result = { byPack, byProduct, byProductFlatOnly, bySupplierProduct, bySupplierProductNoPrice }
-  designatedIndexCache.set(matching, result)
+  if (linked) {
+    const m = designatedLinkedCache.get(matching) ?? new WeakMap<Set<string>, DesignatedIndex>()
+    m.set(linked, result); designatedLinkedCache.set(matching, m)
+  } else designatedIndexCache.set(matching, result)
   return result
 }
 
@@ -1448,7 +1472,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     if (isExcludedPair(b.supplier0, b.product0) || isExcludedPair(canon, b.product0)) return false
     return true
   })
-  const designatedIndex = buildDesignatedIndex(matching)
+  const designatedIndex = buildDesignatedIndex(matching, matching.manual ? linkedPairsOf(edits.productLinks) : undefined)
   const knownFlatPairs = buildKnownFlatIndex(matching)
   const consumed = new Set<string>()
   // Пары "ресторан::поставщик::товар" (без фасовки), у которых в этом
