@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
+import { mergeMatching, norm as sheetNorm } from './sheets.js'
 import { isValidPeriod, periodBounds } from './period.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -299,37 +300,87 @@ export function deleteMatrixSnapshot(orgId, period) {
   unlinkSync(f)
   return true
 }
+
+// Снимки цен ОДНОГО ресторана (вкладки таблицы): matrixtab-<хэш вкладки>-<период>.json = { tab, period, savedAt, slice }.
+// Имя вкладки в имя файла не кладём (в нём могут быть любые символы) — только хэш; само название лежит внутри файла.
+const tabHash = (tab) => createHash('sha1').update(sheetNorm(tab)).digest('hex').slice(0, 12)
+const matrixTabPath = (orgId, tab, period) => join(orgDir(orgId), `matrixtab-${tabHash(tab)}-${period}.json`)
+export function saveMatrixTabSnapshot(orgId, tab, period, slice) {
+  if (!isValidPeriod(period)) throw new Error('bad period')
+  write(matrixTabPath(orgId, tab, period), { tab, period, savedAt: new Date().toISOString(), slice })
+}
+export function listMatrixTabSnapshots(orgId) {
+  return readdirSync(orgDir(orgId))
+    .filter((f) => /^matrixtab-[0-9a-f]{12}-.+\.json$/.test(f))
+    .map((f) => { const m = read(join(orgDir(orgId), f), null); return m && m.tab && isValidPeriod(m.period) && Object.keys(m.slice ?? {}).length ? { tab: m.tab, period: m.period } : null })
+    .filter(Boolean)
+    .sort((a, b) => a.tab.localeCompare(b.tab) || a.period.localeCompare(b.period))
+}
+export function deleteMatrixTabSnapshot(orgId, tab, period) {
+  if (!isValidPeriod(period)) return false
+  const f = matrixTabPath(orgId, tab, period)
+  if (!existsSync(f)) return false
+  unlinkSync(f)
+  return true
+}
+
 /**
- * Какая матрица действует для периода (месяц или отрезок «с даты по дату»). Смотрим на первый день периода:
- *  1) снимок ровно этого периода; иначе из снимков, ПОКРЫВАЮЩИХ этот день, самый поздний по началу (самый «узкий»:
- *     недельный снимок внутри месяца важнее месячного), при равенстве — самый длинный;
- *  2) иначе снимок, закончившийся последним до этого дня (цены, выставленные раньше, действуют, пока не
- *     зафиксированы новые — так «ноябрь» без своего снимка берёт октябрьский);
- *  3) иначе общая матрица (matrix.json — состояние до снимков, дальше не обновляется);
- *  4) иначе самый ранний снимок (только для просмотра, см. allowLater).
- * Без period — общая, а если её нет — самый свежий снимок.
+ * Выбор версии цен для периода среди кандидатов [{ p: период снимка, tab?: true }] — по ПЕРВОМУ дню периода:
+ *  1) снимок ровно этого периода; иначе из покрывающих этот день самый поздний по началу (самый «узкий»), при
+ *     равенстве самый длинный; 2) иначе закончившийся последним раньше. При полном равенстве снимок ресторана
+ *     (tab) важнее снимка всех ресторанов.
  */
-export function resolveMatrixFor(orgId, period, { allowLater = true } = {}) {
+function pickSnapshot(cands, period) {
+  const { start } = periodBounds(period)
+  const withB = cands.map((c) => ({ ...c, ...periodBounds(c.p) }))
+  const byTab = (a, b) => (b.tab ? 1 : 0) - (a.tab ? 1 : 0)
+  const exact = withB.filter((x) => x.p === period).sort(byTab)[0]
+  if (exact) return exact
+  const cover = withB.filter((x) => x.start <= start && start <= x.end)
+    .sort((a, b) => b.start.localeCompare(a.start) || b.end.localeCompare(a.end) || byTab(a, b))[0]
+  if (cover) return cover
+  return withB.filter((x) => x.end < start).sort((a, b) => b.end.localeCompare(a.end) || b.start.localeCompare(a.start) || byTab(a, b))[0] ?? null
+}
+
+/**
+ * Какая матрица действует для периода (месяц или отрезок «с даты по дату»). Сначала для всей сети (снимки «все
+ * рестораны»): снимок периода → самый узкий покрывающий первый день → закончившийся последним раньше → общая
+ * matrix.json (состояние до снимков) → ближайший поздний. Потом поверх — рестораны со своими снимками: если для
+ * вкладки подходящий снимок ресторана выигрывает у снимков всей сети (см. pickSnapshot), её цены берутся из него.
+ * Без period — общая, а если её нет — самый свежий снимок. withTabs: false — без накладки ресторанов (основа
+ * для нового снимка всей сети).
+ */
+export function resolveMatrixFor(orgId, period, { allowLater = true, withTabs = true } = {}) {
   const snaps = listMatrixSnapshots(orgId)
-  if (period && snaps.length) {
-    const { start } = periodBounds(period)
-    const withB = snaps.map((p) => ({ p, ...periodBounds(p) }))
-    const cover = withB.filter((x) => x.start <= start && start <= x.end)
-    const pick = withB.find((x) => x.p === period) ??
-      [...cover].sort((a, b) => (b.start.localeCompare(a.start)) || (b.end.localeCompare(a.end)))[0] ??
-      [...withB.filter((x) => x.end < start)].sort((a, b) => (b.end.localeCompare(a.end)) || (b.start.localeCompare(a.start)))[0]
-    if (pick) return { matching: getMatrixSnapshot(orgId, pick.p), snapshotPeriod: pick.p }
+  let matching = null, snapshotPeriod = null
+  const cityPick = period && snaps.length ? pickSnapshot(snaps.map((p) => ({ p })), period) : null
+  if (cityPick) { matching = getMatrixSnapshot(orgId, cityPick.p); snapshotPeriod = cityPick.p }
+  else {
+    const base = getMatrix(orgId)
+    if (base) matching = base
+    // Нет ни более раннего снимка, ни общей матрицы: для просмотра лучше показать ближайший ПОЗДНИЙ снимок, чем
+    // вшитую демо-матрицу; но как основу для нового снимка (allowLater: false) он не годится — другой период.
+    else if (snaps.length && (allowLater || !period)) {
+      const p = period ? [...snaps].sort((a, b) => periodBounds(a).start.localeCompare(periodBounds(b).start))[0] : snaps[snaps.length - 1]
+      matching = getMatrixSnapshot(orgId, p); snapshotPeriod = p
+    }
   }
-  const base = getMatrix(orgId)
-  if (base) return { matching: base, snapshotPeriod: null }
-  // Нет ни более раннего снимка, ни общей матрицы: для просмотра лучше показать
-  // ближайший ПОЗДНИЙ снимок, чем вшитую демо-матрицу; но как основу для нового
-  // снимка (allowLater: false) он не годится — это цены другого периода.
-  if (snaps.length && (allowLater || !period)) {
-    const p = period ? [...snaps].sort((a, b) => periodBounds(a).start.localeCompare(periodBounds(b).start))[0] : snaps[snaps.length - 1]
-    return { matching: getMatrixSnapshot(orgId, p), snapshotPeriod: p }
+  const tabSnapshots = {}
+  if (period && withTabs) {
+    const byTab = new Map()
+    for (const t of listMatrixTabSnapshots(orgId)) { if (!byTab.has(t.tab)) byTab.set(t.tab, []); byTab.get(t.tab).push(t.period) }
+    for (const [tab, periods] of byTab) {
+      const cands = [...periods.map((p) => ({ p, tab: true })), ...(cityPick ? [{ p: cityPick.p }] : [])]
+      const pick = pickSnapshot(cands, period)
+      if (!pick?.tab) continue
+      const snap = read(matrixTabPath(orgId, tab, pick.p), null)
+      if (!snap?.slice) continue
+      // mergeMatching собирает объект по фиксированному списку полей — прочие поля основы (tabsByTarget и т.п.) возвращаем
+      matching = matching ? { ...matching, ...mergeMatching(matching, snap.slice, [tab]) } : snap.slice
+      tabSnapshots[tab] = pick.p
+    }
   }
-  return { matching: null, snapshotPeriod: null }
+  return { matching, snapshotPeriod, tabSnapshots }
 }
 
 /** Available periods for this org, oldest first, read straight off the stored dataset files. */
@@ -422,6 +473,7 @@ export function exportOrgData(orgId) {
     matrix: getMatrix(orgId),
     catalog: getCatalog(orgId),
     matrixSnapshots: Object.fromEntries(listMatrixSnapshots(orgId).map((p) => [p, getMatrixSnapshot(orgId, p)])),
+    matrixTabSnapshots: listMatrixTabSnapshots(orgId).map((t) => ({ ...t, slice: read(matrixTabPath(orgId, t.tab, t.period), null)?.slice })),
   }
 }
 
@@ -442,6 +494,7 @@ export function resetOrgData(orgId) {
   if (existsSync(matrixPath)) unlinkSync(matrixPath)
   for (const period of legacyMatrixPeriods(orgId)) unlinkSync(orgLegacyMatrixPath(orgId, period))
   for (const period of listMatrixSnapshots(orgId)) unlinkSync(matrixSnapPath(orgId, period))
+  for (const t of listMatrixTabSnapshots(orgId)) deleteMatrixTabSnapshot(orgId, t.tab, t.period)
   write(orgPaths(orgId).venues, [])
   saveSettings(orgId, { enabledRestaurants: null })
   saveStatus(orgId, { lastSync: null, lastResult: null, source: null, message: 'Данные сброшены — настройте синк заново' })

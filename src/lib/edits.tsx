@@ -588,7 +588,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // смысле: с Google-таблицей вообще ещё ни разу не синкались, и показана
   // вшитая демо-матрица вместо реальной.
   const matchingIsStale = !backendMatching
-  const matrixPriceLabel = MATRIX_SNAPSHOTS && backendMatching ? ((backendMatching as any).snapshotLabel ?? 'общая матрица') : null
+  const ownPrices = Object.keys((backendMatching as any)?.tabSnapshots ?? {}).length
+  const matrixPriceLabel = MATRIX_SNAPSHOTS && backendMatching ? ((backendMatching as any).snapshotLabel ?? 'общая матрица') + (ownPrices ? ` · у ${ownPrices} ресторан${ownPrices === 1 ? 'а' : 'ов'} свои цены` : '') : null
   const manualMode = !!status?.manualLinks
   const rows = useMemo(() => computeRows(parsed.base, edits, matching, parsed.restaurants, manualMode), [parsed, edits, matching, manualMode])
   // Поставщик, которого вручную привязали к матрице (edits.supplierLinks), больше не «новый»

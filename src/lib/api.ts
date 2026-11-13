@@ -264,9 +264,9 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 /** period ("YYYY-MM") — зафиксировать цены матрицы ЗА ЭТОТ месяц отдельным снимком (остальные месяцы не трогаются); без period — общая матрица, как раньше. */
-export async function syncMatrix(target?: 'almaty' | 'astana', period?: string): Promise<{ ok: boolean; message?: string; rows?: number; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number }> {
+export async function syncMatrix(target?: 'almaty' | 'astana', period?: string, tab?: string): Promise<{ ok: boolean; message?: string; rows?: number; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number }> {
   try {
-    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}), ...(period ? { period } : {}) }) })
+    const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}), ...(period ? { period } : {}), ...(tab ? { tab } : {}) }) })
     const text = await r.text()
     let first: any = null
     try { first = JSON.parse(text) } catch { /* не JSON — ниже сообщим код ответа */ }
@@ -286,13 +286,13 @@ export async function syncMatrix(target?: 'almaty' | 'astana', period?: string):
 }
 /** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. period — матрица, действующая для этого месяца (снимок месяца, иначе ближайший более ранний). */
 export const fetchMatching = (period?: string) => get<any>(period ? `/api/matching?period=${encodeURIComponent(period)}` : '/api/matching')
-export async function deleteMatrixSnapshot(period: string): Promise<boolean> {
+export async function deleteMatrixSnapshot(period: string, tab?: string): Promise<boolean> {
   try {
-    const r = await fetch(`/api/matrix/snapshots?period=${encodeURIComponent(period)}`, { method: 'DELETE', headers: authHeaders() })
+    const r = await fetch(`/api/matrix/snapshots?period=${encodeURIComponent(period)}${tab ? `&tab=${encodeURIComponent(tab)}` : ''}`, { method: 'DELETE', headers: authHeaders() })
     return r.ok && (await r.json()).ok === true
   } catch { return false }
 }
-export const fetchMatrixSnapshots = () => get<{ periods: { period: string; periodLabel: string }[] }>('/api/matrix/snapshots')
+export const fetchMatrixSnapshots = () => get<{ periods: { period: string; periodLabel: string }[]; tabs?: { tab: string; period: string; periodLabel: string }[] }>('/api/matrix/snapshots')
 
 /** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */
 export async function triggerSync(period?: string): Promise<{ ok: boolean; message?: string }> {

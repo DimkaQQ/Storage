@@ -416,6 +416,18 @@ export function mergeMatching(a, b, restaurantNames) {
   }
 }
 
+/** Срез матрицы только по указанным вкладкам/ресторанам (обратное к mergeMatching): для снимка цен одного ресторана. */
+export function sliceMatching(m, restaurantNames) {
+  const scope = new Set(restaurantNames.map(norm))
+  const pick = (map) => Object.fromEntries(Object.entries(map ?? {}).filter(([k]) => scope.has(k.split('::')[0])))
+  return {
+    supplierAlias: pick(m.supplierAlias), planPairs: pick(m.planPairs), planPairsByPack: pick(m.planPairsByPack),
+    productLabels: pick(m.productLabels), noPriceExact: pick(m.noPriceExact), ambiguous: pick(m.ambiguous),
+    supplierOrder: pick(m.supplierOrder), noIikoName: pick(m.noIikoName), restaurantNames: pick(m.restaurantNames),
+    tabTitles: pick(m.tabTitles),
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Каталог названий iiko («слепок D/E/F»).
  *

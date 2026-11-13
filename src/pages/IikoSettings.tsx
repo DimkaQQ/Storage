@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { norm, matchRestaurant } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, IikoSettings as Settings } from '../lib/api'
@@ -32,7 +33,7 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -65,7 +66,35 @@ export default function IikoSettings() {
   const matrixPeriod = matrixMode === 'month' ? matrixMonth : (matrixFrom && matrixTo && matrixFrom <= matrixTo ? `${matrixFrom}..${matrixTo}` : '')
   const nextMonth = (() => { const n = new Date(); const d = new Date(n.getFullYear(), n.getMonth() + 1, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
   const [snapshots, setSnapshots] = useState<{ period: string; periodLabel: string }[]>([])
-  const loadSnapshots = () => { if (!MATRIX_SNAPSHOTS) return; fetchMatrixSnapshots().then((r) => r && setSnapshots(r.periods)) }
+  const [tabSnapshots, setTabSnapshots] = useState<{ tab: string; period: string; periodLabel: string }[]>([])
+  const loadSnapshots = () => { if (!MATRIX_SNAPSHOTS) return; fetchMatrixSnapshots().then((r) => { if (r) { setSnapshots(r.periods); setTabSnapshots(r.tabs ?? []) } }) }
+  // «Один ресторан»: наш ресторан + вкладка таблицы, по которой он сверяется (Справочники → Точки → «Вкладка матрицы»)
+  const [matrixScope, setMatrixScope] = useState<'all' | 'one'>('all')
+  const [oneRest, setOneRest] = useState('')
+  const [oneTab, setOneTab] = useState('')
+  const [oneSyncing, setOneSyncing] = useState(false)
+  const [oneResult, setOneResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  const sheetTabs = [
+    ...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab, target: 'almaty' as const, city: 'Алматы' })),
+    ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab, target: 'astana' as const, city: 'Астана' })),
+  ]
+  const pickRestaurant = (name: string) => {
+    setOneRest(name); setOneResult(null)
+    const mapped = norm(matchRestaurant(edits, name))
+    setOneTab(sheetTabs.find((t) => norm(t.tab) === mapped)?.tab ?? '')
+  }
+  const oneTabInfo = sheetTabs.find((t) => t.tab === oneTab)
+  const tabMatchesRestaurant = !!oneRest && !!oneTab && norm(oneTab) === norm(matchRestaurant(edits, oneRest))
+  const doSyncOne = async () => {
+    if (!form || !oneTabInfo || !matrixPeriod) return
+    setOneSyncing(true); setOneResult(null)
+    const r0 = await saveSettings(form)
+    if (r0) { setForm(r0); setSaved(true); reloadStatus() }
+    const r = await syncMatrix(oneTabInfo.target, matrixPeriod, oneTab)
+    setOneResult(r.ok ? { ok: true, message: `Цены «${oneRest}» зафиксированы за выбранный период (${r.rows ?? 0} позиций)` } : r)
+    if (r.ok) { await refreshMatrix(); loadSnapshots() }
+    setOneSyncing(false)
+  }
   useEffect(() => { if (MATRIX_SNAPSHOTS) loadSnapshots() }, [])
   type SyncRes = { ok: boolean; message?: string; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number }
   const [matrixSyncResult, setMatrixSyncResult] = useState<SyncRes | null>(null)
@@ -361,6 +390,42 @@ export default function IikoSettings() {
                 </>
               )}
             </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
+              Что фиксируем:
+              <button onClick={() => setMatrixScope('all')} className={`chip ${matrixScope === 'all' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Все рестораны</button>
+              <button onClick={() => setMatrixScope('one')} className={`chip ${matrixScope === 'one' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Один ресторан</button>
+            </div>
+            {matrixScope === 'one' && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
+                  Ресторан
+                  <select value={oneRest} onChange={(e) => pickRestaurant(e.target.value)}
+                    className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
+                    <option value="">— выберите —</option>
+                    {restaurants.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+                  </select>
+                  Вкладка таблицы
+                  <select value={oneTab} onChange={(e) => { setOneTab(e.target.value); setOneResult(null) }}
+                    className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
+                    <option value="">— выберите —</option>
+                    {sheetTabs.map((t) => <option key={`${t.target}:${t.tab}`} value={t.tab}>{t.tab} · {t.city}</option>)}
+                  </select>
+                </div>
+                {sheetTabs.length === 0 && <div className="text-[11px] text-warn">Список вкладок таблицы пока пуст — один раз нажмите «Обновить» в блоке «Все рестораны», чтобы он загрузился.</div>}
+                {oneRest && !oneTab && sheetTabs.length > 0 && <div className="text-[11px] text-warn">У этого ресторана не настроена вкладка таблицы — выберите её в Справочники → Точки → «Вкладка матрицы».</div>}
+                {oneRest && oneTab && !tabMatchesRestaurant && <div className="text-[11px] text-bad">Ресторан «{oneRest}» сверяется с другой вкладкой: «{matchRestaurant(edits, oneRest)}». Чтобы цены не попали не туда, выберите её тут или измените вкладку в Справочники → Точки.</div>}
+                <div className="flex flex-wrap items-center gap-3">
+                  <button onClick={doSyncOne} disabled={oneSyncing || !matrixPeriod || !tabMatchesRestaurant} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+                    <ISync width={16} height={16} className={oneSyncing ? 'animate-spin' : ''} /> {oneSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены ресторана'}
+                  </button>
+                  {oneResult && (
+                    <span className={`chip ${oneResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+                      {oneResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{oneResult.message}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
             {snapshots.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
                 Зафиксировано:
@@ -372,11 +437,23 @@ export default function IikoSettings() {
                   </span>
                 ))}
               </div>
-            ) : <div className="text-xs text-fg-500">Пока ничего не зафиксировано: все периоды берут общую матрицу.</div>}
+            ) : <div className="text-xs text-fg-500">Для всех ресторанов пока ничего не зафиксировано: все периоды берут общую матрицу.</div>}
+            {tabSnapshots.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
+                Отдельно по ресторанам:
+                {tabSnapshots.map((x) => (
+                  <span key={`${x.tab}:${x.period}`} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
+                    {x.tab} — {x.periodLabel}
+                    <button title="Удалить цены этого ресторана за период (он вернётся к ценам всех ресторанов)" className="ml-1 text-fg-500 hover:text-bad"
+                      onClick={async () => { if (window.confirm(`Удалить цены «${x.tab}» за «${x.periodLabel}»? Ресторан вернётся к ценам всех ресторанов.`) && await deleteMatrixSnapshot(x.period, x.tab)) { loadSnapshots(); await refreshMatrix() } }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="text-[11px] text-fg-500">Для сверки берутся цены, действовавшие в первый день периода: снимок этого периода, иначе самый узкий покрывающий, иначе ближайший более ранний.</div>
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="w-16 text-sm text-fg-300">Алматы</span>
           <button onClick={doSyncMatrix} disabled={matrixSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
             <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Обновить'}
@@ -388,7 +465,7 @@ export default function IikoSettings() {
               </span>
             )}
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="w-16 text-sm text-fg-300">Астана</span>
           <button onClick={doSyncAstana} disabled={astanaSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
             <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Обновить'}
@@ -400,6 +477,13 @@ export default function IikoSettings() {
               </span>
             )}
         </div>
+        {MATRIX_SNAPSHOTS && matrixScope === 'all' && (
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={async () => { await doSyncMatrix(); await doSyncAstana() }} disabled={matrixSyncing || astanaSyncing || !matrixPeriod} className="btn border border-brand-500/50 bg-brand-500/10 text-fg-100 hover:bg-brand-500/20 disabled:opacity-60">
+              <ISync width={16} height={16} className={matrixSyncing || astanaSyncing ? 'animate-spin' : ''} /> Обновить все рестораны (Алматы и Астана)
+            </button>
+          </div>
+        )}
         <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
           <summary className={summary}>Доступ к таблицам</summary>
           <div className="mt-3 grid grid-cols-2 gap-3">

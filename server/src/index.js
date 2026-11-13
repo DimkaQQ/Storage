@@ -9,12 +9,12 @@ import {
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
-  getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, resolveMatrixFor, exportOrgData, resetOrgData,
+  getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { buildDataTar } from './migration.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
-import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
+import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, sliceMatching, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { isValidPeriod, MONTH_RE } from './period.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -540,11 +540,14 @@ async function matrixSyncHandler(req, res) {
       return res.status(400).json({ ok: false, message: 'Период должен быть месяцем (ГГГГ-ММ, например 2026-06) или отрезком (ГГГГ-ММ-ДД..ГГГГ-ММ-ДД, не длиннее ~3 месяцев)' })
     }
     const period = rawPeriod ?? null
+    // tab — зафиксировать цены ТОЛЬКО одного ресторана (вкладки таблицы) за период, а не всей сети
+    const tab = MATRIX_SNAPSHOTS && typeof req.body?.tab === 'string' && req.body.tab.trim() ? req.body.tab.trim() : null
+    if (tab && !period) return res.status(400).json({ ok: false, message: 'Для одного ресторана нужен период' })
     const target = astana ? 'astana' : 'almaty'
     const otherTarget = astana ? 'almaty' : 'astana'
     const otherMap = astana ? SHEET_TO_RESTAURANT : SHEET_TO_RESTAURANT_ASTANA
     // база слияния — та же матрица, в которую пишем (снимок месяца или общая)
-    const prev = period ? (getMatrixSnapshot(orgId, period) ?? resolveMatrixFor(orgId, period, { allowLater: false }).matching) : getMatrix(orgId)
+    const prev = period ? (getMatrixSnapshot(orgId, period) ?? resolveMatrixFor(orgId, period, { allowLater: false, withTabs: false }).matching) : getMatrix(orgId)
     // имена вкладок другого города — занятые: одноимённая вкладка этого города не должна затереть их
     // (свои вкладки — из sheetMap и прошлых синков этого города — не считаются занятыми)
     const own = new Set([...Object.values(sheetMap), ...(prev?.tabsByTarget?.[target] ?? [])].map(normKey))
@@ -585,9 +588,22 @@ async function matrixSyncHandler(req, res) {
     // имена, записанные за обоими городами (старые данные), в область замены не берём — иначе стёрли бы чужой город
     const ownTabs = [...new Set([...(prev?.tabsByTarget?.[target] ?? []), ...freshNames])]
       .filter((n) => freshNames.includes(n) || !(prev?.tabsByTarget?.[otherTarget] ?? []).includes(n))
+    if (tab) {
+      // цены одного ресторана: срез свежей матрицы по его вкладке — отдельным снимком, остальные рестораны не трогаем
+      const hit = Object.values(matching.restaurantNames ?? {}).find((n) => normKey(n) === normKey(tab))
+      if (!hit) return res.status(400).json({ ok: false, message: `Вкладки «${tab}» нет в таблице (${astana ? 'Астана' : 'Алматы'})` })
+      const slice = sliceMatching(matching, [hit])
+      saveMatrixTabSnapshot(orgId, hit, period, slice)
+      return res.json({ ok: true, target, period, tab: hit, rows: Object.keys(slice.planPairs).length, conflicts: summary.conflicts ?? [] })
+    }
     const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...ownTabs])
     merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: ownTabs }
-    if (period) saveMatrixSnapshot(orgId, period, merged)
+    if (period) {
+      saveMatrixSnapshot(orgId, period, merged)
+      // «все рестораны» за тот же период перекрывает прежние отдельные цены ресторанов этого города за него
+      const mine = new Set(ownTabs.map(normKey))
+      for (const t of listMatrixTabSnapshots(orgId)) if (t.period === period && mine.has(normKey(t.tab))) deleteMatrixTabSnapshot(orgId, t.tab, t.period)
+    }
     else saveMatrix(orgId, merged)
     res.json({ ok: true, target, period, ...summary })
   } catch (e) {
@@ -619,17 +635,21 @@ app.get('/api/matching', requireAuth, (req, res) => {
   // ?period=YYYY-MM — матрица, действующая для этого месяца (см. resolveMatrixFor);
   // null, если ещё не синхронизировали вообще — фронт сам падает на вшитую матрицу
   const period = MATRIX_SNAPSHOTS && typeof req.query.period === 'string' && isValidPeriod(req.query.period) ? req.query.period : null
-  const { matching, snapshotPeriod } = resolveMatrixFor(req.auth.orgId, period)
-  res.json(matching ? { ...matching, snapshotPeriod, snapshotLabel: snapshotPeriod ? periodLabelFor(snapshotPeriod) : null } : null)
+  const { matching, snapshotPeriod, tabSnapshots } = resolveMatrixFor(req.auth.orgId, period)
+  res.json(matching ? { ...matching, snapshotPeriod, snapshotLabel: snapshotPeriod ? periodLabelFor(snapshotPeriod) : null, tabSnapshots } : null)
 })
 
 app.delete('/api/matrix/snapshots', requireAuth, requireAdmin, (req, res) => {
   const period = String(req.query.period ?? '')
   if (!MATRIX_SNAPSHOTS || !isValidPeriod(period)) return res.status(400).json({ ok: false, message: 'Некорректный период' })
-  res.json({ ok: deleteMatrixSnapshot(req.auth.orgId, period) })
+  const tab = typeof req.query.tab === 'string' && req.query.tab ? req.query.tab : null
+  res.json({ ok: tab ? deleteMatrixTabSnapshot(req.auth.orgId, tab, period) : deleteMatrixSnapshot(req.auth.orgId, period) })
 })
 app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
-  res.json({ periods: !MATRIX_SNAPSHOTS ? [] : listMatrixSnapshots(req.auth.orgId).map((p) => ({ period: p, periodLabel: periodLabelFor(p) })) })
+  res.json({
+    periods: !MATRIX_SNAPSHOTS ? [] : listMatrixSnapshots(req.auth.orgId).map((p) => ({ period: p, periodLabel: periodLabelFor(p) })),
+    tabs: !MATRIX_SNAPSHOTS ? [] : listMatrixTabSnapshots(req.auth.orgId).map((t) => ({ ...t, periodLabel: periodLabelFor(t.period) })),
+  })
 })
 
 
