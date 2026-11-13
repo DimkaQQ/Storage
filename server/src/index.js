@@ -9,13 +9,14 @@ import {
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
-  getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, resolveMatrixFor, exportOrgData, resetOrgData,
+  getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, resolveMatrixFor, exportOrgData, resetOrgData,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { buildDataTar } from './migration.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
+import { isValidPeriod, MONTH_RE } from './period.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
 const app = express()
@@ -61,21 +62,6 @@ let syncing = {}
 // валидация формы, а единственная защита от выхода пути за пределы папки
 // организации (см. аудит path traversal в /api/data). Один общий регэксп на
 // оба места (/api/data, /api/sync), чтобы они не разъехались при правке.
-const MONTH_RE = /^\d{4}-\d{2}$/
-const RANGE_RE = /^(\d{4})-(\d{2})-(\d{2})\.\.(\d{4})-(\d{2})-(\d{2})$/
-const isValidPeriod = (p) => {
-  const s = String(p)
-  if (MONTH_RE.test(s)) return true
-  // «с даты по дату» (день, неделя, любой отрезок до ~3 месяцев): 2026-10-01..2026-10-07
-  const m = RANGE_RE.exec(s)
-  if (!m) return false
-  const a = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])), b = new Date(Date.UTC(+m[4], +m[5] - 1, +m[6]))
-  const ok = (d, y, mo, day) => d.getUTCFullYear() === y && d.getUTCMonth() === mo - 1 && d.getUTCDate() === day
-  if (!ok(a, +m[1], +m[2], +m[3]) || !ok(b, +m[4], +m[5], +m[6])) return false
-  const days = (b - a) / 86400000
-  return days >= 0 && days <= 92
-}
-
 /**
  * Pulls facts from the configured provider and rebuilds the dataset for one
  * org. 'mock' has no live "current period" of its own — it's a set of fixed
@@ -533,9 +519,9 @@ app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, r
   res.json(await testSheetsConnection({ googleSheetId, googleServiceAccountKey: merged.googleServiceAccountKey }, astana ? SHEET_TO_RESTAURANT_ASTANA : undefined))
 })
 
-// Снимки матрицы по месяцам готовы, но выключены, пока заказчик решает, нужны ли
-// (включить: MATRIX_SNAPSHOTS=1 здесь и MATRIX_SNAPSHOTS=true в src/lib/features.ts).
-const MATRIX_SNAPSHOTS = process.env.MATRIX_SNAPSHOTS === '1'
+// Цены матрицы по периодам (снимки: месяц, неделя, день или любой отрезок) — включены. Аварийно выключить:
+// MATRIX_SNAPSHOTS=0 здесь и MATRIX_SNAPSHOTS=false в src/lib/features.ts.
+const MATRIX_SNAPSHOTS = process.env.MATRIX_SNAPSHOTS !== '0'
 
 // Синки матрицы идут строго по одному: read-modify-write matrix.json иначе терял бы город при параллельных запросах
 let matrixSyncQueue = Promise.resolve()
@@ -550,8 +536,8 @@ async function matrixSyncHandler(req, res) {
   try {
     const sheetMap = astana ? SHEET_TO_RESTAURANT_ASTANA : SHEET_TO_RESTAURANT
     const rawPeriod = MATRIX_SNAPSHOTS ? req.body?.period : undefined
-    if (rawPeriod != null && (typeof rawPeriod !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod))) {
-      return res.status(400).json({ ok: false, message: 'Период должен быть в формате ГГГГ-ММ (например 2026-06)' })
+    if (rawPeriod != null && (typeof rawPeriod !== 'string' || !isValidPeriod(rawPeriod))) {
+      return res.status(400).json({ ok: false, message: 'Период должен быть месяцем (ГГГГ-ММ, например 2026-06) или отрезком (ГГГГ-ММ-ДД..ГГГГ-ММ-ДД, не длиннее ~3 месяцев)' })
     }
     const period = rawPeriod ?? null
     const target = astana ? 'astana' : 'almaty'
@@ -632,11 +618,16 @@ app.get('/api/matrix/sync-status', requireAuth, (req, res) => {
 app.get('/api/matching', requireAuth, (req, res) => {
   // ?period=YYYY-MM — матрица, действующая для этого месяца (см. resolveMatrixFor);
   // null, если ещё не синхронизировали вообще — фронт сам падает на вшитую матрицу
-  const period = MATRIX_SNAPSHOTS && typeof req.query.period === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(req.query.period) ? req.query.period : null
+  const period = MATRIX_SNAPSHOTS && typeof req.query.period === 'string' && isValidPeriod(req.query.period) ? req.query.period : null
   const { matching, snapshotPeriod } = resolveMatrixFor(req.auth.orgId, period)
-  res.json(matching ? { ...matching, snapshotPeriod } : null)
+  res.json(matching ? { ...matching, snapshotPeriod, snapshotLabel: snapshotPeriod ? periodLabelFor(snapshotPeriod) : null } : null)
 })
 
+app.delete('/api/matrix/snapshots', requireAuth, requireAdmin, (req, res) => {
+  const period = String(req.query.period ?? '')
+  if (!MATRIX_SNAPSHOTS || !isValidPeriod(period)) return res.status(400).json({ ok: false, message: 'Некорректный период' })
+  res.json({ ok: deleteMatrixSnapshot(req.auth.orgId, period) })
+})
 app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
   res.json({ periods: !MATRIX_SNAPSHOTS ? [] : listMatrixSnapshots(req.auth.orgId).map((p) => ({ period: p, periodLabel: periodLabelFor(p) })) })
 })

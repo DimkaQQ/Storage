@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
+import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { useAuth } from '../lib/auth'
 import { syncMatrix, fetchPeriods, fetchDataset } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
@@ -62,7 +63,7 @@ export default function DataEditor() {
     edits, rows, renameSupplier, setVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setProductLinks, pendingProductLinks, stageProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching: matchingBase, refreshMatrix, setSupplierLinks, manualMode, enableManualMode, status,
-    catalogDirty, catalogChanges, savingCatalog, saveCatalog,
+    catalogDirty, catalogChanges, savingCatalog, saveCatalog, period, periodKey,
   } = useEdits()
   // матрица + ручные привязки поставщиков из программы (см. withSupplierLinks в lib/data.ts)
   const matching = useMemo(() => withSupplierLinks(matchingBase, edits, manualMode), [matchingBase, edits.supplierLinks, edits.venueOverrides, manualMode])
@@ -92,11 +93,15 @@ export default function DataEditor() {
   // конкретной закупке этого периода (см. AmbiguousPicker в
   // PriceCheck.tsx), а не одним выбором "навсегда" для всей сети.
   const refreshFromMatrix = async () => {
+    // Цены матрицы действуют по периодам: «Обновить» фиксирует текущие цены таблицы за ОТКРЫТЫЙ период
+    // (другие периоды не меняются). Для уже прошедшего периода спрашиваем — это перезапись его цен.
+    const snapPeriod = MATRIX_SNAPSHOTS ? periodKey : undefined
+    if (snapPeriod && snapPeriod < new Date().toISOString().slice(0, 7) && !window.confirm(`Цены за «${period}» будут заменены текущими ценами из Google-таблицы. Другие периоды не изменятся. Продолжить?`)) return
     setMatrixSyncing(true); setMatrixSyncMsg(null)
     // по очереди, не параллельно: защита от одинаковых названий вкладок сверяет
     // города по уже сохранённой матрице, второй синк должен видеть первый
-    const almaty = await syncMatrix('almaty')
-    const astana = await syncMatrix('astana')
+    const almaty = await syncMatrix('almaty', snapPeriod)
+    const astana = await syncMatrix('astana', snapPeriod)
     await refreshMatrix()
     setMatrixSyncing(false)
     const skipped = [...(almaty.conflicts ?? []), ...(astana.conflicts ?? [])]

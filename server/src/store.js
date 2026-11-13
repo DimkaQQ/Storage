@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdir
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
+import { isValidPeriod, periodBounds } from './period.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', 'data')
@@ -287,30 +288,47 @@ export const getMatrixSnapshot = (orgId, period) => read(matrixSnapPath(orgId, p
 export const saveMatrixSnapshot = (orgId, period, m) => write(matrixSnapPath(orgId, period), m)
 export function listMatrixSnapshots(orgId) {
   return readdirSync(orgDir(orgId))
-    .map((f) => /^matrixsnap-(\d{4}-\d{2})\.json$/.exec(f)?.[1])
-    .filter(Boolean)
+    .map((f) => /^matrixsnap-(.+)\.json$/.exec(f)?.[1])
+    .filter((p) => p && isValidPeriod(p))
     .sort()
 }
+export function deleteMatrixSnapshot(orgId, period) {
+  if (!isValidPeriod(period)) return false
+  const f = matrixSnapPath(orgId, period)
+  if (!existsSync(f)) return false
+  unlinkSync(f)
+  return true
+}
 /**
- * Какая матрица действует для периода: снимок ровно этого месяца; иначе
- * ближайший более ранний (цены, выставленные раньше, действуют, пока не
- * зафиксированы новые — так «ноябрь» без своего снимка берёт октябрьский);
- * иначе общая матрица (matrix.json — её пишет синк, пока снимки выключены, см.
- * MATRIX_SNAPSHOTS в index.js; при включённых снимках она не обновляется); иначе самый ранний
- * снимок. Без period — общая, а если её нет — самый свежий снимок.
+ * Какая матрица действует для периода (месяц или отрезок «с даты по дату»). Смотрим на первый день периода:
+ *  1) снимок ровно этого периода; иначе из снимков, ПОКРЫВАЮЩИХ этот день, самый поздний по началу (самый «узкий»:
+ *     недельный снимок внутри месяца важнее месячного), при равенстве — самый длинный;
+ *  2) иначе снимок, закончившийся последним до этого дня (цены, выставленные раньше, действуют, пока не
+ *     зафиксированы новые — так «ноябрь» без своего снимка берёт октябрьский);
+ *  3) иначе общая матрица (matrix.json — состояние до снимков, дальше не обновляется);
+ *  4) иначе самый ранний снимок (только для просмотра, см. allowLater).
+ * Без period — общая, а если её нет — самый свежий снимок.
  */
 export function resolveMatrixFor(orgId, period, { allowLater = true } = {}) {
   const snaps = listMatrixSnapshots(orgId)
   if (period && snaps.length) {
-    const exact = snaps.includes(period) ? period : [...snaps].reverse().find((p) => p < period)
-    if (exact) return { matching: getMatrixSnapshot(orgId, exact), snapshotPeriod: exact }
+    const { start } = periodBounds(period)
+    const withB = snaps.map((p) => ({ p, ...periodBounds(p) }))
+    const cover = withB.filter((x) => x.start <= start && start <= x.end)
+    const pick = withB.find((x) => x.p === period) ??
+      [...cover].sort((a, b) => (b.start.localeCompare(a.start)) || (b.end.localeCompare(a.end)))[0] ??
+      [...withB.filter((x) => x.end < start)].sort((a, b) => (b.end.localeCompare(a.end)) || (b.start.localeCompare(a.start)))[0]
+    if (pick) return { matching: getMatrixSnapshot(orgId, pick.p), snapshotPeriod: pick.p }
   }
   const base = getMatrix(orgId)
   if (base) return { matching: base, snapshotPeriod: null }
   // Нет ни более раннего снимка, ни общей матрицы: для просмотра лучше показать
   // ближайший ПОЗДНИЙ снимок, чем вшитую демо-матрицу; но как основу для нового
-  // снимка (allowLater: false) он не годится — это цены другого месяца.
-  if (snaps.length && (allowLater || !period)) { const p = period ? snaps[0] : snaps[snaps.length - 1]; return { matching: getMatrixSnapshot(orgId, p), snapshotPeriod: p } }
+  // снимка (allowLater: false) он не годится — это цены другого периода.
+  if (snaps.length && (allowLater || !period)) {
+    const p = period ? [...snaps].sort((a, b) => periodBounds(a).start.localeCompare(periodBounds(b).start))[0] : snaps[snaps.length - 1]
+    return { matching: getMatrixSnapshot(orgId, p), snapshotPeriod: p }
+  }
   return { matching: null, snapshotPeriod: null }
 }
 

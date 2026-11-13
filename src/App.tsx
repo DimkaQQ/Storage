@@ -63,7 +63,7 @@ export default function App() {
   })
   // Город — только в Проверке цен: сужает и список точек, и таблицу (город точки — Справочники → Точки)
   const [cityPricecheck, setCityPricecheck] = useState<string | null>(null)
-  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError } = useEdits()
+  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, matrixPriceLabel, saveError } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
@@ -182,6 +182,7 @@ export default function App() {
                 <h1 className="text-lg font-bold text-fg-50">{nav.find((n) => n.id === page)!.label}</h1>
                 <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
+                  {matrixPriceLabel && <span title="Для сверки берутся плановые цены, действовавшие в первый день этого периода"> · Плановые цены: <span className="text-fg-300">{matrixPriceLabel}</span></span>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">

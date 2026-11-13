@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, testMatrixConnection, syncMatrix, fetchFullExport, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -55,10 +55,14 @@ export default function IikoSettings() {
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
-  // Месяц, ЗА КОТОРЫЙ фиксируем цены матрицы (снимок; функция выключена — см. features.ts)
-  const [matrixPeriod, setMatrixPeriod] = useState('')
+  // Период, ЗА КОТОРЫЙ фиксируем цены матрицы (снимок): месяц или отрезок «с … по …» (день, неделя, любой отрезок)
+  const [matrixMode, setMatrixMode] = useState<'month' | 'range'>('month')
+  const [matrixMonth, setMatrixMonth] = useState(iso(nowDate).slice(0, 7))
+  const [matrixFrom, setMatrixFrom] = useState('')
+  const [matrixTo, setMatrixTo] = useState('')
   const [matrixPeriodTouched, setMatrixPeriodTouched] = useState(false)
-  useEffect(() => { if (!matrixPeriodTouched && periodKey) setMatrixPeriod(periodKey) }, [periodKey, matrixPeriodTouched])
+  useEffect(() => { if (!matrixPeriodTouched && /^\d{4}-\d{2}$/.test(periodKey ?? '')) setMatrixMonth(periodKey) }, [periodKey, matrixPeriodTouched])
+  const matrixPeriod = matrixMode === 'month' ? matrixMonth : (matrixFrom && matrixTo && matrixFrom <= matrixTo ? `${matrixFrom}..${matrixTo}` : '')
   const nextMonth = (() => { const n = new Date(); const d = new Date(n.getFullYear(), n.getMonth() + 1, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
   const [snapshots, setSnapshots] = useState<{ period: string; periodLabel: string }[]>([])
   const loadSnapshots = () => { if (!MATRIX_SNAPSHOTS) return; fetchMatrixSnapshots().then((r) => r && setSnapshots(r.periods)) }
@@ -338,13 +342,39 @@ export default function IikoSettings() {
           <div className="text-xs text-fg-500">Нажмите «Обновить», чтобы подтянуть свежие цены и названия из таблицы.</div>
         </div>
         {MATRIX_SNAPSHOTS && (
-          <label className="flex items-center gap-2 text-xs text-fg-400">
-            Цены за месяц
-            <input type="month" value={matrixPeriod} max={nextMonth}
-              onChange={(e) => { setMatrixPeriod(e.target.value); setMatrixPeriodTouched(true) }}
-              className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-            {snapshots.length > 0 && <span className="chip border-ink-600 bg-ink-800/60 text-fg-400">Зафиксировано: {snapshots.map((x) => x.periodLabel).join(', ')}</span>}
-          </label>
+          <div className="space-y-2 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
+            <div className="text-xs font-medium text-fg-300">Цены за период — «Обновить» ниже зафиксирует текущие цены таблицы именно за него; другие периоды не меняются</div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
+              <button onClick={() => setMatrixMode('month')} className={`chip ${matrixMode === 'month' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Месяц</button>
+              <button onClick={() => setMatrixMode('range')} className={`chip ${matrixMode === 'range' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>День / неделя / отрезок</button>
+              {matrixMode === 'month' ? (
+                <input type="month" value={matrixMonth} max={nextMonth}
+                  onChange={(e) => { setMatrixMonth(e.target.value); setMatrixPeriodTouched(true) }}
+                  className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+              ) : (
+                <>
+                  с <input type="date" value={matrixFrom} onChange={(e) => setMatrixFrom(e.target.value)}
+                    className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                  по <input type="date" value={matrixTo} onChange={(e) => setMatrixTo(e.target.value)}
+                    className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                  {matrixFrom && matrixTo && matrixFrom > matrixTo && <span className="chip border-bad/30 bg-bad/10 text-bad">Дата «с» позже даты «по»</span>}
+                </>
+              )}
+            </div>
+            {snapshots.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
+                Зафиксировано:
+                {snapshots.map((x) => (
+                  <span key={x.period} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
+                    {x.periodLabel}
+                    <button title="Удалить эти цены (этот период начнёт брать цены более раннего периода)" className="ml-1 text-fg-500 hover:text-bad"
+                      onClick={async () => { if (window.confirm(`Удалить зафиксированные цены за «${x.periodLabel}»? Этот период станет брать цены ближайшего более раннего периода.`) && await deleteMatrixSnapshot(x.period)) { loadSnapshots(); await refreshMatrix() } }}>×</button>
+                  </span>
+                ))}
+              </div>
+            ) : <div className="text-xs text-fg-500">Пока ничего не зафиксировано: все периоды берут общую матрицу.</div>}
+            <div className="text-[11px] text-fg-500">Для сверки берутся цены, действовавшие в первый день периода: снимок этого периода, иначе самый узкий покрывающий, иначе ближайший более ранний.</div>
+          </div>
         )}
         <div className="flex flex-wrap items-center gap-3">
           <span className="w-16 text-sm text-fg-300">Алматы</span>

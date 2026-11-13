@@ -204,6 +204,7 @@ interface Ctx {
   // месяц", таблица живая) — true, только если с Google-таблицы вообще
   // ничего ни разу не синкали, и приложение показывает вшитую демо-матрицу.
   matchingIsStale: boolean
+  matrixPriceLabel: string | null  // за какой период действуют цены матрицы для выбранного периода (null — снимки выключены)
   city: string
   category: string
   restaurants: VenueMeta[]
@@ -587,6 +588,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // смысле: с Google-таблицей вообще ещё ни разу не синкались, и показана
   // вшитая демо-матрица вместо реальной.
   const matchingIsStale = !backendMatching
+  const matrixPriceLabel = MATRIX_SNAPSHOTS && backendMatching ? ((backendMatching as any).snapshotLabel ?? 'общая матрица') : null
   const manualMode = !!status?.manualLinks
   const rows = useMemo(() => computeRows(parsed.base, edits, matching, parsed.restaurants, manualMode), [parsed, edits, matching, manualMode])
   // Поставщик, которого вручную привязали к матрице (edits.supplierLinks), больше не «новый»
@@ -803,7 +805,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     edits, rows, rawBase: parsed.base, editCount,
-    period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, city: parsed.city, category: parsed.category,
+    period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
     backendOnline, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
