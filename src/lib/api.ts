@@ -33,7 +33,12 @@ export interface IikoSettings {
   googleSheetId: string
   // Астана — отдельная таблица (свои точки), тот же сервисный аккаунт выше.
   astanaSheetId: string
+  // Листы таблицы, которые НЕ берём (служебные, справочники «Сырье F»); undefined = список по умолчанию, см. DEFAULT_EXCLUDED_TABS
+  excludedTabs?: string[]
 }
+
+/** Совпадает с DEFAULT_EXCLUDED_TABS на сервере (sheets.js). */
+export const DEFAULT_EXCLUDED_TABS = ['ФО сверка', 'iiko цены ФО', 'Сырье F Алматы', 'Сырье F Астана']
 
 async function get<T>(path: string): Promise<T | null> {
   try {

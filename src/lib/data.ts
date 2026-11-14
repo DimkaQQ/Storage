@@ -57,6 +57,8 @@ export interface MatchingTable {
   // norm-имя -> название вкладки ровно как в таблице (у известных вкладок основное название может отличаться: 'Renee' -> 'Рене') и список вкладок по таблицам (Алматы/Астана) — подписи и фильтр выбора вкладки в Справочниках → Точки; ставит синк матрицы.
   tabTitles?: Record<string, string>
   tabsByTarget?: { almaty?: string[]; astana?: string[] }
+  // все листы таблицы по городам (включая не взятые) — для выбора в Настройки iiko → «Листы таблицы»; ставит синк матрицы
+  allTabsByTarget?: { almaty?: string[]; astana?: string[] }
 }
 const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
   '2026-05': matchingMay as MatchingTable,

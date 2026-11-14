@@ -14,7 +14,7 @@ import {
 import * as editsDb from './editsDb.js'
 import { buildDataTar } from './migration.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
-import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, sliceMatching, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
+import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, sliceMatching, stripTabs, DEFAULT_EXCLUDED_TABS, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { isValidPeriod, MONTH_RE } from './period.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -530,6 +530,9 @@ app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, r
 // MATRIX_SNAPSHOTS=0 здесь и MATRIX_SNAPSHOTS=false в src/lib/features.ts.
 const MATRIX_SNAPSHOTS = process.env.MATRIX_SNAPSHOTS !== '0'
 
+// Листы таблицы, которые не берём (по умолчанию служебные; настраивается в Настройки iiko → «Листы таблицы»)
+const excludedTabsOf = (settings) => (Array.isArray(settings.excludedTabs) ? settings.excludedTabs : DEFAULT_EXCLUDED_TABS)
+
 // Синки матрицы идут строго по одному: read-modify-write matrix.json иначе терял бы город при параллельных запросах
 let matrixSyncQueue = Promise.resolve()
 const inMatrixQueue = (fn) => { const run = matrixSyncQueue.then(fn, fn); matrixSyncQueue = run.catch(() => {}); return run }
@@ -552,6 +555,7 @@ async function matrixSyncHandler(req, res) {
       return res.status(400).json({ ok: false, message: 'Укажите период (месяц или отрезок): цены фиксируются снимком за период, общая матрица без периода больше не перезаписывается, чтобы не менять прошлые месяцы' })
     }
     const period = rawPeriod ?? null
+    const excludeTabs = excludedTabsOf(settings)
     const keysV2 = settings.matrixKeysV2 === true // включается командой migrate-keys.js после переноса старых связей
     // tab — зафиксировать цены ТОЛЬКО одного ресторана (вкладки таблицы) за период, а не всей сети
     const tab = MATRIX_SNAPSHOTS && typeof req.body?.tab === 'string' && req.body.tab.trim() ? req.body.tab.trim() : null
@@ -569,7 +573,7 @@ async function matrixSyncHandler(req, res) {
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       sheetMap,
       reserved,
-      { keysV2 },
+      { keysV2, excludeTabs },
     )
     // Каталог названий iiko: пока колонки D/E/F в таблице есть — запоминаем их; когда их удалят — накладываем каталог.
     // applyCatalog трогает только строки без iiko-названия, поэтому его безопасно применять всегда (в т.ч. к смешанным вкладкам).
@@ -613,6 +617,7 @@ async function matrixSyncHandler(req, res) {
     }
     const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...ownTabs])
     merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: ownTabs }
+    merged.allTabsByTarget = { ...(prev?.allTabsByTarget ?? {}), [target]: summary.allTabs ?? [] }
     if (period) {
       saveMatrixSnapshot(orgId, period, merged)
       // «все рестораны» за тот же период перекрывает прежние отдельные цены ресторанов этого города за него
@@ -650,7 +655,9 @@ app.get('/api/matching', requireAuth, (req, res) => {
   // ?period=YYYY-MM — матрица, действующая для этого месяца (см. resolveMatrixFor);
   // null, если ещё не синхронизировали вообще — фронт сам падает на вшитую матрицу
   const period = MATRIX_SNAPSHOTS && typeof req.query.period === 'string' && isValidPeriod(req.query.period) ? req.query.period : null
-  const { matching, snapshotPeriod, tabSnapshots } = resolveMatrixFor(req.auth.orgId, period)
+  const resolved = resolveMatrixFor(req.auth.orgId, period)
+  const { snapshotPeriod, tabSnapshots } = resolved
+  const matching = stripTabs(resolved.matching, excludedTabsOf(getSettings(req.auth.orgId))) // служебные листы в программу не попадают
   res.json(matching ? { ...matching, snapshotPeriod, snapshotLabel: snapshotPeriod ? periodLabelFor(snapshotPeriod) : null, tabSnapshots } : null)
 })
 

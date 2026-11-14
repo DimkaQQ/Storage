@@ -189,7 +189,7 @@ export function detectColumns(rows) {
  * (свой googleSheetId, тот же сервисный аккаунт) — вызывающая сторона
  * (index.js) сама решает, какой googleSheetId и какой маппинг сюда подать.
  */
-export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT, reservedNames = [], { keysV2 = false } = {}) {
+export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT, reservedNames = [], { keysV2 = false, excludeTabs = [] } = {}) {
   const token = await getAccessToken(googleServiceAccountKey)
   const titles = await fetchSheetTitles(token, googleSheetId)
   // Сканируем ВСЕ вкладки, а не только узнанные по списку: вкладка, которой
@@ -213,8 +213,10 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   const conflicts = []
   const sheets = []
   const byKnown = [...titles].sort((a, b) => (sheetToRestaurant[b] ? 1 : 0) - (sheetToRestaurant[a] ? 1 : 0))
+  const skipTabs = new Set(excludeTabs.map(norm)) // служебные листы, которые не берём (настройка «Листы таблицы»)
   for (const t of byKnown) {
     if (String(t).includes('::')) continue
+    if (skipTabs.has(norm(String(t)))) continue
     const key = norm(sheetToRestaurant[t] ?? String(t).replace(/\s+/g, ' ').trim())
     if (taken.has(key) || claimed.has(key)) { conflicts.push(String(t)); continue }
     claimed.add(key)
@@ -229,7 +231,9 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   const ranges = sheets.flatMap((t) => [`'${t.replace(/'/g, "''")}'!C1:AF`])
   const valueRanges = await batchGetValues(token, googleSheetId, ranges)
 
-  return parseMatrixSheets(sheets, valueRanges, sheetToRestaurant, conflicts, { keysV2 })
+  const out = parseMatrixSheets(sheets, valueRanges, sheetToRestaurant, conflicts, { keysV2 })
+  out.summary.allTabs = titles.filter((t) => !String(t).includes('::')).map(String) // все листы таблицы — для выбора, какие брать
+  return out
 }
 
 /**
@@ -467,6 +471,20 @@ export function mergeMatching(a, b, restaurantNames) {
     restaurantNames: replaceScoped(a.restaurantNames ?? {}, b.restaurantNames ?? {}),
     tabTitles: replaceScoped(a.tabTitles ?? {}, b.tabTitles ?? {}),
   }
+}
+
+/** Листы таблицы, которые по умолчанию не берём: служебные («ФО сверка» — сверка свежих овощей/фруктов, «iiko цены ФО» — выгрузка цен iiko) и общие справочники «Сырье F» (список поставщиков/товаров, не ресторан). Меняется в Настройки iiko → «Листы таблицы». */
+export const DEFAULT_EXCLUDED_TABS = ['ФО сверка', 'iiko цены ФО', 'Сырье F Алматы', 'Сырье F Астана']
+
+/** Матрица без указанных листов (чтение): их строки, подписи и названия в списках вкладок убираются. Исходные файлы не меняются. */
+export function stripTabs(m, excluded) {
+  if (!m || !excluded?.length) return m
+  const skip = new Set(excluded.map(norm))
+  const keep = (map) => map && Object.fromEntries(Object.entries(map).filter(([k]) => !skip.has(k.split('::')[0])))
+  const out = { ...m }
+  for (const f of ['supplierAlias', 'planPairs', 'planPairsByPack', 'productLabels', 'noPriceExact', 'ambiguous', 'supplierOrder', 'noIikoName', 'restaurantNames', 'tabTitles']) if (m[f]) out[f] = keep(m[f])
+  if (m.tabsByTarget) out.tabsByTarget = Object.fromEntries(Object.entries(m.tabsByTarget).map(([t, list]) => [t, (list ?? []).filter((n) => !skip.has(norm(n)))]))
+  return out
 }
 
 /** Срез матрицы только по указанным вкладкам/ресторанам (обратное к mergeMatching): для снимка цен одного ресторана. */

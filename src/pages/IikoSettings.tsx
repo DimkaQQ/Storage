@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -85,6 +85,21 @@ export default function IikoSettings() {
   }
   const oneTabInfo = sheetTabs.find((t) => t.tab === oneTab)
   const tabMatchesRestaurant = !!oneRest && !!oneTab && norm(oneTab) === norm(matchRestaurant(edits, oneRest))
+  // «Листы таблицы»: какие листы берём. По умолчанию не берём служебные и общие справочники «Сырье F»; можно включить/выключить любой
+  const excludedTabs = form?.excludedTabs ?? DEFAULT_EXCLUDED_TABS
+  const isTabExcluded = (tab: string) => excludedTabs.some((x) => norm(x) === norm(tab))
+  const knownTabs = [
+    ...(matching?.allTabsByTarget?.almaty ?? []).map((tab) => ({ tab, city: 'Алматы' })),
+    ...(matching?.allTabsByTarget?.astana ?? []).map((tab) => ({ tab, city: 'Астана' })),
+  ]
+  const tabList = knownTabs.length ? knownTabs : [...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab, city: 'Алматы' })), ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab, city: 'Астана' })), ...excludedTabs.map((tab) => ({ tab, city: '' }))]
+    .filter((x, i, arr) => arr.findIndex((y) => norm(y.tab) === norm(x.tab)) === i)
+  const toggleTab = async (tab: string) => {
+    if (!form) return
+    const next = isTabExcluded(tab) ? excludedTabs.filter((x) => norm(x) !== norm(tab)) : [...excludedTabs, tab]
+    const r = await saveSettings({ ...form, excludedTabs: next })
+    if (r) { setForm(r); setSaved(true); await refreshMatrix() }
+  }
   const doSyncOne = async () => {
     if (!form || !oneTabInfo || !matrixPeriod) return
     setOneSyncing(true); setOneResult(null)
@@ -451,6 +466,23 @@ export default function IikoSettings() {
               </div>
             )}
             <div className="text-[11px] text-fg-500">Для сверки берутся цены, действовавшие в первый день периода: снимок этого периода, иначе самый узкий покрывающий, иначе ближайший более ранний.</div>
+          </div>
+        )}
+        {tabList.length > 0 && (
+          <div className="space-y-1.5 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
+            <div className="text-xs font-medium text-fg-300">Листы таблицы — какие берём <span className="font-normal text-fg-500">(серым — не берём; служебные и «Сырье F» выключены по умолчанию)</span></div>
+            <div className="flex flex-wrap gap-1.5">
+              {tabList.map((x) => {
+                const off = isTabExcluded(x.tab)
+                return (
+                  <button key={x.tab} onClick={() => toggleTab(x.tab)} title={off ? 'Не берётся. Нажмите, чтобы взять (потом «Обновить»)' : 'Берётся. Нажмите, чтобы не брать'}
+                    className={`chip ${off ? 'border-ink-700 bg-ink-900/40 text-fg-600 line-through' : 'border-brand-500/40 bg-brand-500/10 text-fg-100'}`}>
+                    {off ? '✕' : '✓'} {x.tab}{x.city ? ` · ${x.city}` : ''}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-[11px] text-fg-500">Выключенный лист сразу пропадает из программы. Включили лист — нажмите «Обновить», чтобы его цены загрузились.</div>
           </div>
         )}
         <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
