@@ -403,7 +403,8 @@ export function freezePastMonthsOnce(orgId) {
     saveMatrixSnapshot(orgId, period, base)
     frozen.push(period)
   }
-  saveSettings(orgId, { matrixHistoryFrozen: true })
+  // нет ни одного загруженного месяца — фиксировать нечего, флаг не ставим (иначе поздние месяцы так и остались бы без снимка)
+  if (frozen.length || listDatasetPeriods(orgId).some((d) => MONTH_RE.test(d.period))) saveSettings(orgId, { matrixHistoryFrozen: true })
   return { frozen }
 }
 

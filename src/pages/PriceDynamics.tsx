@@ -45,21 +45,23 @@ export default function PriceDynamics() {
 
   useEffect(() => {
     let dead = false
-    if (!chosen.length) { setLoaded([]); return }
+    if (!chosen.length) { setLoaded([]); setLoading(false); setError(null); return }
     setLoading(true); setError(null)
     ;(async () => {
       const out: Loaded[] = []
       let failed = 0
-      for (const p of chosen) {
-        let hit = cache.current.get(p)
-        if (!hit) {
-          const [data, matching] = await Promise.all([fetchDataset(p), fetchMatching(p)])
-          if (!data || !data.restaurants) { failed++; continue }
-          hit = { period: p, data, matching }
-          cache.current.set(p, hit)
+      try {
+        for (const p of chosen) {
+          let hit = cache.current.get(p)
+          if (!hit) {
+            const [data, matching] = await Promise.all([fetchDataset(p), fetchMatching(p)])
+            if (!data || !data.restaurants) { failed++; continue }
+            hit = { period: p, data, matching }
+            cache.current.set(p, hit)
+          }
+          out.push(hit)
         }
-        out.push(hit)
-      }
+      } catch { failed++ }
       if (dead) return
       setLoaded(out); setLoading(false)
       if (failed) setError(`Не удалось загрузить периодов: ${failed}`)
@@ -68,10 +70,10 @@ export default function PriceDynamics() {
   }, [chosen])
 
   // строки сверки по каждому периоду: те же связи, привязки и план-цены, что в «Проверке цен», но для СВОЕГО периода
-  const periodRows: PeriodRows[] = useMemo(() => loaded.map((l) => {
-    const parsed = parseDataset(l.data)
-    return { period: l.period, rows: computeRows(parsed.base, edits, l.matching ?? bundledMatching(l.period), parsed.restaurants, manual) }
-  }), [loaded, edits, manual])
+  const parsedList = useMemo(() => loaded.map((l) => ({ l, parsed: parseDataset(l.data) })), [loaded])
+  const periodRows: PeriodRows[] = useMemo(() => parsedList.map(({ l, parsed }) => (
+    { period: l.period, rows: computeRows(parsed.base, edits, l.matching ?? bundledMatching(l.period), parsed.restaurants, manual) }
+  )), [parsedList, edits, manual])
 
   const products = useMemo(() => productsIn(periodRows), [periodRows])
   const restaurantNames = useMemo(() => {
@@ -90,11 +92,11 @@ export default function PriceDynamics() {
 
   const chartData = useMemo(() => {
     const keys = new Map<string, any>()
-    for (const s of series) for (const p of s.points) {
+    series.forEach((s, i) => { for (const p of s.points) {
       const row = keys.get(p.key) ?? { key: p.key, label: p.label }
-      row[s.name] = Math.round(p.fact * 100) / 100
+      row['s' + i] = Math.round(p.fact * 100) / 100
       keys.set(p.key, row)
-    }
+    } })
     if (planSeries) for (const p of planSeries.points) { const row = keys.get(p.key); if (row && p.plan != null) row.__plan = Math.round(p.plan * 100) / 100 }
     return [...keys.values()].sort((a, b) => a.key.localeCompare(b.key))
   }, [series, planSeries])
@@ -102,6 +104,8 @@ export default function PriceDynamics() {
 
   const setPreset = (days: number) => { const end = to || latestEnd; if (end) { setTo(end); setFrom(addDays(end, -days)) } }
   const noData = !loading && chosen.length === 0
+  // периоды берутся целиком: если период шире выбранных дат, цена за окно считается по всему периоду — предупреждаем
+  const wider = chosen.filter((p) => { const sp = periodSpan(p); return sp.start < from || sp.end > to })
 
   return (
     <div className="space-y-5">
@@ -127,6 +131,7 @@ export default function PriceDynamics() {
         </div>
       </div>
 
+      {wider.length > 0 && !loading && <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">Загруженные периоды шире выбранных дат ({wider.join(', ')}): цена считается по периоду целиком. Чтобы увидеть меньший отрезок, загрузите его отдельно в разделе «Обновление».</div>}
       {error && <div className="rounded-lg border border-bad/30 bg-bad/10 px-4 py-2 text-xs text-bad">{error}</div>}
       {loading && <EmptyHint>Загружаю периоды…</EmptyHint>}
       {noData && <EmptyHint>За выбранные даты нет загруженных периодов. Загрузите данные в разделе «Обновление».</EmptyHint>}
@@ -143,7 +148,7 @@ export default function PriceDynamics() {
                   <XAxis dataKey="label" stroke={C.axis} tick={{ fontSize: 11 }} />
                   <YAxis stroke={C.axis} tick={{ fontSize: 11 }} width={64} domain={['auto', 'auto']} tickFormatter={(v) => Math.round(v).toLocaleString('ru-RU')} />
                   <Tooltip content={<ChartTip valueFormatter={(v: number) => money(v)} />} />
-                  {lines.map((s, i) => <Line key={s.name} type="monotone" dataKey={s.name} name={labelOf(s.name)} stroke={SERIES[i % SERIES.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />)}
+                  {lines.map((s, i) => <Line key={s.name} type="monotone" dataKey={'s' + i} name={labelOf(s.name)} stroke={SERIES[i % SERIES.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />)}
                   {hasPlan && <Line type="monotone" dataKey="__plan" name={multi ? 'План (по выборке)' : 'План'} stroke={C.warn} strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />}
                 </LineChart>
               </ResponsiveContainer>
