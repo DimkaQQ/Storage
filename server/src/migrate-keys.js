@@ -10,9 +10,9 @@
  * После --apply в настройках организации ставится matrixKeysV2: следующие синки матрицы читают только C, I и H.
  * Идемпотентно: повторный запуск ничего не делает, пока флаг стоит.
  */
-import { cpSync, mkdirSync } from 'node:fs'
+import { cpSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   listOrgs, getSettings, saveSettings, getMatrix, saveMatrix,
   listMatrixSnapshots, getMatrixSnapshot, saveMatrixSnapshot,
@@ -44,10 +44,11 @@ export function newLinkTarget(link, oldIndex) {
   return { ambiguous: labels }
 }
 
+let backupDir = ''
 function migrateOrg(org) {
   const orgId = org.id
   const settings = getSettings(orgId)
-  const rep = { org: org.name, id: orgId, matrices: 0, keysBefore: 0, keysAfter: 0, collisions: [], noLabel: 0, links: { total: 0, moved: 0, kept: 0, ambiguous: [] }, status: 'ok' }
+  const rep = { org: org.name, id: orgId, matrices: 0, keysBefore: 0, keysAfter: 0, collisions: [], noLabel: 0, noLabelKeys: [], links: { total: 0, moved: 0, kept: 0, ambiguous: [] }, status: 'ok' }
   if (settings.matrixKeysV2) { rep.status = 'уже перенесено'; return rep }
   if (!settings.manualLinks && !FORCE) { rep.status = 'ПРОПУЩЕНО: ручной режим связей не включён (зайдите админом в «Справочники», потом повторите; или --force)'; return rep }
 
@@ -58,13 +59,20 @@ function migrateOrg(org) {
   for (const t of listMatrixTabSnapshots(orgId)) { const f = getMatrixTabSnapshot(orgId, t.tab, t.period); if (f?.slice) items.push({ kind: 'tab', tab: t.tab, period: t.period, m: f.slice }) }
 
   // индекс для привязок: «ресторан::поставщик::название E» -> какие названия I и фасовки у этих строк
-  const oldIndex = new Map()
-  for (const it of items) for (const key of keysOf(it.m)) {
-    const parts = key.split('::')
-    const k = parts.slice(0, 3).join('::')
-    if (!oldIndex.has(k)) oldIndex.set(k, [])
-    oldIndex.get(k).push({ label: it.m.productLabels?.[key] ? String(it.m.productLabels[key]) : '', pack: parts[3] || '' })
+  // Сначала смотрим в ТЕКУЩУЮ общую матрицу; в снимки прошлых периодов — только если там такой строки нет (названия I со временем меняют)
+  const buildIndex = (list) => {
+    const idx = new Map()
+    for (const it of list) for (const key of keysOf(it.m)) {
+      const parts = key.split('::')
+      const k = parts.slice(0, 3).join('::')
+      if (!idx.has(k)) idx.set(k, [])
+      idx.get(k).push({ label: it.m.productLabels?.[key] ? String(it.m.productLabels[key]) : '', pack: parts[3] || '' })
+    }
+    return idx
   }
+  const mainIndex = buildIndex(items.filter((i) => i.kind === 'main'))
+  const allIndex = buildIndex(items)
+  const oldIndex = { get: (k) => mainIndex.get(k) ?? allIndex.get(k) }
 
   const collisionSeen = new Set()
   for (const it of items) {
@@ -72,6 +80,7 @@ function migrateOrg(org) {
     const r = remapMatchingToV2(it.m)
     it.out = r.matching
     rep.matrices++; rep.keysBefore += before; rep.keysAfter += keysOf(r.matching).length; rep.noLabel += r.noLabel
+    if (it.kind === 'main') for (const k of keysOf(it.m)) if (!it.m.productLabels?.[k]) rep.noLabelKeys.push(k)
     for (const c of r.collisions) if (!collisionSeen.has(c.key)) { collisionSeen.add(c.key); rep.collisions.push(c) }
   }
 
@@ -86,24 +95,35 @@ function migrateOrg(org) {
   }
 
   if (APPLY) {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-')
-    const backup = join(DATA_DIR, `_backup-keys-${ts}`)
-    mkdirSync(backup, { recursive: true })
-    cpSync(join(DATA_DIR, 'orgs', orgId), join(backup, 'orgs', orgId), { recursive: true })
-    editsDb.backupDbTo(join(backup, 'edits.db'))
-    rep.backup = backup
-    for (const it of items) {
-      if (it.kind === 'main') saveMatrix(orgId, it.out)
-      else if (it.kind === 'snap') saveMatrixSnapshot(orgId, it.period, it.out)
-      else saveMatrixTabSnapshot(orgId, it.tab, it.period, it.out)
+    try {
+      // порядок важен: сначала привязки (по ним нужен СТАРЫЙ индекс), потом матрицы, флаг — последним; при сбое повтор безопасен
+      editsDb.runInTransaction(() => { for (const c of changes) editsDb.updateProductLinkTarget(orgId, c.key, c.target) })
+      for (const it of items) {
+        if (it.kind === 'main') saveMatrix(orgId, it.out)
+        else if (it.kind === 'snap') saveMatrixSnapshot(orgId, it.period, it.out)
+        else saveMatrixTabSnapshot(orgId, it.tab, it.period, it.out)
+      }
+      saveSettings(orgId, { matrixKeysV2: true })
+    } catch (e) {
+      rep.status = `ОШИБКА при переносе: ${e?.message || e}. Флаг не поставлен. Повторите команду (она безопасна) или верните данные из копии ${backupDir}`
     }
-    editsDb.runInTransaction(() => { for (const c of changes) editsDb.updateProductLinkTarget(orgId, c.key, c.target) })
-    saveSettings(orgId, { matrixKeysV2: true })
   }
   return rep
 }
 
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main()
+function main() {
 const orgs = listOrgs().filter((o) => !ONLY || o.id === ONLY)
+if (APPLY) {
+  // одна копия на запуск, ДО любых записей: все организации, база правок и список организаций
+  backupDir = join(DATA_DIR, `_backup-keys-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+  mkdirSync(backupDir, { recursive: true })
+  cpSync(join(DATA_DIR, 'orgs'), join(backupDir, 'orgs'), { recursive: true })
+  for (const f of ['orgs.json', 'users.json']) if (existsSync(join(DATA_DIR, f))) cpSync(join(DATA_DIR, f), join(backupDir, f))
+  editsDb.backupDbTo(join(backupDir, 'edits.db'))
+  console.log(`Копия данных до переноса: ${backupDir}`)
+  console.log('ВАЖНО: на время переноса никто не должен нажимать «Обновить» матрицу (лучше запускать, когда в программе никого нет).')
+}
 console.log(APPLY ? '=== ПЕРЕНОС (--apply) ===' : '=== ПРОБНЫЙ ПРОГОН (ничего не меняется; для переноса добавьте --apply) ===')
 for (const org of orgs) {
   const r = migrateOrg(org)
@@ -113,6 +133,7 @@ for (const org of orgs) {
     console.log(`  привязок товаров: всего ${r.links.total}, будут перенесены ${r.links.moved}, не трогаем ${r.links.kept}, неоднозначных ${r.links.ambiguous.length}`)
     if (r.collisions.length) console.log(`  СЛИЯНИЕ строк с одинаковым названием (I) у одного поставщика: ${r.collisions.length} (цены останутся вариантами):\n` + r.collisions.slice(0, 20).map((c) => `    ${c.key}  ×${c.rows}  цены: ${c.prices.join(', ')}`).join('\n'))
     if (r.links.ambiguous.length) console.log('  Неоднозначные привязки (останутся как есть — привяжите вручную в Справочниках):\n' + r.links.ambiguous.slice(0, 20).map((a) => `    ${a.key} → ${a.variants.join(' | ')}`).join('\n'))
-    if (r.backup) console.log(`  Копия данных до переноса: ${r.backup}`)
+    if (r.noLabelKeys.length) console.log(`  ВНИМАНИЕ: ${r.noLabelKeys.length} строк матрицы без названия (колонка I) — их ключ пока из E. Впишите название в I в таблице, ДО удаления колонки E, иначе строки пропадут:\n` + r.noLabelKeys.slice(0, 10).map((k) => `    ${k}`).join('\n'))
   }
+}
 }

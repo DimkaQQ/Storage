@@ -254,7 +254,7 @@ export function updateProductLinkTarget(orgId, key, targetProduct) {
   db.prepare('UPDATE product_links SET target_product=? WHERE org_id=? AND key=?').run(String(targetProduct), orgId, key)
 }
 /** Консистентная копия базы правок (VACUUM INTO) — для бэкапа перед миграцией. */
-export function backupDbTo(file) { db.exec(`VACUUM INTO '${String(file).replace(/'/g, "''")}'`) }
+export function backupDbTo(file) { db.prepare('VACUUM INTO ?').run(String(file)) }
 export const runInTransaction = (fn) => tx(fn)
 
 /** value: { restaurant, rawSupplier, canon } — «это название поставщика из iiko в этой точке = вот этот поставщик из матрицы»; null — снять. */
