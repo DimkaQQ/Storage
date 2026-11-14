@@ -28,6 +28,7 @@ export default function PriceDynamics() {
   const [to, setTo] = useState('')
   const [from, setFrom] = useState('')
   const [gran, setGran] = useState<Granularity>('month')
+  const [showChart, setShowChart] = useState(false) // график есть, но по умолчанию выключен — основной вид это таблица «рестораны × даты»
   const [scope, setScope] = useState<Set<string>>(new Set())
   const [product, setProduct] = useState('')
   const [loaded, setLoaded] = useState<Loaded[]>([])
@@ -108,6 +109,11 @@ export default function PriceDynamics() {
     return [...keys.values()].sort((a, b) => a.key.localeCompare(b.key))
   }, [series, planSeries])
   const hasPlan = chartData.some((r) => r.__plan != null)
+  const pivotCols = useMemo(() => {
+    const m = new Map<string, string>()
+    series.forEach((srs) => srs.points.forEach((pt) => m.set(pt.key, pt.label)))
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [series])
 
   const setPreset = (days: number) => { const end = to || latestEnd; if (end) { autoWindow.current = false; setTo(end); setFrom(addDays(end, -days)) } }
   const noData = !loading && chosen.length === 0
@@ -147,7 +153,30 @@ export default function PriceDynamics() {
 
       {!loading && product && series.length > 0 && (
         <>
-          <Section title={product} subtitle={`Закупочная цена за единицу измерения, ₸ · периодов в выборке: ${chosen.length}${hasPlan ? ' · пунктиром — плановая цена матрицы за тот же период' : ''}`}>
+          <Section
+            title={product}
+            subtitle={`Закупочная цена за единицу измерения, ₸ · периодов в выборке: ${chosen.length} · красным — цена выросла к предыдущей дате, зелёным — снизилась`}
+            right={<button onClick={() => setShowChart((v) => !v)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">{showChart ? 'Скрыть график' : 'Показать график'}</button>}
+          >
+            <div className="overflow-x-auto"><table className="w-full text-sm">
+              <thead><tr className="text-left text-xs text-fg-500"><th className="py-2 pr-3">Ресторан</th>{pivotCols.map(([k, label]) => <th key={k} className="pr-3 text-right whitespace-nowrap">{label}</th>)}</tr></thead>
+              <tbody>{series.map((srs) => (
+                <tr key={srs.name} className={`border-t border-ink-800 text-fg-200 ${srs === totalSeries ? 'font-medium' : ''}`}>
+                  <td className="py-2 pr-3">{labelOf(srs.name)}</td>
+                  {pivotCols.map(([k], ci) => {
+                    const pt = srs.points.find((x) => x.key === k)
+                    if (!pt) return <td key={k} className="pr-3 text-right text-fg-600">—</td>
+                    let prev: number | null = null
+                    for (let j = ci - 1; j >= 0 && prev == null; j--) prev = srs.points.find((x) => x.key === pivotCols[j][0])?.fact ?? null
+                    const d = prev != null ? pt.fact - prev : 0
+                    return <td key={k} title={`${pt.covers}${pt.plan != null ? ` · план ${money(pt.plan)}` : ''}`} className={`pr-3 text-right tabular-nums ${d > 0.5 ? 'text-bad' : d < -0.5 ? 'text-good' : ''}`}>{money(pt.fact)}</td>
+                  })}
+                </tr>))}</tbody>
+            </table></div>
+          </Section>
+
+          {showChart && (
+          <Section title="График" subtitle={`Закупочная цена за единицу измерения, ₸ · периодов в выборке: ${chosen.length}${hasPlan ? ' · пунктиром — плановая цена матрицы за тот же период' : ''}`}>
             <div className="h-80 w-full">
               <ResponsiveContainer>
                 <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
@@ -162,6 +191,7 @@ export default function PriceDynamics() {
             </div>
             {multi && <div className="mt-2 flex flex-wrap gap-3 text-xs text-fg-400">{lines.map((s, i) => <span key={s.name} className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: SERIES[i % SERIES.length] }} />{labelOf(s.name)}</span>)}</div>}
           </Section>
+          )}
 
           <Section title="Сводка за период" subtitle="Средняя — взвешенная по количеству; изменение — последняя цена к первой">
             <div className="overflow-x-auto"><table className="w-full text-sm">
@@ -176,6 +206,8 @@ export default function PriceDynamics() {
             </table></div>
           </Section>
 
+          <details className="space-y-5">
+            <summary className="cursor-pointer px-1 text-sm text-fg-300 hover:text-fg-100">Подробно по каждому ресторану (изменение к предыдущему, отклонение от плана)</summary>
           {series.map((s) => (
             <Section key={s.name} title={labelOf(s.name)} subtitle={s === totalSeries ? 'Все выбранные рестораны вместе' : undefined}>
               <div className="overflow-x-auto"><table className="w-full text-sm">
@@ -199,6 +231,7 @@ export default function PriceDynamics() {
               </table></div>
             </Section>
           ))}
+          </details>
           <p className="px-1 text-[11px] text-fg-600">Рост цены выделен красным (платим больше), снижение — зелёным. Откл. от плана = факт − план. Плановая цена берётся из матрицы, действовавшей в первый день каждого периода. Периоды в выборке не пересекаются: если за один месяц загружены и месяц, и неделя внутри него, берётся более полный период.</p>
         </>
       )}
