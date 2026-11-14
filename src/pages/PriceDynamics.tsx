@@ -35,11 +35,18 @@ export default function PriceDynamics() {
   const [error, setError] = useState<string | null>(null)
   const cache = useRef(new Map<string, Loaded>())
 
-  // окно по умолчанию — последние ~3 месяца от самой свежей загруженной даты
+  // окно по умолчанию — последние ~3 месяца, но целыми загруженными периодами: начало сдвигаем к началу самого раннего периода,
+  // который попадает в окно (иначе месяц обрезается и показывается предупреждение «период шире выбранных дат»).
+  // Пока человек сам не менял даты, окно пересчитывается при каждом изменении списка периодов.
+  const autoWindow = useRef(true)
   useEffect(() => {
-    if (!latestEnd || to) return
-    setTo(latestEnd); setFrom(addDays(latestEnd, -89))
-  }, [latestEnd, to])
+    if (!latestEnd || !autoWindow.current) return
+    const cut = addDays(latestEnd, -89)
+    const starts = allPeriods.filter((p) => periodSpan(p).end >= cut).map((p) => periodSpan(p).start).sort()
+    setTo(latestEnd); setFrom(starts[0] && starts[0] < cut ? starts[0] : cut)
+  }, [latestEnd, allPeriods])
+  const userFrom = (v: string) => { autoWindow.current = false; setFrom(v) }
+  const userTo = (v: string) => { autoWindow.current = false; setTo(v) }
 
   const chosen = useMemo(() => (from && to && from <= to ? pickPeriods(allPeriods, from, to) : []), [allPeriods, from, to])
 
@@ -102,7 +109,7 @@ export default function PriceDynamics() {
   }, [series, planSeries])
   const hasPlan = chartData.some((r) => r.__plan != null)
 
-  const setPreset = (days: number) => { const end = to || latestEnd; if (end) { setTo(end); setFrom(addDays(end, -days)) } }
+  const setPreset = (days: number) => { const end = to || latestEnd; if (end) { autoWindow.current = false; setTo(end); setFrom(addDays(end, -days)) } }
   const noData = !loading && chosen.length === 0
   // периоды берутся целиком: если период шире выбранных дат, цена за окно считается по всему периоду — предупреждаем
   const wider = chosen.filter((p) => { const sp = periodSpan(p); return sp.start < from || sp.end > to })
@@ -118,10 +125,10 @@ export default function PriceDynamics() {
           <div className="mt-1"><MultiSelectFilter allLabel="Вся сеть" options={restaurantNames.map((n) => ({ key: n, label: venueLabel(n) }))} selected={scope} onChange={setScope} /></div>
         </div>
         <label className="block text-xs text-fg-500">С
-          <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="mt-1 block rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-fg-100 outline-none focus:border-brand-500" />
+          <input type="date" value={from} max={to || undefined} onChange={(e) => userFrom(e.target.value)} className="mt-1 block rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-fg-100 outline-none focus:border-brand-500" />
         </label>
         <label className="block text-xs text-fg-500">По
-          <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="mt-1 block rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-fg-100 outline-none focus:border-brand-500" />
+          <input type="date" value={to} min={from || undefined} onChange={(e) => userTo(e.target.value)} className="mt-1 block rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-fg-100 outline-none focus:border-brand-500" />
         </label>
         <div className="flex gap-1.5">
           {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">{p.label}</button>)}

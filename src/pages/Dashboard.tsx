@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { PieChart, Pie, ResponsiveContainer, Tooltip, Cell } from 'recharts'
-import { Row, summarize, byRestaurant, fmt, money, signedMoney, pct, norm, STATUS_META, Status } from '../lib/data'
+import { Row, summarize, byRestaurant, fmt, money, signedMoney, pct, norm, unitsLookIncomparable, STATUS_META, Status } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import StatCard from '../components/StatCard'
 import { Section } from '../components/ui'
@@ -35,7 +35,7 @@ export default function Dashboard({ rows, onNav }: { rows: Row[]; onNav: (p: str
   const perRest = useMemo(
     () => byRestaurant(rows).map((r) => {
       const rawItems = r.rows
-        .filter((x) => x.unit != null && !x.isTotalRow && x.status === 'wrongSupplier' && x.designatedPlan != null)
+        .filter((x) => x.unit != null && !x.isTotalRow && x.status === 'wrongSupplier' && x.designatedPlan != null && !unitsLookIncomparable(x.designatedPlan, x.unit as number))
         .map((x) => {
           const unit = x.unit as number, planUnit = x.designatedPlan as number
           const fact = x.qty * unit, plan = x.qty * planUnit

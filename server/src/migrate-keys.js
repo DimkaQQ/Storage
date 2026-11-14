@@ -87,17 +87,38 @@ function migrateOrg(org) {
   const links = editsDb.listProductLinksRaw(orgId)
   rep.links.total = links.length
   const changes = []
+  const adds = [] // новые привязки «по фасовке»: в старой матрице фасовка (F) = фасовка из iiko, в v2 её в ключе больше нет
+  const haveKeys = new Set(links.map((l) => l.key))
   for (const l of links) {
     const r = newLinkTarget(l, oldIndex)
     if (r.target && r.target !== l.targetProduct) { changes.push({ key: l.key, target: r.target }); rep.links.moved++ }
     else if (r.ambiguous) rep.links.ambiguous.push({ key: l.key, variants: r.ambiguous })
     else rep.links.kept++
+    // Плоская привязка к названию, у которого в старой матрице несколько строк по фасовкам: добавляем привязку на каждую
+    // фасовку (закупка с этой фасовкой попадает ровно в свою строку, как раньше). Плоскую оставляем как есть.
+    if (l.targetProduct && !l.pack) {
+      const [rest, sup, iiko] = String(l.key).split('::')
+      const hits = oldIndex.get(`${rest}::${sup}::${norm(l.targetProduct)}`) ?? []
+      const byPackLabel = new Map()
+      for (const h of hits) if (h.pack && h.label) byPackLabel.set(h.pack, [...(byPackLabel.get(h.pack) ?? []), h.label])
+      for (const [pk, labels] of byPackLabel) {
+        const uniq = [...new Set(labels)]
+        const nk = `${rest}::${sup}::${iiko}::${pk}`
+        if (uniq.length !== 1 || haveKeys.has(nk)) continue
+        haveKeys.add(nk)
+        adds.push({ key: nk, value: { targetProduct: uniq[0], supplier: l.supplier, rawProduct: l.rawProduct, pack: pk, restaurant: l.restaurant } })
+      }
+    }
   }
+  rep.links.added = adds.length
 
   if (APPLY) {
     try {
       // порядок важен: сначала привязки (по ним нужен СТАРЫЙ индекс), потом матрицы, флаг — последним; при сбое повтор безопасен
-      editsDb.runInTransaction(() => { for (const c of changes) editsDb.updateProductLinkTarget(orgId, c.key, c.target) })
+      editsDb.runInTransaction(() => {
+        for (const c of changes) editsDb.updateProductLinkTarget(orgId, c.key, c.target)
+        for (const a of adds) editsDb.setProductLink(orgId, a.key, a.value)
+      })
       for (const it of items) {
         if (it.kind === 'main') saveMatrix(orgId, it.out)
         else if (it.kind === 'snap') saveMatrixSnapshot(orgId, it.period, it.out)
@@ -130,7 +151,7 @@ for (const org of orgs) {
   console.log(`\nОрганизация «${r.org}» (${r.id}): ${r.status}`)
   if (r.matrices) {
     console.log(`  матриц (общая + снимки + рестораны): ${r.matrices}; строк было ${r.keysBefore}, стало ${r.keysAfter}; без названия (I): ${r.noLabel}`)
-    console.log(`  привязок товаров: всего ${r.links.total}, будут перенесены ${r.links.moved}, не трогаем ${r.links.kept}, неоднозначных ${r.links.ambiguous.length}`)
+    console.log(`  привязок товаров: всего ${r.links.total}, будут перенесены ${r.links.moved}, не трогаем ${r.links.kept}, неоднозначных ${r.links.ambiguous.length}, добавлено по фасовкам ${r.links.added ?? 0}`)
     if (r.collisions.length) console.log(`  СЛИЯНИЕ строк с одинаковым названием (I) у одного поставщика: ${r.collisions.length} (цены останутся вариантами):\n` + r.collisions.slice(0, 20).map((c) => `    ${c.key}  ×${c.rows}  цены: ${c.prices.join(', ')}`).join('\n'))
     if (r.links.ambiguous.length) console.log('  Неоднозначные привязки (останутся как есть — привяжите вручную в Справочниках):\n' + r.links.ambiguous.slice(0, 20).map((a) => `    ${a.key} → ${a.variants.join(' | ')}`).join('\n'))
     if (r.noLabelKeys.length) console.log(`  ВНИМАНИЕ: ${r.noLabelKeys.length} строк матрицы без названия (колонка I) — их ключ пока из E. Впишите название в I в таблице, ДО удаления колонки E, иначе строки пропадут:\n` + r.noLabelKeys.slice(0, 10).map((k) => `    ${k}`).join('\n'))

@@ -556,10 +556,16 @@ const CURATED_UNIT_PRICE_FIXES: Record<string, number> = {
   'ип азык жасулан ип azik trade::индейка голень шт': 2200 * 0.525,
   'ип добришкин нс бакалея ип коженкова::индейка голень': 1900 * 0.525,
 }
+/** Во сколько раз цена матрицы и цена закупки могут расходиться, пока считаем их сопоставимыми (иначе — вероятно, разные единицы). */
+const INCOMPARABLE_RATIO = 4
+export const unitsLookIncomparable = (plan: number, unit: number): boolean => unit > 0 && (plan / unit > INCOMPARABLE_RATIO || plan / unit < 1 / INCOMPARABLE_RATIO)
+
 /** price, с поправкой из CURATED_UNIT_PRICE_FIXES, если она есть для этой пары. */
-function fixedPrice(price: number | null | undefined, supplierNorm: string, productNorm: string): number | null {
-  const fix = CURATED_UNIT_PRICE_FIXES[`${supplierNorm}::${productNorm}`]
-  if (fix != null) return fix
+function fixedPrice(price: number | null | undefined, supplierNorm: string, productNorm: string | string[]): number | null {
+  for (const name of Array.isArray(productNorm) ? productNorm : [productNorm]) {
+    const fix = CURATED_UNIT_PRICE_FIXES[`${supplierNorm}::${name}`]
+    if (fix != null) return fix
+  }
   return price ?? null
 }
 
@@ -592,29 +598,15 @@ interface DesignatedIndex {
 // он неизменяемый (bundledMatching() всегда возвращает тот же объект для
 // того же периода), так что кэш безопасен и не устаревает молча.
 const designatedIndexCache = new WeakMap<MatchingTable, DesignatedIndex>()
-// Ручной режим: «кто назначен на товар» считаем ТОЛЬКО по привязкам из Справочников (а не по тексту колонки E матрицы) —
-// строка поставщика без привязки в Справочниках не считается назначенной. Кэши — по ссылке на productLinks / набор пар.
-const linkedPairsCache = new WeakMap<object, Set<string>>()
-const designatedLinkedCache = new WeakMap<MatchingTable, WeakMap<Set<string>, DesignatedIndex>>()
-function linkedPairsOf(links: Record<string, ProductLink>): Set<string> {
-  const hit = linkedPairsCache.get(links)
-  if (hit) return hit
-  const out = new Set<string>()
-  for (const [key, l] of Object.entries(links)) {
-    if (!l.targetProduct) continue // пустая цель — отвязка
-    const [restaurant, supplier] = key.split('::')
-    out.add(`${restaurant}::${supplier}::${norm(l.targetProduct)}`)
-  }
-  linkedPairsCache.set(links, out)
-  return out
-}
-const knownFlatIndexCache = new WeakMap<MatchingTable, Set<string>>()
+// Ручной режим: «кому назначен товар» считается ТОЛЬКО по привязкам из Справочников и по ЕГО ЖЕ названию из iiko
+// (rawProduct привязки), а не по тексту названия строки в матрице: так назначение не зависит от того, как строка
+// названа в таблице (колонка E или I — ключи v2). Привязка учитывается, только если строка матрицы, на которую она
+// указывает, реально есть (с ценой или точной связью без цены).
+const designatedLinkedCache = new WeakMap<MatchingTable, WeakMap<object, DesignatedIndex>>()
 
-function buildDesignatedIndex(matching: MatchingTable, linked?: Set<string>): DesignatedIndex {
-  const cached = linked ? designatedLinkedCache.get(matching)?.get(linked) : designatedIndexCache.get(matching)
+function buildDesignatedIndex(matching: MatchingTable, links?: Record<string, ProductLink>): DesignatedIndex {
+  const cached = links ? designatedLinkedCache.get(matching)?.get(links) : designatedIndexCache.get(matching)
   if (cached) return cached
-  // linked задан — в индекс попадают только строки матрицы, к которым есть привязка из Справочников
-  const isLinked = (restaurant: string, supplier: string, product: string) => !linked || linked.has(`${restaurant}::${supplier}::${product}`)
   const byPack = new Map<string, Set<string>>()
   const byProduct = new Map<string, Set<string>>()
   const byProductFlatOnly = new Map<string, Set<string>>()
@@ -625,17 +617,20 @@ function buildDesignatedIndex(matching: MatchingTable, linked?: Set<string>): De
     set.add(v)
     map.set(k, set)
   }
+  // автоматический режим (и демо): по названиям строк матрицы
+  const byName = !links
   for (const key of Object.keys(matching.planPairs)) {
     const [restaurant, supplier, product] = key.split('::')
-    if (!isLinked(restaurant, supplier, product)) continue
+    if (!byName) continue
     add(byProduct, `${restaurant}::${product}`, supplier)
     add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
   }
   for (const key of Object.keys(matching.planPairsByPack)) {
     const [restaurant, supplier, product, pack] = key.split('::')
-    if (!isLinked(restaurant, supplier, product)) continue
-    add(byProduct, `${restaurant}::${product}`, supplier)
-    add(byPack, `${restaurant}::${product}::${pack}`, supplier)
+    if (byName) {
+      add(byProduct, `${restaurant}::${product}`, supplier)
+      add(byPack, `${restaurant}::${product}::${pack}`, supplier)
+    }
     add(bySupplierProduct, `${restaurant}::${supplier}::${product}`, pack)
   }
   // Поставщик с точной iiko-привязкой, но без цены (см. noPriceExact в
@@ -647,20 +642,36 @@ function buildDesignatedIndex(matching: MatchingTable, linked?: Set<string>): De
   for (const key of Object.keys(matching.noPriceExact)) {
     const parts = key.split('::')
     const [restaurant, supplier, product, pack] = parts
-    if (!isLinked(restaurant, supplier, product)) continue
-    add(byProduct, `${restaurant}::${product}`, supplier)
+    if (byName) add(byProduct, `${restaurant}::${product}`, supplier)
     if (parts.length === 4) {
-      add(byPack, `${restaurant}::${product}::${pack}`, supplier)
+      if (byName) add(byPack, `${restaurant}::${product}::${pack}`, supplier)
       add(bySupplierProductNoPrice, `${restaurant}::${supplier}::${product}`, pack)
-    } else add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
+    } else if (byName) add(byProductFlatOnly, `${restaurant}::${product}`, supplier)
+  }
+  if (links) {
+    for (const [key, l] of Object.entries(links)) {
+      if (!l.targetProduct) continue // отвязка — никого не назначает
+      const [restaurant, supplier, iikoRaw] = key.split('::')
+      if (!restaurant || !supplier || !iikoRaw) continue
+      const iiko = norm(iikoRaw)
+      const pairKey = `${restaurant}::${supplier}::${norm(l.targetProduct)}`
+      const packs = [...(bySupplierProduct.get(pairKey) ?? []), ...(bySupplierProductNoPrice.get(pairKey) ?? [])]
+      const flat = matching.planPairs[pairKey] != null || matching.noPriceExact[pairKey] != null
+      if (!flat && !packs.length) continue // строки, на которую указывает привязка, в матрице нет
+      add(byProduct, `${restaurant}::${iiko}`, supplier)
+      if (flat) add(byProductFlatOnly, `${restaurant}::${iiko}`, supplier)
+      for (const pk of packs) add(byPack, `${restaurant}::${iiko}::${pk}`, supplier)
+    }
   }
   const result = { byPack, byProduct, byProductFlatOnly, bySupplierProduct, bySupplierProductNoPrice }
-  if (linked) {
-    const m = designatedLinkedCache.get(matching) ?? new WeakMap<Set<string>, DesignatedIndex>()
-    m.set(linked, result); designatedLinkedCache.set(matching, m)
+  if (links) {
+    const m = designatedLinkedCache.get(matching) ?? new WeakMap<object, DesignatedIndex>()
+    m.set(links, result); designatedLinkedCache.set(matching, m)
   } else designatedIndexCache.set(matching, result)
   return result
 }
+
+const knownFlatIndexCache = new WeakMap<MatchingTable, Set<string>>()
 
 /**
  * Пары товар+поставщик, для которых матрица ЯВНО подтверждает: под этим
@@ -1269,13 +1280,16 @@ function resolveRowPlan(b: BaseRow, edits: Edits, matching: MatchingTable, desig
   // совпадения по фасовке, а широкий byProduct даже не смотрели. Фасовка
   // должна сужать назначенных поставщиков только для реально
   // pack-sensitive товаров (isPackSensitive), как и везде в этой функции.
+  // Ручной режим: назначение ищем по названию из iiko (его же хранят привязки, см. buildDesignatedIndex); явная
+  // отвязка (пустая цель) — «не привязывать», никого не назначаем. Иначе — по названию строки матрицы (product).
+  const designatedName = matching.manual ? (productLink && !productLink.targetProduct ? DETACHED : norm(b.product0)) : product
   let designated: Set<string> | undefined
   if (isPackSensitive && pack) {
-    const packSpecific = designatedIndex.byPack.get(`${restaurant}::${product}::${pack}`)
-    const flatOnly = designatedIndex.byProductFlatOnly.get(`${restaurant}::${product}`)
+    const packSpecific = designatedIndex.byPack.get(`${restaurant}::${designatedName}::${pack}`)
+    const flatOnly = designatedIndex.byProductFlatOnly.get(`${restaurant}::${designatedName}`)
     if (packSpecific || flatOnly) designated = new Set([...(packSpecific ?? []), ...(flatOnly ?? [])])
   } else {
-    designated = designatedIndex.byProduct.get(`${restaurant}::${product}`)
+    designated = designatedIndex.byProduct.get(`${restaurant}::${designatedName}`)
   }
   const fixKeyIfAny = availableFasovki.length > 0 ? packFixKey : null
   if (designated && designated.size > 0) {
@@ -1472,7 +1486,49 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
     if (isExcludedPair(b.supplier0, b.product0) || isExcludedPair(canon, b.product0)) return false
     return true
   })
-  const designatedIndex = buildDesignatedIndex(matching, matching.manual ? linkedPairsOf(edits.productLinks) : undefined)
+  const designatedIndex = buildDesignatedIndex(matching, matching.manual ? edits.productLinks : undefined)
+  // Ручной режим: какие строки матрицы назначенный поставщик получил по привязкам для этого названия из iiko
+  // («ресторан::поставщик::название из iiko» → названия строк матрицы) — по ним ищем его план-цену
+  // «ресторан::поставщик::название iiko» → цели привязок: плоская (без фасовки) и по фасовкам
+  const linkTargetsByIiko = new Map<string, { flat: string[]; byPack: Map<string, string[]> }>()
+  if (matching.manual) {
+    for (const [k, l] of Object.entries(edits.productLinks)) {
+      if (!l.targetProduct) continue
+      const [r, sup, iikoRaw, pk] = k.split('::')
+      const kk = `${r}::${sup}::${norm(iikoRaw)}`
+      const e = linkTargetsByIiko.get(kk) ?? { flat: [], byPack: new Map<string, string[]>() }
+      if (pk) e.byPack.set(pk, [...(e.byPack.get(pk) ?? []), norm(l.targetProduct)])
+      else e.flat.push(norm(l.targetProduct))
+      linkTargetsByIiko.set(kk, e)
+    }
+  }
+  // План-цена назначенного поставщика s для этого товара. Ручной режим: по привязкам этого поставщика к названию iiko —
+  // сначала привязка на фасовку закупки; если у поставщика привязки только по другим фасовкам — цена несравнима и не берётся;
+  // иначе плоская привязка; запасной путь и автоматический режим — по тексту названия строки матрицы. Цена строки — по фасовке
+  // закупки, если она есть в ключе (старая матрица), иначе плоская (ключи v2).
+  const designatedPriceOf = (restaurant: string, s: string, product0: string, pack: string | null | undefined, iikoName: string): number | null => {
+    const iiko = norm(iikoName)
+    const priceOf = (t: string) => {
+      const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${t}::${pack}`] : null
+      // поправка ищется по названию строки матрицы и по названию из iiko (в ключах v2 название строки — из колонки I)
+      return fixedPrice(byPack ?? matching.planPairs[`${restaurant}::${s}::${t}`], s, [t, iiko])
+    }
+    const e = linkTargetsByIiko.get(`${restaurant}::${s}::${iiko}`)
+    if (e) {
+      const specific = pack ? e.byPack.get(pack) : undefined
+      if (specific) {
+        for (const t of specific) { const pr = priceOf(t); if (pr != null) return pr }
+        return null
+      }
+      // у поставщика привязки по фасовкам (их создаёт перенос на ключи v2 там, где в старой матрице фасовки были разными
+      // товарами), а нужной фасовки нет — цена другой упаковки несравнима, как и раньше при несовпадении фасовки в ключе
+      if (pack && e.byPack.size) return null
+      for (const t of e.flat) { const pr = priceOf(t); if (pr != null) return pr }
+      // закупка без фасовки, а у поставщика привязки только по фасовкам — берём первую найденную цену
+      if (!pack) for (const ts of e.byPack.values()) for (const t of ts) { const pr = priceOf(t); if (pr != null) return pr }
+    }
+    return priceOf(product0)
+  }
   const knownFlatPairs = buildKnownFlatIndex(matching)
   const consumed = new Set<string>()
   // Пары "ресторан::поставщик::товар" (без фасовки), у которых в этом
@@ -1600,8 +1656,7 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
       const restaurant = norm(mr(b.restaurant)), product0 = resolvedProduct, pack = resolvedPack
       const foundPrices = new Set<number>()
       for (const s of designatedNorm) {
-        const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
-        const price = fixedPrice(byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`], s, product0)
+        const price = designatedPriceOf(restaurant, s, product0, pack, b.product0)
         if (price != null) foundPrices.add(price)
       }
       if (foundPrices.size > 0) {
@@ -1631,13 +1686,18 @@ export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingT
         // пропадала целиком — именно так было с "Яйцо куриное"/"Акку").
         const restaurant = norm(mr(b.restaurant)), product0 = resolvedProduct, pack = resolvedPack
         const prices = designatedNorm.map((s) => {
-          const byPack = pack ? matching.planPairsByPack[`${restaurant}::${s}::${product0}::${pack}`] : null
-          const price = fixedPrice(byPack ?? matching.planPairs[`${restaurant}::${s}::${product0}`], s, product0)
+          const price = designatedPriceOf(restaurant, s, product0, pack, b.product0)
           const name = supplierDisplayByNorm.get(s) ?? s
           return price != null ? `${name}: ${money(price)}` : `${name} (цена не указана)`
         })
         if (prices.length) parts.push(`Заказано у другого поставщика — по матрице должны были купить у: ${prices.join('; ')}.`)
       }
+    }
+    // Цена матрицы и цена закупки различаются в разы — почти всегда это разные единицы (цена за кг против штуки): показываем
+    // предупреждение; для «Заказ не по матрице» такая строка не входит в денежную разницу на Обзоре (wrongSupplierFactPlan)
+    const cmpPlan = status === 'wrongSupplier' ? designatedPlanPrice : plan
+    if (b.unit != null && b.unit > 0 && cmpPlan != null && cmpPlan > 0 && unitsLookIncomparable(cmpPlan, b.unit)) {
+      parts.push(`Цена в матрице (${money(cmpPlan)}) и цена закупки (${money(b.unit)}) отличаются более чем в ${INCOMPARABLE_RATIO} раза — вероятно, в матрице цена за другую единицу (кг/шт/уп.). Проверьте строку матрицы.`)
     }
     const note: string | null = parts.length ? parts.join(' ') : null
     return {
@@ -1974,6 +2034,7 @@ export function wrongSupplierFactPlan(rows: Row[]): { fact: number; plan: number
   let fact = 0, plan = 0
   for (const r of rows) {
     if (r.unit == null || r.isTotalRow || r.status !== 'wrongSupplier' || r.designatedPlan == null) continue
+    if (unitsLookIncomparable(r.designatedPlan, r.unit)) continue // разные единицы — разницу не считаем (см. note строки)
     fact += r.qty * r.unit
     plan += r.qty * r.designatedPlan
   }
