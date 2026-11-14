@@ -246,6 +246,17 @@ export function setProductLink(orgId, key, value) {
   `).run(orgId, k, String(v.targetProduct || ''), String(v.supplier || ''), String(v.rawProduct || ''), String(v.pack || ''), String(v.restaurant || ''))
 }
 
+/** Для migrate-keys.js: все ручные привязки товаров организации «как лежат в базе» и смена цели привязки одной записи. */
+export function listProductLinksRaw(orgId) {
+  return db.prepare('SELECT key, target_product AS targetProduct, supplier, raw_product AS rawProduct, pack, restaurant FROM product_links WHERE org_id=?').all(orgId)
+}
+export function updateProductLinkTarget(orgId, key, targetProduct) {
+  db.prepare('UPDATE product_links SET target_product=? WHERE org_id=? AND key=?').run(String(targetProduct), orgId, key)
+}
+/** Консистентная копия базы правок (VACUUM INTO) — для бэкапа перед миграцией. */
+export function backupDbTo(file) { db.exec(`VACUUM INTO '${String(file).replace(/'/g, "''")}'`) }
+export const runInTransaction = (fn) => tx(fn)
+
 /** value: { restaurant, rawSupplier, canon } — «это название поставщика из iiko в этой точке = вот этот поставщик из матрицы»; null — снять. */
 export function setSupplierLink(orgId, key, value) {
   const k = str(key)

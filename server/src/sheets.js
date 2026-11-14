@@ -189,7 +189,7 @@ export function detectColumns(rows) {
  * (свой googleSheetId, тот же сервисный аккаунт) — вызывающая сторона
  * (index.js) сама решает, какой googleSheetId и какой маппинг сюда подать.
  */
-export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT, reservedNames = []) {
+export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, sheetToRestaurant = SHEET_TO_RESTAURANT, reservedNames = [], { keysV2 = false } = {}) {
   const token = await getAccessToken(googleServiceAccountKey)
   const titles = await fetchSheetTitles(token, googleSheetId)
   // Сканируем ВСЕ вкладки, а не только узнанные по списку: вкладка, которой
@@ -229,6 +229,16 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   const ranges = sheets.flatMap((t) => [`'${t.replace(/'/g, "''")}'!C1:AF`])
   const valueRanges = await batchGetValues(token, googleSheetId, ranges)
 
+  return parseMatrixSheets(sheets, valueRanges, sheetToRestaurant, conflicts, { keysV2 })
+}
+
+/**
+ * Разбор значений вкладок в матрицу (чистая функция, без сети — отдельно, чтобы проверять на образцах).
+ * keysV2 («независимо от колонок D/E/F»): строка опознаётся ТОЛЬКО по ресторану, поставщику (C) и названию товара (I),
+ * цена — из H. Колонки D (алиасы), E (названия как в iiko) и F (фасовка) не читаются вообще: все связи с iiko делаются
+ * вручную в Справочниках, поэтому удаление этих колонок из таблицы ничего не меняет. Без keysV2 — прежние ключи (E + F).
+ */
+export function parseMatrixSheets(sheets, valueRanges, sheetToRestaurant, conflicts = [], { keysV2 = false } = {}) {
   const supplierAlias = {}
   const planPairs = {}
   const planPairsByPack = {}
@@ -275,7 +285,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
     const restaurant = norm(restaurantDisplay)
     const allRows = valueRanges[i]?.values || []
     const cols = detectColumns(allRows)
-    if (cols.name >= 0) hasIikoNames = true
+    if (cols.name >= 0 && !keysV2) hasIikoNames = true
     const rows = allRows.slice(cols.dataStart)
     // Свой счётчик на каждую вкладку/ресторан — "первый поставщик этой
     // вкладки" получает 0, следующий новый — 1, и т.д.
@@ -293,7 +303,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       // по домашнему...") — используем I как временную замену E, лучше
       // показать строку под их же описанием, чем молчать о ней вовсе;
       // как только E заполнят, сопоставление само переключится на него.
-      const nameBasis = iikoNameRaw || labelRaw
+      const nameBasis = keysV2 ? (labelRaw || iikoNameRaw) : (iikoNameRaw || labelRaw)
       if (!nameBasis || !supplierCanonRaw) continue
       rowsSeen++
       restaurantNames[restaurant] = restaurantDisplay
@@ -321,7 +331,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       // реально прайсовано в planPairsByPack ЭТОГО ресторана — закупка у
       // правильного поставщика выглядела как "заказ не по матрице" со
       // ссылкой на самого себя.
-      if (iikoCompanyRaw) supplierAlias[`${restaurant}::${norm(iikoCompanyRaw)}`] = supplierDisplay
+      if (iikoCompanyRaw && !keysV2) supplierAlias[`${restaurant}::${norm(iikoCompanyRaw)}`] = supplierDisplay
       // Канонических поставщиков, у которых в ЭТОЙ строке D (алиас) пуст —
       // например название в iiko совпадает с каноническим один в один —
       // supplierAlias раньше вообще не узнавал об их "красивом" написании
@@ -329,10 +339,10 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
       // если её ещё нет — тот же эффект, не перетирает уже заданную.
       if (!supplierAlias[`${restaurant}::${supplierCanon}`]) supplierAlias[`${restaurant}::${supplierCanon}`] = supplierDisplay
       const product = norm(nameBasis)
-      const pack = packRaw ? normPack(packRaw) : ''
+      const pack = packRaw && !keysV2 ? normPack(packRaw) : ''
       const flatKey = `${restaurant}::${supplierCanon}::${product}`
       const key = pack ? `${flatKey}::${pack}` : flatKey
-      if (!iikoNameRaw) noIikoName[key] = true
+      if (!iikoNameRaw && !keysV2) noIikoName[key] = true
       // Их собственное описание (I) — записываем независимо от того, есть
       // ли у строки цена: иначе строка без цены И без названия в iiko
       // (см. noIikoName выше) показывалась бы в Справочниках вообще без
@@ -365,6 +375,49 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
     matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName, restaurantNames, tabTitles },
     summary: { conflicts, hasIikoNames, sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
+}
+
+/**
+ * Перенос уже сохранённой матрицы (ключи «ресторан::поставщик::название из E[::фасовка из F]») на ключи v2
+ * («ресторан::поставщик::название из I», без фасовки). Название I берётся из productLabels самой матрицы; если его нет —
+ * остаётся старое название. Строки, у которых после переноса ключ совпал (разные фасовки/бренды под одним названием I),
+ * сливаются в один ключ, а все различающиеся цены остаются вариантами (ambiguous) — как и при синке v2.
+ * Возвращает { matching, keyMap (старый ключ -> новый), collisions, noLabel }. Чистая функция.
+ */
+export function remapMatchingToV2(m) {
+  const keyMap = {}
+  const groups = new Map() // новый ключ -> [{ oldKey, price, label }]
+  const keys = allKeysOf(m)
+  let noLabel = 0
+  for (const key of keys) {
+    const [rest, sup, prod] = key.split('::')
+    const label = m.productLabels?.[key] ? String(m.productLabels[key]) : ''
+    if (!label) noLabel++
+    const nk = `${rest}::${sup}::${label ? norm(label) : prod}`
+    keyMap[key] = nk
+    const price = m.planPairsByPack?.[key] ?? m.planPairs?.[key] ?? null
+    if (!groups.has(nk)) groups.set(nk, [])
+    groups.get(nk).push({ oldKey: key, price, label })
+  }
+  const out = { ...m, planPairs: {}, planPairsByPack: {}, productLabels: {}, noPriceExact: {}, noIikoName: {}, ambiguous: {} }
+  const collisions = []
+  for (const [nk, list] of groups) {
+    const priced = list.filter((x) => x.price != null)
+    const label = list.find((x) => x.label)?.label ?? ''
+    if (label) out.productLabels[nk] = label
+    if (!priced.length) { out.noPriceExact[nk] = true; continue }
+    out.planPairs[nk] = priced[priced.length - 1].price
+    const variants = []
+    for (const x of list) {
+      const vs = m.ambiguous?.[x.oldKey] ?? (x.price != null ? [{ price: x.price, label: x.label || null }] : [])
+      for (const v of vs) if (!variants.some((y) => y.price === v.price && y.label === v.label)) variants.push(v)
+    }
+    if (variants.length > 1) out.ambiguous[nk] = variants
+    if (list.length > 1) collisions.push({ key: nk, rows: list.length, prices: [...new Set(priced.map((x) => x.price))] })
+  }
+  // алиасы из колонки D больше не нужны: оставляем только «самоссылки» (поставщик = сам себе)
+  out.supplierAlias = Object.fromEntries(Object.entries(m.supplierAlias ?? {}).filter(([k, v]) => norm(v) === k.split('::')[1]))
+  return { matching: out, keyMap, collisions, noLabel }
 }
 
 /**

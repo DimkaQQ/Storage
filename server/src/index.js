@@ -552,6 +552,7 @@ async function matrixSyncHandler(req, res) {
       return res.status(400).json({ ok: false, message: 'Укажите период (месяц или отрезок): цены фиксируются снимком за период, общая матрица без периода больше не перезаписывается, чтобы не менять прошлые месяцы' })
     }
     const period = rawPeriod ?? null
+    const keysV2 = settings.matrixKeysV2 === true // включается командой migrate-keys.js после переноса старых связей
     // tab — зафиксировать цены ТОЛЬКО одного ресторана (вкладки таблицы) за период, а не всей сети
     const tab = MATRIX_SNAPSHOTS && typeof req.body?.tab === 'string' && req.body.tab.trim() ? req.body.tab.trim() : null
     if (tab && !period) return res.status(400).json({ ok: false, message: 'Для одного ресторана нужен период' })
@@ -568,11 +569,13 @@ async function matrixSyncHandler(req, res) {
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       sheetMap,
       reserved,
+      { keysV2 },
     )
     // Каталог названий iiko: пока колонки D/E/F в таблице есть — запоминаем их; когда их удалят — накладываем каталог.
     // applyCatalog трогает только строки без iiko-названия, поэтому его безопасно применять всегда (в т.ч. к смешанным вкладкам).
-    const catalog = getCatalog(orgId)
-    if (!summary.hasIikoNames && !catalog) {
+    // keysV2 (после migrate-keys.js): строки по ресторану+поставщику+названию (I), колонки D/E/F не читаются — каталог не нужен
+    const catalog = keysV2 ? null : getCatalog(orgId)
+    if (!keysV2 && !summary.hasIikoNames && !catalog) {
       // Не затираем хорошую матрицу «ободранной»: без каталога синк не делаем вовсе
       return res.status(409).json({ ok: false, message: 'В таблице нет колонки «Наименования как в iiko» (или нет строк матрицы), а каталога названий в программе ещё нет — синк отменён, прежняя матрица сохранена. Сначала синхронизируйте таблицу, пока колонки D/E/F на месте.' })
     }
@@ -580,7 +583,7 @@ async function matrixSyncHandler(req, res) {
       matching = applyCatalog(matching, catalog)
       if (!summary.hasIikoNames) { summary.catalogOverlay = true; summary.catalogUnmatched = Object.keys(matching.noIikoName ?? {}).length }
     }
-    if (summary.hasIikoNames) saveCatalog(orgId, mergeCatalog(catalog, matching))
+    if (!keysV2 && summary.hasIikoNames) saveCatalog(orgId, mergeCatalog(catalog, matching))
     summary.catalogRows = Object.keys((getCatalog(orgId) ?? {}).rows ?? {}).length
     if (summary.conflicts.length) console.warn(`[matrix] ${target}: пропущены вкладки с занятым названием: ${summary.conflicts.join(', ')}`)
     // Мёрджим с уже сохранённой матрицей, а не перезаписываем — иначе синк

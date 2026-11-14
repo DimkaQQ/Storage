@@ -309,6 +309,7 @@ export function saveMatrixTabSnapshot(orgId, tab, period, slice) {
   if (!isValidPeriod(period)) throw new Error('bad period')
   write(matrixTabPath(orgId, tab, period), { tab, period, savedAt: new Date().toISOString(), slice })
 }
+export const getMatrixTabSnapshot = (orgId, tab, period) => read(matrixTabPath(orgId, tab, period), null)
 export function listMatrixTabSnapshots(orgId) {
   return readdirSync(orgDir(orgId))
     .filter((f) => /^matrixtab-[0-9a-f]{12}-.+\.json$/.test(f))
