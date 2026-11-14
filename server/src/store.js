@@ -140,7 +140,7 @@ export const DEFAULT_SETTINGS = {
   period: 'current-month',     // отчётный период выгрузки
   // точки сети, включённые в приложение — null = ещё не настраивали вручную,
   // тогда при первом обращении к /api/venues материализуется в
-  // DEFAULT_ENABLED_RESTAURANTS (см. ниже) и с этого момента сохраняется как
+  // (список включённых точек по умолчанию не задан, см. getEnabledRestaurants) и с этого момента сохраняется как
   // обычное поле настроек.
   enabledRestaurants: null,
   // Матрица (план-цены) — читается напрямую из Google-таблицы Сырьё Ф через
@@ -164,21 +164,7 @@ export const DEFAULT_SETTINGS = {
  * органиазции, у которой ещё нет своего сохранённого enabledRestaurants —
  * дальше источник правды один, тут (settings.json), а не в двух местах.
  */
-export const DEFAULT_ENABLED_RESTAURANTS = [
-  'Рене',
-  'Олово 1 (Сатпаева)',
-  'Олово 2 (Достык)',
-  'Pasta la vista (Богенбай)',
-  'Pasta la vista (Гагарина)',
-  'Pasta la vista (Толе би)',
-  'Ле Дом',
-  'Six coffee&wine 1',
-  'Six coffee&wine 2',
-  'Tangirs',
-  'Акку',
-  'ЦФК',
-  'Сирена',
-]
+// (список включённых точек по умолчанию не задан: пока человек его не настроил, показываются все точки, что есть в закупках)
 
 /**
  * Bundled demo data ships as one file per month (server/seed/dataset-<period>.json)
@@ -429,9 +415,17 @@ export function listDatasetPeriods(orgId) {
 export function getEnabledRestaurants(orgId) {
   const settings = getSettings(orgId)
   if (settings.enabledRestaurants != null) return settings.enabledRestaurants
-  const enabled = [...DEFAULT_ENABLED_RESTAURANTS]
-  saveSettings(orgId, { enabledRestaurants: enabled })
-  return enabled
+  // не настраивали вручную — включены ВСЕ точки, которые есть в закупках (не сохраняем: новые точки появляются сами)
+  return allDatasetRestaurants(orgId)
+}
+
+/** Все точки, встречавшиеся в закупках организации (по всем сохранённым периодам). */
+function allDatasetRestaurants(orgId) {
+  const seen = new Set()
+  for (const { period } of listDatasetPeriods(orgId)) {
+    for (const r of getDataset(orgId, period).restaurants || []) seen.add(r.name)
+  }
+  return [...seen]
 }
 
 /**
@@ -443,9 +437,10 @@ export function getEnabledRestaurants(orgId) {
  */
 export function enableRestaurant(orgId, name) {
   const enabled = getEnabledRestaurants(orgId)
-  if (enabled.includes(name)) return enabled
-  const next = [...enabled, name]
-  saveSettings(orgId, { enabledRestaurants: next })
+  const configured = getSettings(orgId).enabledRestaurants != null
+  if (configured && enabled.includes(name)) return enabled
+  const next = enabled.includes(name) ? enabled : [...enabled, name]
+  saveSettings(orgId, { enabledRestaurants: next }) // с этого момента список зафиксирован вручную (иначе фронт и сервер расходились бы)
   return next
 }
 
@@ -471,12 +466,9 @@ export function disableRestaurant(orgId, name) {
  * «Добавить» в Настройки iiko → «Точки сети».
  */
 export function discoverRestaurants(orgId) {
+  if (getSettings(orgId).enabledRestaurants == null) return [] // не настраивали — показаны все, добавлять нечего
   const enabled = new Set(getEnabledRestaurants(orgId))
-  const seen = new Set()
-  for (const { period } of listDatasetPeriods(orgId)) {
-    for (const r of getDataset(orgId, period).restaurants || []) seen.add(r.name)
-  }
-  return [...seen].filter((name) => !enabled.has(name))
+  return allDatasetRestaurants(orgId).filter((name) => !enabled.has(name))
 }
 
 /**
@@ -507,9 +499,7 @@ export function exportOrgData(orgId) {
  * Полностью чистит данные организации (факты закупок за все периоды,
  * матрицы план-цен за все периоды, venues.json, список включённых точек,
  * статус синка) — НЕ трогая настройки подключения (см. exportOrgData).
- * enabledRestaurants сбрасывается в null, а не в пустой массив — на
- * следующее обращение к /api/venues он сам материализуется заново из
- * DEFAULT_ENABLED_RESTAURANTS (та же логика первого запуска организации).
+ * enabledRestaurants сбрасывается в null, а не в пустой массив — снова показаны все точки из закупок.
  * Правки (editsDb) сюда не входят — сбрасываются отдельным вызовом
  * editsDb.resetEdits, вызывающая сторона (index.js) делает оба вызова
  * вместе под одной кнопкой «Сбросить всё».

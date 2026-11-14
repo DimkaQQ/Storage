@@ -37,8 +37,8 @@ export interface IikoSettings {
   excludedTabs?: string[]
 }
 
-/** Совпадает с DEFAULT_EXCLUDED_TABS на сервере (sheets.js). */
-export const DEFAULT_EXCLUDED_TABS = ['ФО сверка', 'iiko цены ФО', 'Сырье F Алматы', 'Сырье F Астана']
+/** Листы таблицы, которые не берём, выбирает пользователь; по умолчанию берутся все (как на сервере). */
+export const DEFAULT_EXCLUDED_TABS: string[] = []
 
 async function get<T>(path: string): Promise<T | null> {
   try {
@@ -215,7 +215,7 @@ export async function fetchAssortmentDebug(search: string, period = ''): Promise
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
-export interface Venues { enabled: string[]; discovered: string[] }
+export interface Venues { enabled: string[]; discovered: string[]; all?: boolean }  // all — список не настраивали: показаны все точки из закупок
 export const fetchVenues = () => get<Venues>('/api/venues')
 export async function enableVenue(name: string): Promise<Venues | null> {
   try {

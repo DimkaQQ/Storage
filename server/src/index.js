@@ -37,10 +37,14 @@ app.options('*', (_req, res) => res.sendStatus(204))
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@admin.com'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'demo1234'
 
+// Демо-данные (закупки из server/seed) кладутся организации ТОЛЬКО если явно включено DEMO_SEED=1 — по умолчанию программа пустая:
+// ничьи чужие данные у нового пользователя не появляются
+const DEMO_SEED = process.env.DEMO_SEED === '1'
+
 function bootstrap() {
   const created = bootstrapAccounts({ email: ADMIN_EMAIL, passwordHash: hashPassword(ADMIN_PASSWORD), orgName: 'Основная сеть' })
   if (created) {
-    bootstrapOrgData(created.org.id, { withSeed: true })
+    bootstrapOrgData(created.org.id, { withSeed: DEMO_SEED })
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     console.log('Создан первый админ-аккаунт (демо):')
     console.log(`  Почта:  ${ADMIN_EMAIL}`)
@@ -51,7 +55,7 @@ function bootstrap() {
   // missing a since-added seed period. Only orgs still on the demo/mock
   // provider get backfilled with seed data — a real iiko-connected org's
   // missing periods mean "not synced yet", not "needs demo numbers".
-  for (const org of listOrgs()) bootstrapOrgData(org.id, { withSeed: getSettings(org.id).provider === 'mock' })
+  for (const org of listOrgs()) bootstrapOrgData(org.id, { withSeed: DEMO_SEED && getSettings(org.id).provider === 'mock' })
 // Одноразово: уже накопленные прошлые месяцы получают свой снимок матрицы (иначе их цены менялись бы вместе с общей матрицей).
 for (const org of listOrgs()) {
   try {
@@ -105,7 +109,8 @@ async function runSync(orgId, trigger, explicitPeriod) {
       // с пустым items — дальше фронт сам решит, показывать ли что-то по
       // ним (addPlanOnlyRow из матрицы), опираясь на их meta.
       const present = new Set(built.restaurants.map((r) => r.name))
-      for (const name of getEnabledRestaurants(orgId)) {
+      // только ЯВНО включённые: если список не настраивали (показаны все точки из закупок), ничего не добираем
+      for (const name of (getSettings(orgId).enabledRestaurants ?? [])) {
         if (present.has(name)) continue
         const meta = venues.find((v) => v.name === name) || {}
         built.restaurants.push({ name, entity: meta.entity || '', brand: meta.brand || name, city: cityForRestaurant(name), category: meta.category || 'Кухня', items: [] })
@@ -684,21 +689,22 @@ app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
  * это только снять фильтр на фронте, без пересинхронизации.
  */
 app.get('/api/venues', requireAuth, (req, res) => {
-  res.json({ enabled: getEnabledRestaurants(req.auth.orgId), discovered: discoverRestaurants(req.auth.orgId) })
+  // all: список не настраивали — показаны ВСЕ точки из закупок (фронт тогда не фильтрует по именам)
+  res.json({ enabled: getEnabledRestaurants(req.auth.orgId), all: getSettings(req.auth.orgId).enabledRestaurants == null, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
 app.post('/api/venues/enable', requireAuth, requireAdmin, (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = enableRestaurant(req.auth.orgId, name)
-  res.json({ enabled, discovered: discoverRestaurants(req.auth.orgId) })
+  res.json({ enabled, all: false, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
 app.post('/api/venues/disable', requireAuth, requireAdmin, (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = disableRestaurant(req.auth.orgId, name)
-  res.json({ enabled, discovered: discoverRestaurants(req.auth.orgId) })
+  res.json({ enabled, all: false, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
 /**

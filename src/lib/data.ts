@@ -1,10 +1,7 @@
-import datasetMay from '../data/dataset-2026-05.json'
-import datasetJune from '../data/dataset-2026-06.json'
-import matchingMay from '../data/matching-2026-05.json'
-import matchingJune from '../data/matching-2026-06.json'
-
-const BUNDLED_DATASETS = ([datasetMay, datasetJune] as unknown as RawDataset[]).sort((a, b) => a.period.localeCompare(b.period))
-export const BUNDLED_PERIODS = BUNDLED_DATASETS.map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
+// Приложение НЕ несёт в себе ничьих данных (ни закупок, ни матрицы, ни названий точек): всё приходит с сервера организации —
+// из iiko и из подключённой Google-таблицы. Пока их нет, показываются пустые состояния. BUNDLED_* — только «пустышки» для
+// начального состояния и параметров по умолчанию.
+export const BUNDLED_PERIODS: { period: string; periodLabel: string }[] = []
 
 /**
  * The plan matrix — the same справочник (supplier alias dictionary) and
@@ -60,15 +57,8 @@ export interface MatchingTable {
   // все листы таблицы по городам (включая не взятые) — для выбора в Настройки iiko → «Листы таблицы»; ставит синк матрицы
   allTabsByTarget?: { almaty?: string[]; astana?: string[] }
 }
-const BUNDLED_MATCHINGS: Record<string, MatchingTable> = {
-  '2026-05': matchingMay as MatchingTable,
-  '2026-06': matchingJune as MatchingTable,
-}
-export function bundledMatching(period?: string | null): MatchingTable {
-  return (period && BUNDLED_MATCHINGS[period]) || BUNDLED_MATCHINGS[BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period]
-}
-/** Latest period's matrix — used wherever a period isn't in scope (e.g. default fn params). */
-export const BUNDLED_MATCHING: MatchingTable = bundledMatching()
+/** Пустая матрица — пока таблица с план-ценами не подключена. */
+export const EMPTY_MATCHING: MatchingTable = { supplierAlias: {}, planPairs: {}, planPairsByPack: {}, productLabels: {}, noPriceExact: {} }
 
 // Схлопываем повторяющиеся пробелы (не только обрезаем края) — иначе
 // задвоенный пробел в самом iiko-тексте ("судака  с/м." вместо "судака
@@ -597,7 +587,7 @@ interface DesignatedIndex {
 // каждую правку только на это построение — и оно совпадает раз за разом,
 // пока matching (объект) не поменялся (это бывает только при смене
 // периода/тестового режима). Кэшируем по ссылке на сам объект matching —
-// он неизменяемый (bundledMatching() всегда возвращает тот же объект для
+// он неизменяемый (матрица с сервера не мутируется, для
 // того же периода), так что кэш безопасен и не устаревает молча.
 const designatedIndexCache = new WeakMap<MatchingTable, DesignatedIndex>()
 // Ручной режим: «кому назначен товар» считается ТОЛЬКО по привязкам из Справочников и по ЕГО ЖЕ названию из iiko
@@ -1420,7 +1410,7 @@ export const isExcludedPair = (supplier: string, product: string) => {
 }
 
 /** Builds display rows by applying edits and resolving plan/status. */
-export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = BUNDLED_MATCHING, venues: VenueMeta[] = [], manual = false): Row[] {
+export function computeRows(base: BaseRow[], edits: Edits, matchingIn: MatchingTable = EMPTY_MATCHING, venues: VenueMeta[] = [], manual = false): Row[] {
   const matching = withSupplierLinks(scopedMatching(matchingIn, linkTargets(edits)), edits, manual)
   const mr = (restaurant: string) => matchRestaurant(edits, restaurant)
   // Поставщики, которых попросили убрать из "Проверки цен" ЦЕЛИКОМ (не
@@ -1859,21 +1849,8 @@ export interface Parsed {
  * то, что уже проверено и включено на сегодня, минус "French bar" (бар,
  * отдельная задача на потом).
  */
-export const DEFAULT_RESTAURANT_SCOPE: string[] = [
-  'Рене',
-  'Олово 1 (Сатпаева)',
-  'Олово 2 (Достык)',
-  'Pasta la vista (Богенбай)',
-  'Pasta la vista (Гагарина)',
-  'Pasta la vista (Толе би)',
-  'Ле Дом',
-  'Six coffee&wine 1',
-  'Six coffee&wine 2',
-  'Tangirs',
-  'Акку',
-  'ЦФК',
-  'Сирена',
-]
+/** null — показывать все точки, которые есть в данных (список включённых задаёт сервер, см. /api/venues). */
+export const DEFAULT_RESTAURANT_SCOPE: string[] | null = null
 let RESTAURANT_SCOPE: string[] | null = DEFAULT_RESTAURANT_SCOPE
 
 /**
@@ -1892,7 +1869,7 @@ export function setRestaurantScope(scope: string[] | null): void {
 
 
 /** Parses a raw dataset (bundled seed or fresh from the backend) into app structures. */
-export function parseDataset(data: RawDataset, matching: MatchingTable = bundledMatching(data.period)): Parsed {
+export function parseDataset(data: RawDataset, matching: MatchingTable = EMPTY_MATCHING): Parsed {
   let seq = 0
   const base: BaseRow[] = []
   const scope = RESTAURANT_SCOPE
@@ -1954,12 +1931,12 @@ export function parseDataset(data: RawDataset, matching: MatchingTable = bundled
   }
 }
 
-/** Bundled snapshot for one period — falls back to the latest if not found/omitted. */
+/** Пустой датасет за период — пока с сервера ничего не загружено. */
 export function bundledDataset(period?: string | null): RawDataset {
-  return (period && BUNDLED_DATASETS.find((d) => d.period === period)) || BUNDLED_DATASETS[BUNDLED_DATASETS.length - 1]
+  return { period: period ?? '', periodLabel: period ?? '', city: '', category: '', restaurants: [] }
 }
 
-/** Bundled snapshot (latest period) — used until the backend responds (or if it's offline). */
+/** Начальное состояние — пусто, пока сервер не ответил. */
 export const BUNDLED = parseDataset(bundledDataset())
 
 /** Restaurant list with any manual venue corrections applied. */

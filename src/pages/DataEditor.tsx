@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
+import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, parseDataset, computeRows, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { useAuth } from '../lib/auth'
@@ -245,6 +245,9 @@ export default function DataEditor() {
     return [...new Set([...list, ...(current ? [current] : [])])].sort((a, b) => a.localeCompare(b))
   }
 
+  // таблица с план-ценами ещё не синхронизирована — списка вкладок нет, выбирать нечего
+  const noTabsYet = matrixNames.size === 0
+
   // Товары — теперь строятся ОТ МАТРИЦЫ, а не от закупок iiko: раньше шли
   // от факта покупки и искали его в матрице по точному совпадению текста;
   // источник истины теперь сама матрица (лист «Сырьё F»), а название из
@@ -388,18 +391,8 @@ export default function DataEditor() {
   // не страшны — productRaw у них одинаковый вне зависимости от edits, а
   // Set/Map ниже и так дедуплицируют по значению. Не считаем вовсе, пока
   // не открыли Товары (см. productsVisited) — эта нужна только там.
-  const otherPeriodsRows = useMemo(() => {
-    if (!productsVisited) return []
-    const all: Row[] = []
-    for (const p of BUNDLED_PERIODS) {
-      const m = bundledMatching(p.period)
-      // ручной режим: совпадение зависит только от привязок — их и подставляем (остальные правки на productRaw не влияют)
-      const e = manualMode ? { ...EMPTY_EDITS, productLinks: edits.productLinks, supplierLinks: edits.supplierLinks, venueOverrides: edits.venueOverrides } : EMPTY_EDITS
-      all.push(...computeRows(parseDataset(bundledDataset(p.period), m).base, e, m, [], manualMode))
-    }
-    return all
-  }, [productsVisited, manualMode, manualMode ? edits.productLinks : null, manualMode ? edits.supplierLinks : null, manualMode ? edits.venueOverrides : null])
-  const allKnownRows = useMemo(() => [...rows, ...otherPeriodsRows], [rows, otherPeriodsRows])
+  // раньше сюда добавлялись вшитые демо-периоды; программа больше не несёт чужих данных — известны строки только текущего периода
+  const allKnownRows = rows
 
   // Автопоиск для колонки «Название из iiko» у строки матрицы — реально
   // встреченные в закупках названия, за оба периода, без ограничения
@@ -1110,10 +1103,10 @@ export default function DataEditor() {
                 </tr>
               ) : (
                 <tr>
-                  <th className="th w-[20%]">Название из iiko <InfoTip text="Название склада ровно так, как его прислал iiko (например «Кухня склад Олово(Olovo1-Satpaeva)»). Если у точки несколько складов — через «;». Для данных, загруженных до этого обновления, пока показано название точки — перезагрузите период в «Обновление», и появятся складские названия. Здесь не редактируется." /></th>
-                  <th className="th w-[20%]">Название в программе <InfoTip text="Как точка будет называться в этом приложении (Обзор, Проверка цен, выбор точек, Excel). Влияет только на подпись — закупки и матрица по-прежнему привязаны к основному названию. Пока не задано — подписью служит название выбранной вкладки матрицы (или основное название, если вкладка не выбрана)." /></th>
-                  <th className="th w-[10%]">Город <InfoTip text="Выберите город — в списке «Вкладка матрицы» останутся вкладки таблицы этого города. У уже настроенных точек ничего не меняется." /></th>
-                  <th className="th w-[22%]">Вкладка матрицы <InfoTip text="С какой вкладкой Google-таблицы сверяются закупки этой точки. Если название точки из iiko совпало с названием вкладки — выбрана сама. Для нового ресторана выберите его вкладку из списка (все вкладки таблицы читаются при синке матрицы) — дальше закупки и план тянутся по ней, товары и поставщики проставляются во вкладке «Товары»." /></th>
+                  <th className="th w-[27%]">Название из iiko <InfoTip text="Название склада ровно так, как его прислал iiko (например «Кухня склад Олово(Olovo1-Satpaeva)»). Если у точки несколько складов — через «;». Для данных, загруженных до этого обновления, пока показано название точки — перезагрузите период в «Обновление», и появятся складские названия. Здесь не редактируется." /></th>
+                  <th className="th w-[27%]">Название в программе <InfoTip text="Как точка будет называться в этом приложении (Обзор, Проверка цен, выбор точек, Excel). Влияет только на подпись — закупки и матрица по-прежнему привязаны к основному названию. Пока не задано — подписью служит название выбранной вкладки матрицы (или основное название, если вкладка не выбрана)." /></th>
+                  <th className="th w-[16%]">Город <InfoTip text="Выберите город — в списке «Вкладка матрицы» останутся вкладки таблицы этого города. У уже настроенных точек ничего не меняется." /></th>
+                  <th className="th w-[30%]">Вкладка матрицы <InfoTip text="С какой вкладкой Google-таблицы сверяются закупки этой точки. Если название точки из iiko совпало с названием вкладки — выбрана сама. Для нового ресторана выберите его вкладку из списка (все вкладки таблицы читаются при синке матрицы) — дальше закупки и план тянутся по ней, товары и поставщики проставляются во вкладке «Товары»." /></th>
                 </tr>
               )}
             </thead>
@@ -1247,7 +1240,7 @@ export default function DataEditor() {
                           return
                         }
                         setVenue(r.name, { alias: next })
-                      }} className="max-w-[220px]" /></td>
+                      }} className="w-full" /></td>
                       <td className="td">
                         <select
                           value={r.city}
@@ -1258,7 +1251,7 @@ export default function DataEditor() {
                             const keep = !cur || tabOptions(city, '').some((n) => norm(n) === norm(cur))
                             setVenue(r.name, keep ? { city } : { city, matrix: '' })
                           }}
-                          className="w-full max-w-[120px] rounded-md border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
+                          className="h-9 w-full rounded-md border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
                         >
                           {!['Алматы', 'Астана'].includes(r.city) && <option value={r.city}>{r.city || '—'}</option>}
                           <option value="Алматы">Алматы</option>
@@ -1272,14 +1265,15 @@ export default function DataEditor() {
                           return (
                             <select
                               value={value}
+                              disabled={noTabsYet}
                               onChange={(e) => {
                                 const v = e.target.value
                                 setVenue(r.name, { matrix: !v || norm(v) === norm(r.name) ? '' : v })
                               }}
-                              className={`w-full max-w-[220px] rounded-md border bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none ${value ? 'border-ink-600' : 'border-warn/60'}`}
-                              title={value ? undefined : 'Эта точка пока не привязана ни к одной вкладке матрицы — закупки будут «Нет в матрице»'}
+                              className={`h-9 w-full rounded-md border bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none disabled:opacity-50 ${value || noTabsYet ? 'border-ink-600' : 'border-warn/60'}`}
+                              title={noTabsYet ? 'Таблица ещё не подключена — вкладки появятся после синхронизации (Обновление → Матрица)' : value ? undefined : 'Эта точка пока не привязана ни к одной вкладке матрицы — закупки будут «Нет в матрице»'}
                             >
-                              {!value && <option value="">— выберите вкладку —</option>}
+                              {noTabsYet ? <option value="">Таблица не подключена</option> : !value && <option value="">— выберите вкладку —</option>}
                               {tabOptions(r.city, value).map((n) => <option key={n} value={n}>{realMatching.tabTitles?.[norm(n)] ?? n}</option>)}
                             </select>
                           )

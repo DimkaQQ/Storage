@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { computeRows, parseDataset, bundledMatching, money, signedMoney, pct } from '../lib/data'
+import { computeRows, parseDataset, EMPTY_MATCHING, money, signedMoney, pct } from '../lib/data'
 import { fetchDataset, fetchMatching } from '../lib/api'
 import { useEdits } from '../lib/edits'
 import { Granularity, PeriodRows, addDays, buildSeries, pickPeriods, periodSpan, productsIn, summarizeSeries } from '../lib/dynamics'
@@ -80,7 +80,7 @@ export default function PriceDynamics() {
   // строки сверки по каждому периоду: те же связи, привязки и план-цены, что в «Проверке цен», но для СВОЕГО периода
   const parsedList = useMemo(() => loaded.map((l) => ({ l, parsed: parseDataset(l.data) })), [loaded])
   const periodRows: PeriodRows[] = useMemo(() => parsedList.map(({ l, parsed }) => (
-    { period: l.period, rows: computeRows(parsed.base, edits, l.matching ?? bundledMatching(l.period), parsed.restaurants, manual) }
+    { period: l.period, rows: computeRows(parsed.base, edits, l.matching ?? EMPTY_MATCHING, parsed.restaurants, manual) }
   )), [parsedList, edits, manual])
 
   const products = useMemo(() => productsIn(periodRows), [periodRows])
@@ -122,25 +122,33 @@ export default function PriceDynamics() {
 
   return (
     <div className="space-y-5">
-      <div className="card flex flex-wrap items-end gap-4 p-4">
-        <label className="block text-xs text-fg-500">Позиция
-          <input list="dyn-products" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Начните вводить название…" className="mt-1 block w-72 rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-fg-100 outline-none focus:border-brand-500" />
-          <datalist id="dyn-products">{products.slice(0, 3000).map((p) => <option key={p.name} value={p.name} />)}</datalist>
-        </label>
-        <div className="text-xs text-fg-500">Рестораны
-          <div className="mt-1"><MultiSelectFilter allLabel="Вся сеть" options={restaurantNames.map((n) => ({ key: n, label: venueLabel(n) }))} selected={scope} onChange={setScope} /></div>
+      <div className="card space-y-4 p-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(260px,1.6fr)_minmax(180px,1fr)_160px_160px]">
+          <label className="block text-xs text-fg-500">Позиция
+            <input list="dyn-products" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Начните вводить название…" className="mt-1 block h-10 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 text-sm text-fg-100 outline-none focus:border-brand-500" />
+            <datalist id="dyn-products">{products.slice(0, 3000).map((p) => <option key={p.name} value={p.name} />)}</datalist>
+          </label>
+          <div className="text-xs text-fg-500">Рестораны
+            <div className="mt-1 [&>*]:w-full"><MultiSelectFilter allLabel="Вся сеть" options={restaurantNames.map((n) => ({ key: n, label: venueLabel(n) }))} selected={scope} onChange={setScope} /></div>
+          </div>
+          <label className="block text-xs text-fg-500">С
+            <input type="date" value={from} max={to || undefined} onChange={(e) => userFrom(e.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 text-sm text-fg-100 outline-none focus:border-brand-500" />
+          </label>
+          <label className="block text-xs text-fg-500">По
+            <input type="date" value={to} min={from || undefined} onChange={(e) => userTo(e.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 text-sm text-fg-100 outline-none focus:border-brand-500" />
+          </label>
         </div>
-        <label className="block text-xs text-fg-500">С
-          <input type="date" value={from} max={to || undefined} onChange={(e) => userFrom(e.target.value)} className="mt-1 block rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-fg-100 outline-none focus:border-brand-500" />
-        </label>
-        <label className="block text-xs text-fg-500">По
-          <input type="date" value={to} min={from || undefined} onChange={(e) => userTo(e.target.value)} className="mt-1 block rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-fg-100 outline-none focus:border-brand-500" />
-        </label>
-        <div className="flex gap-1.5">
-          {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">{p.label}</button>)}
-        </div>
-        <div className="flex gap-1.5">
-          {GRAN.map((g) => <button key={g.id} onClick={() => setGran(g.id)} className={`btn border ${gran === g.id ? 'border-brand-500/60 bg-brand-500/15 text-fg-50' : 'border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800'}`}>{g.label}</button>)}
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <div className="flex flex-col gap-1 text-xs text-fg-500">Быстрый период
+            <div className="inline-flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
+              {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days)} className="h-8 rounded-md px-3 text-sm text-fg-300 hover:bg-ink-800 hover:text-fg-50">{p.label}</button>)}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 text-xs text-fg-500">Детализация
+            <div className="inline-flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
+              {GRAN.map((g) => <button key={g.id} onClick={() => setGran(g.id)} className={`h-8 rounded-md px-3 text-sm ${gran === g.id ? 'bg-brand-500/20 text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{g.label}</button>)}
+            </div>
+          </div>
         </div>
       </div>
 

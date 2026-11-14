@@ -98,7 +98,7 @@ export default function IikoSettings() {
   const tabList = (knownTabs.length ? knownTabs : [
     ...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Алматы' })),
     ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Астана' })),
-    ...excludedTabs.map((tab) => ({ tab: realTitle(tab), city: '' })),
+    ...excludedTabs.map((tab) => ({ tab: realTitle(tab), city: '' })), // выключенные тоже видны — чтобы можно было включить обратно
   ]).filter((x, i, arr) => arr.findIndex((y) => norm(y.tab) === norm(x.tab)) === i)
   const toggleTab = async (tab: string) => {
     if (!form) return
@@ -391,9 +391,11 @@ export default function IikoSettings() {
           <div className="text-sm font-semibold text-fg-50">Матрица — план-цены из Google-таблицы</div>
           <div className="text-xs text-fg-500">Нажмите «Обновить», чтобы подтянуть свежие цены и названия из таблицы.</div>
         </div>
-        {tabList.length > 0 && (
+        {tabList.length === 0 ? (
+          <div className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3 text-xs text-fg-500">Листы таблицы появятся здесь после первой синхронизации — тогда можно выбрать, какие листы брать, а какие (служебные) нет. Пока по умолчанию берутся все.</div>
+        ) : (
           <div className="space-y-1.5 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
-            <div className="text-xs font-medium text-fg-300">Листы таблицы — какие берём <span className="font-normal text-fg-500">(серым — не берём; служебные и «Сырье F» выключены по умолчанию)</span></div>
+            <div className="text-xs font-medium text-fg-300">Листы таблицы — какие берём <span className="font-normal text-fg-500">(серым — не берём; по умолчанию берутся все, служебные листы отключите сами)</span></div>
             <div className="flex flex-wrap gap-1.5">
               {tabList.map((x) => {
                 const off = isTabExcluded(x.tab)
@@ -419,13 +421,13 @@ export default function IikoSettings() {
               {matrixMode === 'month' ? (
                 <input type="month" value={matrixMonth} max={nextMonth}
                   onChange={(e) => { setMatrixMonth(e.target.value); setMatrixPeriodTouched(true) }}
-                  className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                  className="h-9 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
               ) : (
                 <>
                   с <input type="date" value={matrixFrom} onChange={(e) => setMatrixFrom(e.target.value)}
-                    className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                    className="h-9 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
                   по <input type="date" value={matrixTo} onChange={(e) => setMatrixTo(e.target.value)}
-                    className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                    className="h-9 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
                   {matrixFrom && matrixTo && matrixFrom > matrixTo && <span className="chip border-bad/30 bg-bad/10 text-bad">Дата «с» позже даты «по»</span>}
                 </>
               )}
@@ -437,19 +439,21 @@ export default function IikoSettings() {
             </div>
             {matrixScope === 'one' && (
               <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
-                  Ресторан
-                  <select value={oneRest} onChange={(e) => pickRestaurant(e.target.value)}
-                    className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
-                    <option value="">— выберите —</option>
-                    {restaurants.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
-                  </select>
-                  Вкладка таблицы
-                  <select value={oneTab} onChange={(e) => { setOneTab(e.target.value); setOneResult(null) }}
-                    className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
-                    <option value="">— выберите —</option>
-                    {sheetTabs.map((t) => <option key={`${t.target}:${t.tab}`} value={t.tab}>{realTitle(t.tab)} · {t.city}</option>)}
-                  </select>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-xs text-fg-400">Ресторан
+                    <select value={oneRest} onChange={(e) => pickRestaurant(e.target.value)}
+                      className="mt-1 h-9 w-full rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
+                      <option value="">— выберите —</option>
+                      {restaurants.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-xs text-fg-400">Вкладка таблицы
+                    <select value={oneTab} onChange={(e) => { setOneTab(e.target.value); setOneResult(null) }}
+                      className="mt-1 h-9 w-full rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
+                      <option value="">— выберите —</option>
+                      {sheetTabs.map((t) => <option key={`${t.target}:${t.tab}`} value={t.tab}>{realTitle(t.tab)} · {t.city}</option>)}
+                    </select>
+                  </label>
                 </div>
                 {sheetTabs.length === 0 && <div className="text-[11px] text-warn">Список вкладок таблицы пока пуст — один раз нажмите «Обновить» в блоке «Все рестораны», чтобы он загрузился.</div>}
                 {oneRest && !oneTab && sheetTabs.length > 0 && <div className="text-[11px] text-warn">У этого ресторана не настроена вкладка таблицы — выберите её в Справочники → Точки → «Вкладка матрицы».</div>}

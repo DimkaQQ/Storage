@@ -171,7 +171,7 @@ export default function App() {
           <header className="shrink-0 border-b border-ink-700/50 bg-ink-950">
             {matchingIsStale && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
-                Матрица план-цен ещё не синхронизирована с Google-таблицей — показан встроенный демо-набор. Синхронизируйте в Настройки iiko → Матрица.
+                План-цены ещё не загружены: подключите Google-таблицу и синхронизируйте её (Обновление → Матрица) — тогда появится сверка с матрицей.
               </div>
             )}
             {saveError && (

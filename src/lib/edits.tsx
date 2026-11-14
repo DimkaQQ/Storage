@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { MATRIX_SNAPSHOTS } from './features'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, EMPTY_MATCHING, computeRows, parseDataset, applyVenueOverrides, setRestaurantScope } from './data'
 import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
@@ -278,7 +278,7 @@ const EditsContext = createContext<Ctx | null>(null)
 export function EditsProvider({ children }: { children: ReactNode }) {
   const [edits, setEdits] = useState<Edits>(load)
   const [parsed, setParsed] = useState<Parsed>(BUNDLED)
-  const [periodKey, setPeriodKey] = useState<string>(BUNDLED_PERIODS[BUNDLED_PERIODS.length - 1].period)
+  const [periodKey, setPeriodKey] = useState<string>(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })
   // enableVenueByName ниже ждёт ответ сервера (await), и если пользователь
   // успеет переключить период за это время, обычный захват periodKey по
   // замыканию в useCallback перезагрузил бы данные УЖЕ СТАРОГО периода поверх
@@ -290,7 +290,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [backendOnline, setBackendOnline] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [venues, setVenuesState] = useState<Venues>({ enabled: DEFAULT_RESTAURANT_SCOPE, discovered: [] })
+  const [venues, setVenuesState] = useState<Venues>({ enabled: [], discovered: [] })
   // Матрица (план-цены) — читается из Google-таблицы через бэкенд (см.
   // sheets.js), отдельно от закупок. null = для этого периода ещё не
   // синхронизировали — тогда matching ниже падает на вшитую bundledMatching.
@@ -462,7 +462,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // (демо/офлайн) остаётся дефолтный список как есть, ничего не меняем.
   const loadVenues = useCallback(async () => {
     const v = await fetchVenues()
-    if (v) { setRestaurantScope(v.enabled); setVenuesState(v); setBackendOnline(true) }
+    if (v) { setRestaurantScope(v.all ? null : v.enabled); setVenuesState(v); setBackendOnline(true) }
   }, [])
   // Матрица — свой источник, свой фетч, не завязан на loadData (закупки), но
   // действует по месяцам (снимки цен), поэтому берётся под выбранный период.
@@ -513,7 +513,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const enableVenueByName = useCallback(async (name: string) => {
     const v = await enableVenue(name)
     if (!v) return
-    setRestaurantScope(v.enabled)
+    setRestaurantScope(v.all ? null : v.enabled)
     setVenuesState(v)
     await loadData(periodKeyRef.current)
   }, [loadData])
@@ -524,7 +524,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const disableVenueByName = useCallback(async (name: string) => {
     const v = await disableVenue(name)
     if (!v) return
-    setRestaurantScope(v.enabled)
+    setRestaurantScope(v.all ? null : v.enabled)
     setVenuesState(v)
     await loadData(periodKeyRef.current)
   }, [loadData])
@@ -580,8 +580,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // (синк с Google-таблицей) побеждает вшитую bundledMatching, когда для
   // этого периода она реально есть.
   const matching = useMemo(
-    () => backendMatching ?? bundledMatching(periodKey),
-    [periodKey, backendMatching],
+    () => backendMatching ?? EMPTY_MATCHING,
+    [backendMatching],
   )
   // Матрица не привязана к периоду — реально синканная (backendMatching)
   // всегда в ходу, какой бы период ни смотрели. "Устарела" только в одном
