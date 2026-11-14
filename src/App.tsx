@@ -2,7 +2,7 @@ import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from 'reac
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
-import { IGauge, IScale, ISpark, IDatabase, ISync, IUser, ILogout, ILayers, IPin } from './components/icons'
+import { IGauge, IScale, ISpark, IChart, IDatabase, ISync, IUser, ILogout, ILayers, IPin } from './components/icons'
 import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
@@ -14,14 +14,16 @@ const PriceCheck = lazy(() => import('./pages/PriceCheck'))
 const DataEditor = lazy(() => import('./pages/DataEditor'))
 const IikoSettings = lazy(() => import('./pages/IikoSettings'))
 const UsersAdmin = lazy(() => import('./pages/UsersAdmin'))
+const PriceDynamics = lazy(() => import('./pages/PriceDynamics'))
 
 declare const __BUILD_TIME__: string
 
-type PageId = 'dashboard' | 'pricecheck' | 'data' | 'iiko' | 'users'
+type PageId = 'dashboard' | 'pricecheck' | 'dynamics' | 'data' | 'iiko' | 'users'
 
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Анализ потерь', icon: IGauge, hint: 'Ключевые показатели' },
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
+  { id: 'dynamics', label: 'Динамика цен', icon: IChart, hint: 'История цены по позициям' },
   { id: 'data', label: 'Справочники', icon: IDatabase, hint: 'Компании, товары, точки' },
   { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko', adminOnly: true },
   { id: 'users', label: 'Команда', icon: IUser, hint: 'Пользователи вашей сети', adminOnly: true },
@@ -101,8 +103,8 @@ export default function App() {
 
   // Период и категория доступны на Обзоре и Проверке цен; точки —
   // тоже на этих двух страницах; город — только в Проверке цен.
-  const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users'
-  const showPeriodPicker = page !== 'iiko' && page !== 'users'
+  const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users' && page !== 'dynamics'
+  const showPeriodPicker = page !== 'iiko' && page !== 'users' && page !== 'dynamics'
   // Тема — слева от фильтров, когда они есть (рядом с заголовком), и в конце
   // ряда на страницах без фильтров (Справочники), чтобы не висела одна.
   const themeBeforeFilters = showFilters
@@ -180,10 +182,10 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-8 py-4">
               <div className="min-w-0">
                 <h1 className="text-lg font-bold text-fg-50">{nav.find((n) => n.id === page)!.label}</h1>
-                <p className="text-xs text-fg-500">
+                {page === 'dynamics' ? <p className="text-xs text-fg-500">История закупочной цены позиции по загруженным периодам</p> : <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
                   {matrixPriceLabel && <span title="Для сверки берутся плановые цены, действовавшие в первый день этого периода"> · Плановые цены: <span className="text-fg-300">{matrixPriceLabel}</span></span>}
-                </p>
+                </p>}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {/* Выбор цветовой схемы — рядом с заголовком страницы (слева от
@@ -223,6 +225,7 @@ export default function App() {
                 <Suspense fallback={<PageLoading />}>
                   {id === 'dashboard' && <Dashboard rows={dashboardRows} onNav={(p) => goTo(p as PageId)} />}
                   {id === 'pricecheck' && <PriceCheck rows={priceCheckRows} />}
+                  {id === 'dynamics' && <PriceDynamics />}
                   {id === 'data' && <DataEditor />}
                   {id === 'iiko' && <IikoSettings />}
                   {id === 'users' && <UsersAdmin />}

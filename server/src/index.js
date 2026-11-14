@@ -9,7 +9,7 @@ import {
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
-  getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData,
+  getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData, freezePastMonthsOnce,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { buildDataTar } from './migration.js'
@@ -52,6 +52,13 @@ function bootstrap() {
   // provider get backfilled with seed data — a real iiko-connected org's
   // missing periods mean "not synced yet", not "needs demo numbers".
   for (const org of listOrgs()) bootstrapOrgData(org.id, { withSeed: getSettings(org.id).provider === 'mock' })
+// Одноразово: уже накопленные прошлые месяцы получают свой снимок матрицы (иначе их цены менялись бы вместе с общей матрицей).
+for (const org of listOrgs()) {
+  try {
+    const r = freezePastMonthsOnce(org.id)
+    if (r.frozen.length) console.log(`[matrix] ${org.name}: зафиксированы цены прошлых месяцев: ${r.frozen.join(', ')}`)
+  } catch (e) { console.error('[matrix] не удалось зафиксировать прошлые месяцы', e) }
+}
 }
 bootstrap()
 
@@ -538,6 +545,11 @@ async function matrixSyncHandler(req, res) {
     const rawPeriod = MATRIX_SNAPSHOTS ? req.body?.period : undefined
     if (rawPeriod != null && (typeof rawPeriod !== 'string' || !isValidPeriod(rawPeriod))) {
       return res.status(400).json({ ok: false, message: 'Период должен быть месяцем (ГГГГ-ММ, например 2026-06) или отрезком (ГГГГ-ММ-ДД..ГГГГ-ММ-ДД, не длиннее ~3 месяцев)' })
+    }
+    // Без периода синк перезаписывал бы общую matrix.json — основу для всех периодов без своего снимка, то есть менял бы
+    // прошлые месяцы задним числом (КП «Новые функции»). Поэтому период обязателен всегда.
+    if (MATRIX_SNAPSHOTS && rawPeriod == null) {
+      return res.status(400).json({ ok: false, message: 'Укажите период (месяц или отрезок): цены фиксируются снимком за период, общая матрица без периода больше не перезаписывается, чтобы не менять прошлые месяцы' })
     }
     const period = rawPeriod ?? null
     // tab — зафиксировать цены ТОЛЬКО одного ресторана (вкладки таблицы) за период, а не всей сети

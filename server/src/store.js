@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID, createHash } from 'node:crypto'
 import { mergeMatching, norm as sheetNorm } from './sheets.js'
-import { isValidPeriod, periodBounds } from './period.js'
+import { isValidPeriod, periodBounds, MONTH_RE } from './period.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', 'data')
@@ -381,6 +381,30 @@ export function resolveMatrixFor(orgId, period, { allowLater = true, withTabs = 
     }
   }
   return { matching, snapshotPeriod, tabSnapshots }
+}
+
+/**
+ * Одноразовая миграция к «ценам по периодам»: каждый уже загруженный ПРОШЛЫЙ месяц (кроме текущего — он ещё живой), у которого
+ * нет своего снимка матрицы, получает копию действующей на сегодня общей матрицы (matrix.json). Дальше цены этих месяцев
+ * меняются только осознанно (синк за этот период), а не при любом обновлении таблицы. Флаг matrixHistoryFrozen в настройках —
+ * чтобы удалённый вручную снимок не воскресал при каждом перезапуске. Демо-организации (provider mock) не трогаем.
+ */
+export function freezePastMonthsOnce(orgId) {
+  const settings = getSettings(orgId)
+  if (settings.matrixHistoryFrozen || settings.provider === 'mock') return { frozen: [] }
+  const base = getMatrix(orgId)
+  if (!base) return { frozen: [] } // матрицы ещё нет — нечего фиксировать; флаг не ставим, повторим после первого синка
+  const now = new Date()
+  const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const have = new Set(listMatrixSnapshots(orgId))
+  const frozen = []
+  for (const { period } of listDatasetPeriods(orgId)) {
+    if (!MONTH_RE.test(period) || period >= current || have.has(period)) continue
+    saveMatrixSnapshot(orgId, period, base)
+    frozen.push(period)
+  }
+  saveSettings(orgId, { matrixHistoryFrozen: true })
+  return { frozen }
 }
 
 /** Available periods for this org, oldest first, read straight off the stored dataset files. */
