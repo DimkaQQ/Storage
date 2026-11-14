@@ -216,7 +216,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   const skipTabs = new Set(excludeTabs.map(norm)) // служебные листы, которые не берём (настройка «Листы таблицы»)
   for (const t of byKnown) {
     if (String(t).includes('::')) continue
-    if (skipTabs.has(norm(String(t)))) continue
+    if (skipTabs.has(norm(String(t))) || (sheetToRestaurant[t] && skipTabs.has(norm(sheetToRestaurant[t])))) continue // и по названию в таблице, и по нашему
     const key = norm(sheetToRestaurant[t] ?? String(t).replace(/\s+/g, ' ').trim())
     if (taken.has(key) || claimed.has(key)) { conflicts.push(String(t)); continue }
     claimed.add(key)
@@ -479,7 +479,9 @@ export const DEFAULT_EXCLUDED_TABS = ['ФО сверка', 'iiko цены ФО',
 /** Матрица без указанных листов (чтение): их строки, подписи и названия в списках вкладок убираются. Исходные файлы не меняются. */
 export function stripTabs(m, excluded) {
   if (!m || !excluded?.length) return m
+  // исключённый лист может быть назван как в таблице («Renee») — а ключи матрицы идут по нашему названию («рене»): сопоставляем через tabTitles
   const skip = new Set(excluded.map(norm))
+  for (const [displayNorm, real] of Object.entries(m.tabTitles ?? {})) if (skip.has(norm(real))) skip.add(displayNorm)
   const keep = (map) => map && Object.fromEntries(Object.entries(map).filter(([k]) => !skip.has(k.split('::')[0])))
   const out = { ...m }
   for (const f of ['supplierAlias', 'planPairs', 'planPairsByPack', 'productLabels', 'noPriceExact', 'ambiguous', 'supplierOrder', 'noIikoName', 'restaurantNames', 'tabTitles']) if (m[f]) out[f] = keep(m[f])

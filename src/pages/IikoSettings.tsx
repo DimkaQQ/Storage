@@ -74,6 +74,8 @@ export default function IikoSettings() {
   const [oneTab, setOneTab] = useState('')
   const [oneSyncing, setOneSyncing] = useState(false)
   const [oneResult, setOneResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  // название листа КАК В ТАБЛИЦЕ (а не наше «красивое»): подписи вкладок запоминает синк матрицы (tabTitles)
+  const realTitle = (display: string) => matching?.tabTitles?.[norm(display)] ?? display
   const sheetTabs = [
     ...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab, target: 'almaty' as const, city: 'Алматы' })),
     ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab, target: 'astana' as const, city: 'Астана' })),
@@ -87,16 +89,20 @@ export default function IikoSettings() {
   const tabMatchesRestaurant = !!oneRest && !!oneTab && norm(oneTab) === norm(matchRestaurant(edits, oneRest))
   // «Листы таблицы»: какие листы берём. По умолчанию не берём служебные и общие справочники «Сырье F»; можно включить/выключить любой
   const excludedTabs = form?.excludedTabs ?? DEFAULT_EXCLUDED_TABS
-  const isTabExcluded = (tab: string) => excludedTabs.some((x) => norm(x) === norm(tab))
+  const isTabExcluded = (tab: string) => excludedTabs.some((x) => norm(x) === norm(tab) || norm(realTitle(x)) === norm(tab)) // выключен мог быть записан и под нашим названием
   const knownTabs = [
     ...(matching?.allTabsByTarget?.almaty ?? []).map((tab) => ({ tab, city: 'Алматы' })),
     ...(matching?.allTabsByTarget?.astana ?? []).map((tab) => ({ tab, city: 'Астана' })),
   ]
-  const tabList = knownTabs.length ? knownTabs : [...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab, city: 'Алматы' })), ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab, city: 'Астана' })), ...excludedTabs.map((tab) => ({ tab, city: '' }))]
-    .filter((x, i, arr) => arr.findIndex((y) => norm(y.tab) === norm(x.tab)) === i)
+  // пока синк не запоминал все листы — берём те, что уже читались (их названия приводим к настоящим), плюс выключенные
+  const tabList = (knownTabs.length ? knownTabs : [
+    ...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Алматы' })),
+    ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Астана' })),
+    ...excludedTabs.map((tab) => ({ tab: realTitle(tab), city: '' })),
+  ]).filter((x, i, arr) => arr.findIndex((y) => norm(y.tab) === norm(x.tab)) === i)
   const toggleTab = async (tab: string) => {
     if (!form) return
-    const next = isTabExcluded(tab) ? excludedTabs.filter((x) => norm(x) !== norm(tab)) : [...excludedTabs, tab]
+    const next = isTabExcluded(tab) ? excludedTabs.filter((x) => norm(x) !== norm(tab) && norm(realTitle(x)) !== norm(tab)) : [...excludedTabs, tab]
     const r = await saveSettings({ ...form, excludedTabs: next })
     if (r) { setForm(r); setSaved(true); await refreshMatrix() }
   }
@@ -385,6 +391,25 @@ export default function IikoSettings() {
           <div className="text-sm font-semibold text-fg-50">Матрица — план-цены из Google-таблицы</div>
           <div className="text-xs text-fg-500">Нажмите «Обновить», чтобы подтянуть свежие цены и названия из таблицы.</div>
         </div>
+        {tabList.length > 0 && (
+          <div className="space-y-1.5 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
+            <div className="text-xs font-medium text-fg-300">Листы таблицы — какие берём <span className="font-normal text-fg-500">(серым — не берём; служебные и «Сырье F» выключены по умолчанию)</span></div>
+            <div className="flex flex-wrap gap-1.5">
+              {tabList.map((x) => {
+                const off = isTabExcluded(x.tab)
+                return (
+                  <button key={x.tab} onClick={() => toggleTab(x.tab)} title={off ? 'Не берётся. Нажмите, чтобы взять (потом «Обновить»)' : 'Берётся. Нажмите, чтобы не брать'}
+                    className={`chip ${off ? 'border-ink-700 bg-ink-900/40 text-fg-600 line-through' : 'border-brand-500/40 bg-brand-500/10 text-fg-100'}`}>
+                    {off ? '✕' : '✓'} {x.tab}{x.city ? ` · ${x.city}` : ''}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-[11px] text-fg-500">Выключенный лист сразу пропадает из программы. Включили лист — нажмите «Обновить», чтобы его цены загрузились.</div>
+          </div>
+        )}
+        <div className="space-y-3 rounded-xl border border-brand-500/40 bg-brand-500/5 p-4">
+          <div className="flex items-center gap-2"><span className="chip border-brand-500/40 bg-brand-500/15 text-fg-50">План-цены</span><span className="text-sm font-semibold text-fg-50">Фиксация цен матрицы по периодам</span></div>
         {MATRIX_SNAPSHOTS && (
           <div className="space-y-2 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
             <div className="text-xs font-medium text-fg-300">Цены за период — «Обновить» ниже зафиксирует текущие цены таблицы именно за него; другие периоды не меняются</div>
@@ -423,12 +448,12 @@ export default function IikoSettings() {
                   <select value={oneTab} onChange={(e) => { setOneTab(e.target.value); setOneResult(null) }}
                     className="rounded-lg border border-ink-600 bg-ink-900/60 px-2 py-1.5 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
                     <option value="">— выберите —</option>
-                    {sheetTabs.map((t) => <option key={`${t.target}:${t.tab}`} value={t.tab}>{t.tab} · {t.city}</option>)}
+                    {sheetTabs.map((t) => <option key={`${t.target}:${t.tab}`} value={t.tab}>{realTitle(t.tab)} · {t.city}</option>)}
                   </select>
                 </div>
                 {sheetTabs.length === 0 && <div className="text-[11px] text-warn">Список вкладок таблицы пока пуст — один раз нажмите «Обновить» в блоке «Все рестораны», чтобы он загрузился.</div>}
                 {oneRest && !oneTab && sheetTabs.length > 0 && <div className="text-[11px] text-warn">У этого ресторана не настроена вкладка таблицы — выберите её в Справочники → Точки → «Вкладка матрицы».</div>}
-                {oneRest && oneTab && !tabMatchesRestaurant && <div className="text-[11px] text-bad">Ресторан «{oneRest}» сверяется с другой вкладкой: «{matchRestaurant(edits, oneRest)}». Чтобы цены не попали не туда, выберите её тут или измените вкладку в Справочники → Точки.</div>}
+                {oneRest && oneTab && !tabMatchesRestaurant && <div className="text-[11px] text-bad">Ресторан «{oneRest}» сверяется с другой вкладкой: «{realTitle(matchRestaurant(edits, oneRest))}». Чтобы цены не попали не туда, выберите её тут или измените вкладку в Справочники → Точки.</div>}
                 <div className="flex flex-wrap items-center gap-3">
                   <button onClick={doSyncOne} disabled={oneSyncing || !matrixPeriod || !tabMatchesRestaurant} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
                     <ISync width={16} height={16} className={oneSyncing ? 'animate-spin' : ''} /> {oneSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены ресторана'}
@@ -468,23 +493,6 @@ export default function IikoSettings() {
             <div className="text-[11px] text-fg-500">Для сверки берутся цены, действовавшие в первый день периода: снимок этого периода, иначе самый узкий покрывающий, иначе ближайший более ранний.</div>
           </div>
         )}
-        {tabList.length > 0 && (
-          <div className="space-y-1.5 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
-            <div className="text-xs font-medium text-fg-300">Листы таблицы — какие берём <span className="font-normal text-fg-500">(серым — не берём; служебные и «Сырье F» выключены по умолчанию)</span></div>
-            <div className="flex flex-wrap gap-1.5">
-              {tabList.map((x) => {
-                const off = isTabExcluded(x.tab)
-                return (
-                  <button key={x.tab} onClick={() => toggleTab(x.tab)} title={off ? 'Не берётся. Нажмите, чтобы взять (потом «Обновить»)' : 'Берётся. Нажмите, чтобы не брать'}
-                    className={`chip ${off ? 'border-ink-700 bg-ink-900/40 text-fg-600 line-through' : 'border-brand-500/40 bg-brand-500/10 text-fg-100'}`}>
-                    {off ? '✕' : '✓'} {x.tab}{x.city ? ` · ${x.city}` : ''}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="text-[11px] text-fg-500">Выключенный лист сразу пропадает из программы. Включили лист — нажмите «Обновить», чтобы его цены загрузились.</div>
-          </div>
-        )}
         <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="w-16 text-sm text-fg-300">Алматы</span>
           <button onClick={doSyncMatrix} disabled={matrixSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
@@ -516,6 +524,7 @@ export default function IikoSettings() {
             </button>
           </div>
         )}
+        </div>
         <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
           <summary className={summary}>Доступ к таблицам</summary>
           <div className="mt-3 grid grid-cols-2 gap-3">
