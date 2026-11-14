@@ -13,6 +13,48 @@ interface Loaded { period: string; data: any; matching: any }
 const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'По дням' }, { id: 'week', label: 'По неделям' }, { id: 'month', label: 'По месяцам' }]
 const PRESETS: { label: string; days: number }[] = [{ label: 'Неделя', days: 6 }, { label: 'Месяц', days: 29 }, { label: 'Квартал', days: 89 }, { label: 'Год', days: 364 }]
 
+const DATE_INPUT = 'mt-1.5 block h-10 w-full min-w-0 appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 text-left text-sm text-fg-100 outline-none focus:border-brand-500 [&::-webkit-date-and-time-value]:text-left'
+
+/** Выбор позиции: поле с подсказками (без родного списка браузера — он рисуется по-разному и ломает ровность). */
+function ProductPicker({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { name: string; count: number }[] }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [])
+  const needle = (open ? q : value).trim().toLowerCase()
+  const list = useMemo(() => (needle ? options.filter((o) => o.name.toLowerCase().includes(needle)) : options).slice(0, 60), [options, needle])
+  return (
+    <div className="relative text-xs font-medium text-fg-400" ref={ref}>
+      Позиция
+      <div className="relative mt-1.5">
+        <input
+          value={open ? q : value}
+          onFocus={() => { setQ(''); setOpen(true) }}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); const exact = options.find((o) => o.name.toLowerCase() === e.target.value.trim().toLowerCase()); if (exact) onChange(exact.name) }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && list[0]) { onChange(list[0].name); setOpen(false); (e.target as HTMLInputElement).blur() } }}
+          placeholder="Начните вводить название…"
+          className="block h-10 w-full rounded-lg border border-ink-600 bg-ink-900/60 pl-3 pr-9 text-sm font-normal text-fg-100 outline-none placeholder:text-fg-600 focus:border-brand-500"
+        />
+        {value && <button aria-label="Очистить" onClick={() => { onChange(''); setQ(''); setOpen(false) }} className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-md text-fg-500 hover:text-fg-100">×</button>}
+      </div>
+      {open && (
+        <div className="absolute left-0 right-0 z-30 mt-1.5 max-h-72 overflow-auto rounded-xl border border-ink-700 bg-ink-850 py-1 shadow-card">
+          {list.length === 0 && <div className="px-3 py-2 text-sm font-normal text-fg-500">Ничего не найдено</div>}
+          {list.map((o) => (
+            <button key={o.name} onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(o.name); setOpen(false) }} className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-normal hover:bg-ink-800 ${o.name === value ? 'text-brand-300' : 'text-fg-200'}`}>
+              <span className="truncate">{o.name}</span><span className="shrink-0 text-xs text-fg-500">{o.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /**
  * «Динамика цен по позициям»: как менялась закупочная цена выбранной позиции по загруженным периодам, с плановой ценой
  * матрицы того же периода, изменением к предыдущей точке и сравнением ресторанов. Подневная/понедельная детализация
@@ -123,30 +165,31 @@ export default function PriceDynamics() {
   return (
     <div className="space-y-5">
       <div className="card space-y-4 p-4">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(260px,1.6fr)_minmax(180px,1fr)_160px_160px]">
-          <label className="block text-xs text-fg-500">Позиция
-            <input list="dyn-products" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Начните вводить название…" className="mt-1 block h-10 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 text-sm text-fg-100 outline-none focus:border-brand-500" />
-            <datalist id="dyn-products">{products.slice(0, 3000).map((p) => <option key={p.name} value={p.name} />)}</datalist>
-          </label>
-          <div className="text-xs text-fg-500">Рестораны
-            <div className="mt-1 [&>*]:w-full"><MultiSelectFilter allLabel="Вся сеть" options={restaurantNames.map((n) => ({ key: n, label: venueLabel(n) }))} selected={scope} onChange={setScope} /></div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-[minmax(260px,1.6fr)_minmax(180px,1fr)_168px_168px] lg:gap-x-4">
+          <div className="col-span-2 lg:col-span-1">
+            <ProductPicker value={product} onChange={setProduct} options={products} />
           </div>
-          <label className="block text-xs text-fg-500">С
-            <input type="date" value={from} max={to || undefined} onChange={(e) => userFrom(e.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 text-sm text-fg-100 outline-none focus:border-brand-500" />
-          </label>
-          <label className="block text-xs text-fg-500">По
-            <input type="date" value={to} min={from || undefined} onChange={(e) => userTo(e.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-ink-700 bg-ink-900 px-3 text-sm text-fg-100 outline-none focus:border-brand-500" />
-          </label>
-        </div>
-        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-          <div className="flex flex-col gap-1 text-xs text-fg-500">Быстрый период
-            <div className="inline-flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
-              {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days)} className="h-8 rounded-md px-3 text-sm text-fg-300 hover:bg-ink-800 hover:text-fg-50">{p.label}</button>)}
+          <div className="col-span-2 text-xs font-medium text-fg-400 lg:col-span-1">Рестораны
+            <div className="mt-1.5 [&>div]:w-full [&>div>button:first-child]:h-10 [&>div>button:first-child]:w-full [&>div>button:first-child]:rounded-lg">
+              <MultiSelectFilter allLabel="Вся сеть" options={restaurantNames.map((n) => ({ key: n, label: venueLabel(n) }))} selected={scope} onChange={setScope} />
             </div>
           </div>
-          <div className="flex flex-col gap-1 text-xs text-fg-500">Детализация
-            <div className="inline-flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
-              {GRAN.map((g) => <button key={g.id} onClick={() => setGran(g.id)} className={`h-8 rounded-md px-3 text-sm ${gran === g.id ? 'bg-brand-500/20 text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{g.label}</button>)}
+          <label className="block min-w-0 text-xs font-medium text-fg-400">С
+            <input type="date" value={from} max={to || undefined} onChange={(e) => userFrom(e.target.value)} className={DATE_INPUT} />
+          </label>
+          <label className="block min-w-0 text-xs font-medium text-fg-400">По
+            <input type="date" value={to} min={from || undefined} onChange={(e) => userTo(e.target.value)} className={DATE_INPUT} />
+          </label>
+        </div>
+        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-[auto_auto] sm:justify-start">
+          <div className="min-w-0 text-xs font-medium text-fg-400">Быстрый период
+            <div className="mt-1.5 flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
+              {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days)} className="h-9 flex-1 rounded-md px-3 text-sm font-normal text-fg-300 hover:bg-ink-800 hover:text-fg-50 sm:flex-none">{p.label}</button>)}
+            </div>
+          </div>
+          <div className="min-w-0 text-xs font-medium text-fg-400">Детализация
+            <div className="mt-1.5 flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
+              {GRAN.map((g) => <button key={g.id} onClick={() => setGran(g.id)} className={`h-9 flex-1 rounded-md px-3 text-sm font-normal sm:flex-none ${gran === g.id ? 'bg-brand-500/20 text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{g.label}</button>)}
             </div>
           </div>
         </div>
