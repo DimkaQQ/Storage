@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -102,6 +102,15 @@ export default function IikoSettings() {
   }
   const oneTabInfo = sheetTabs.find((t) => t.tab === oneTab)
   const tabMatchesRestaurant = !!oneRest && !!oneTab && norm(oneTab) === norm(matchRestaurant(edits, oneRest))
+  // «Листы таблицы» = точки матрицы: показаны ВСЕ листы как в таблице; ненужные (служебные) убирают списком исключений
+  const excludedTabs = form?.excludedTabs ?? DEFAULT_EXCLUDED_TABS
+  const isTabExcluded = (tab: string) => excludedTabs.some((x) => norm(x) === norm(tab))
+  const toggleTab = async (tab: string) => {
+    if (!form) return
+    const next = isTabExcluded(tab) ? excludedTabs.filter((x) => norm(x) !== norm(tab)) : [...excludedTabs, tab]
+    const r = await saveSettings({ ...form, excludedTabs: next })
+    if (r) { setForm(r); setSaved(true); await refreshMatrix() }
+  }
   const knownTabs = [
     ...(matching?.allTabsByTarget?.almaty ?? []).map((tab) => ({ tab, city: 'Алматы' })),
     ...(matching?.allTabsByTarget?.astana ?? []).map((tab) => ({ tab, city: 'Астана' })),
@@ -110,6 +119,7 @@ export default function IikoSettings() {
   const tabList = (knownTabs.length ? knownTabs : [
     ...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Алматы' })),
     ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Астана' })),
+    ...excludedTabs.map((tab) => ({ tab, city: '' })), // убранные тоже видны — чтобы вернуть
   ]).filter((x, i, arr) => arr.findIndex((y) => norm(y.tab) === norm(x.tab)) === i)
   const doSyncOne = async () => {
     if (!form || !oneTabInfo || !matrixPeriod) return
@@ -634,6 +644,27 @@ export default function IikoSettings() {
       </>)}
       {section === 'venues' && (<>
       {/* venues */}
+      <Section title="Листы таблицы — точки матрицы" subtitle="Каждый лист таблицы — одна точка, под тем названием, что в таблице. Служебные листы уберите из списка: убранный лист пропадает из программы.">
+        {tabList.length === 0 ? (
+          <div className="text-xs text-fg-500">Листы появятся после «Синхронизировать матрицу» (Матрица → Состояние).</div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1.5">
+              {tabList.map((x) => {
+                const off = isTabExcluded(x.tab)
+                return (
+                  <button key={x.tab} onClick={() => toggleTab(x.tab)} title={off ? 'Убран. Нажмите, чтобы вернуть (потом «Синхронизировать матрицу»)' : 'Берётся. Нажмите, чтобы убрать'}
+                    className={`chip ${off ? 'border-ink-700 bg-ink-900/40 text-fg-600 line-through' : 'border-brand-500/40 bg-brand-500/10 text-fg-100'}`}>
+                    {off ? '✕' : '✓'} {x.tab}{x.city ? ` · ${x.city}` : ''}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-[11px] text-fg-500">Вернули лист — нажмите «Синхронизировать матрицу», чтобы он загрузился.</div>
+          </div>
+        )}
+      </Section>
+
       <Section title="Точки сети" subtitle="Точки приходят из iiko вместе с закупками: найдите нужную в списке «Обнаружены в закупках» и нажмите «Добавить». Дальше в Справочниках → Точки выберите для неё вкладку матрицы (матрица читает все вкладки таблицы сама) и, при желании, своё название — после этого закупки и план тянутся по этой вкладке, без правки кода.">
         <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
         <div className="mt-3 flex flex-wrap gap-2">
