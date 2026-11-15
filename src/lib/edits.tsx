@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { MATRIX_SNAPSHOTS } from './features'
 import { BUNDLED, BUNDLED_PERIODS, bundledDataset, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, EMPTY_MATCHING, computeRows, parseDataset, applyVenueOverrides, setRestaurantScope } from './data'
-import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, excludeVenue, includeVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
+import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 
@@ -220,7 +220,6 @@ interface Ctx {
   // точки сети — какие сейчас включены/показаны, и какие видны в закупках,
   // но пока не включены (Настройки iiko → «Точки сети»)
   venues: Venues
-  setVenueHidden: (name: string, hidden: boolean) => Promise<void>
   refreshMatrix: () => Promise<void>
   // edits
   renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
@@ -505,14 +504,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // сохранённую бэкендом (единую, без периода) матрицу.
   const refreshMatrix = useCallback(() => loadMatching(periodKeyRef.current), [loadMatching])
 
-  // Убрать точку из программы (например закрытый бренд) или вернуть: список исключений на сервере, затем пересчёт текущего периода
-  const setVenueHidden = useCallback(async (name: string, hidden: boolean) => {
-    const v = await (hidden ? excludeVenue(name) : includeVenue(name))
-    if (!v) { window.alert('Не удалось изменить список точек — проверьте подключение и что вы вошли как администратор.'); return }
-    setVenuesState(v)
-    await loadData(periodKeyRef.current)
-  }, [loadData])
-
   const setPeriod = useCallback((period: string) => {
     setPeriodKey(period)
     loadData(period)
@@ -793,7 +784,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
     backendOnline, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, reloadStatus,
-    venues, setVenueHidden, refreshMatrix,
+    venues, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setProductLinks, setSupplierLinks, manualMode, enableManualMode, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,

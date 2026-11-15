@@ -215,17 +215,8 @@ export async function fetchAssortmentDebug(search: string, period = ''): Promise
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
-export interface Venues { enabled: string[]; excluded?: string[]; discovered: string[]; all?: boolean }  // all — список не настраивали: показаны все точки из закупок
+export interface Venues { enabled: string[]; discovered: string[]; all?: boolean }  // all — список не настраивали: показаны все точки из закупок
 export const fetchVenues = () => get<Venues>('/api/venues')
-/** Убрать точку из программы / вернуть (список исключений на сервере). */
-async function postVenue(path: 'exclude' | 'include', name: string): Promise<Venues | null> {
-  try {
-    const r = await fetch(`/api/venues/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name }) })
-    return r.ok ? await r.json() : null
-  } catch { return null }
-}
-export const excludeVenue = (name: string) => postVenue('exclude', name)
-export const includeVenue = (name: string) => postVenue('include', name)
 
 /** Если тело ответа — JSON с message, возвращает его; иначе общий код HTTP. */
 async function errorMessage(r: Response): Promise<string> {

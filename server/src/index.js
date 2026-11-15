@@ -5,7 +5,7 @@ import { networkInterfaces, tmpdir } from 'node:os'
 import cron from 'node-cron'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
-  getDataset, getDatasetVisible, saveDataset, listVenues, setVenueExcluded, getVenues, listDatasetPeriods, getSeedPeriods,
+  getDataset, getDatasetVisible, saveDataset, getVenues, listDatasetPeriods, getSeedPeriods,
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   orgDataDir, wipeOrgKeepConnection, clearOrgFiles, CONNECTION_KEYS,
@@ -273,7 +273,7 @@ app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
   const incoming = { ...req.body }
   for (const f of SECRET_FIELDS) if (incoming[f] === '********') delete incoming[f]
   // эти поля меняются только своими действиями (Точки сети, ручной режим, миграции) — устаревшая форма в браузере не должна их затирать
-  for (const f of ['enabledRestaurants', 'manualLinks', 'manualFreeze', 'matrixKeysV2', 'matrixHistoryFrozen', 'excludedVenues']) delete incoming[f]
+  for (const f of ['enabledRestaurants', 'manualLinks', 'manualFreeze', 'matrixKeysV2', 'matrixHistoryFrozen']) delete incoming[f]
   const next = saveSettings(req.auth.orgId, incoming)
   armSchedule(req.auth.orgId)
   res.json(maskSecrets(next))
@@ -745,15 +745,10 @@ app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
 })
 
 
-// Точки сети: все кухонные склады из закупок добавляются сами; убранные человеком — в excluded (список исключений, см. store.js listVenues)
-app.get('/api/venues', requireAuth, (req, res) => res.json(listVenues(req.auth.orgId)))
-for (const [path, excluded] of [['exclude', true], ['include', false]]) {
-  app.post(`/api/venues/${path}`, requireAuth, requireAdmin, (req, res) => {
-    const name = String(req.body?.name || '').trim()
-    if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
-    res.json(setVenueExcluded(req.auth.orgId, name, excluded))
-  })
-}
+// Списка «включённых» точек нет: показываются все кухонные склады из закупок (all: true — фронт ничего не фильтрует по именам)
+app.get('/api/venues', requireAuth, (req, res) => {
+  res.json({ enabled: [], all: true, discovered: [] })
+})
 
 /**
  * Полный бэкап данных организации (датасеты+матрицы за все периоды,
