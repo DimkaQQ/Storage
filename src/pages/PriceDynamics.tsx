@@ -13,7 +13,26 @@ interface Loaded { period: string; data: any; matching: any }
 const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'По дням' }, { id: 'week', label: 'По неделям' }, { id: 'month', label: 'По месяцам' }]
 const PRESETS: { label: string; days: number }[] = [{ label: 'Неделя', days: 6 }, { label: 'Месяц', days: 29 }, { label: 'Квартал', days: 89 }, { label: 'Год', days: 364 }]
 
-const DATE_INPUT = 'mt-1.5 block h-10 w-full min-w-0 appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 text-left text-sm text-fg-100 outline-none focus:border-brand-500 [&::-webkit-date-and-time-value]:text-left'
+/**
+ * Поле даты: показываем свой текст по центру (родное поле даты в Safari/iOS рисует значение у верхнего края и разной высоты),
+ * а настоящий input лежит сверху невидимым — нажатие открывает родной выбор даты.
+ */
+function DateField({ label, value, min, max, onChange }: { label: string; value: string; min?: string; max?: string; onChange: (v: string) => void }) {
+  const shown = value ? new Date(value + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Выберите дату'
+  return (
+    <div className="block min-w-0 text-xs font-medium text-fg-400">{label}
+      <div className="relative mt-1.5 h-10 rounded-lg border border-ink-600 bg-ink-900/60 focus-within:border-brand-500">
+        <div className={`pointer-events-none flex h-full items-center justify-between gap-2 px-3 text-sm ${value ? 'text-fg-100' : 'text-fg-600'}`}>
+          <span className="truncate">{shown}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-fg-500"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+        </div>
+        <input type="date" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)}
+          onClick={(e) => { try { e.currentTarget.showPicker?.() } catch { /* нет поддержки — откроется само */ } }}
+          aria-label={label} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      </div>
+    </div>
+  )
+}
 
 /** Выбор позиции: поле с подсказками (без родного списка браузера — он рисуется по-разному и ломает ровность). */
 function ProductPicker({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { name: string; count: number }[] }) {
@@ -174,12 +193,8 @@ export default function PriceDynamics() {
               <MultiSelectFilter allLabel="Вся сеть" options={restaurantNames.map((n) => ({ key: n, label: venueLabel(n) }))} selected={scope} onChange={setScope} />
             </div>
           </div>
-          <label className="block min-w-0 text-xs font-medium text-fg-400">С
-            <input type="date" value={from} max={to || undefined} onChange={(e) => userFrom(e.target.value)} className={DATE_INPUT} />
-          </label>
-          <label className="block min-w-0 text-xs font-medium text-fg-400">По
-            <input type="date" value={to} min={from || undefined} onChange={(e) => userTo(e.target.value)} className={DATE_INPUT} />
-          </label>
+          <DateField label="С" value={from} max={to || undefined} onChange={userFrom} />
+          <DateField label="По" value={to} min={from || undefined} onChange={userTo} />
         </div>
         <div className="grid gap-x-6 gap-y-4 sm:grid-cols-[auto_auto] sm:justify-start">
           <div className="min-w-0 text-xs font-medium text-fg-400">Быстрый период
