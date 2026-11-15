@@ -70,6 +70,22 @@ const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_v
 
 export function getEditsForOrg(orgId) {
   migrateLegacyJsonIfNeeded(orgId)
+  return readEdits(db, orgId)
+}
+
+/** Правки организации из ЛЮБОЙ базы правок (например, из файла edits.db внутри restore.tar). */
+export function readEditsFromFile(path, orgId) {
+  const d = new DatabaseSync(String(path))
+  try {
+    // копия могла быть снята на старой версии схемы — добавляем недостающие столбцы так же, как для живой базы
+    for (const sql of ["ALTER TABLE product_links ADD COLUMN pack TEXT NOT NULL DEFAULT ''", 'ALTER TABLE venue_overrides ADD COLUMN alias TEXT', 'ALTER TABLE venue_overrides ADD COLUMN matrix TEXT', "ALTER TABLE product_links ADD COLUMN restaurant TEXT NOT NULL DEFAULT ''"]) {
+      try { d.exec(sql) } catch { /* столбец уже есть или таблицы нет */ }
+    }
+    return readEdits(d, orgId)
+  } finally { d.close() }
+}
+
+function readEdits(db, orgId) {
   const productRenames = Object.fromEntries(
     db.prepare('SELECT original, name FROM product_renames WHERE org_id=?').all(orgId).map((r) => [r.original, r.name]))
   const supplierRenames = Object.fromEntries(

@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -47,6 +47,8 @@ export default function IikoSettings() {
   const [namesStep, setNamesStep] = useState('')
   const [namesResult, setNamesResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [restoring, setRestoring] = useState(false)
+  const [fullBusy, setFullBusy] = useState<'' | 'restore' | 'wipe'>('')
+  const [fullResult, setFullResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [restoreResult, setRestoreResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [section, setSection] = useState<SectionId>(() => { try { const v = localStorage.getItem('settingsSection'); return SECTIONS.some((x) => x.id === v) ? (v as SectionId) : 'iiko' } catch { return 'iiko' } })
   const pickSection = (id: SectionId) => { setSection(id); try { localStorage.setItem('settingsSection', id) } catch { /* без запоминания */ } }
@@ -256,6 +258,34 @@ export default function IikoSettings() {
     a.remove()
     setTimeout(() => URL.revokeObjectURL(url), 60000)
     setExportResult({ ok: true })
+  }
+
+  // «Восстановить всё из копии»: данные, матрицы, снимки, точки, настройки, правки и привязки из restore.tar
+  const restoreEverything = async (file: File | undefined) => {
+    if (!file) return
+    if (!window.confirm('Восстановить все данные из этой копии? Текущие данные, точки и привязки будут заменены теми, что в файле. Доступы к iiko и Google, если они уже введены, останутся.')) return
+    setFullBusy('restore'); setFullResult(null)
+    const r = await restoreAllFromBackup(file)
+    setFullBusy('')
+    if (!r.ok) { setFullResult({ ok: false, message: r.message ?? 'Не удалось восстановить' }); return }
+    setFullResult({ ok: true, message: `Восстановлено: файлов ${r.files ?? 0}, периодов ${r.periods ?? 0}${r.edits ? ', привязки и правки' : ''}. Страница перезагрузится.` })
+    setTimeout(() => window.location.reload(), 1500)
+  }
+  // «Стереть всё, кроме подключения»: сначала скачивается полная копия (restore.tar), потом данные стираются
+  const wipeEverything = async () => {
+    if (!window.confirm('Стереть ВСЁ, кроме доступов к iiko и Google-таблице? Закупки, матрицы, цены, точки, связи, заметки и настройки будут удалены. Сначала скачается полная копия restore.tar — по ней всё можно вернуть кнопкой «Восстановить всё из копии».')) return
+    setFullBusy('wipe'); setFullResult(null)
+    const backup = await fetchFullExport(true)
+    if (!backup.ok) { setFullBusy(''); setFullResult({ ok: false, message: `Копию скачать не удалось — ничего не стёрто. ${backup.message}` }); return }
+    const url = URL.createObjectURL(backup.blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'restore.tar'; document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+    if (!window.confirm('Копия restore.tar скачана. Проверьте, что файл сохранился. Стереть данные сейчас?')) { setFullBusy(''); setFullResult({ ok: false, message: 'Отменено — ничего не стёрто.' }); return }
+    const r = await wipeAllKeepConnection()
+    setFullBusy('')
+    if (!r.ok) { setFullResult({ ok: false, message: r.message ?? 'Не удалось стереть' }); return }
+    setFullResult({ ok: true, message: 'Всё стёрто, кроме подключения. Страница перезагрузится.' })
+    setTimeout(() => window.location.reload(), 1500)
   }
 
   if (!backendOnline || !form) {
@@ -790,6 +820,30 @@ export default function IikoSettings() {
           )}
         </div>
       </div>
+      <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
+        <div className="max-w-xl">
+          <div className="text-sm font-semibold text-fg-50">Восстановить всё из копии</div>
+          <div className="text-xs text-fg-500">Выберите ранее скачанный restore.tar: вернутся закупки, матрицы и цены по периодам, точки, настройки, связи и заметки. Уже введённые доступы к iiko и Google останутся. Пользователи и пароли входа не меняются.</div>
+        </div>
+        <label className={`btn cursor-pointer border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 ${fullBusy ? 'pointer-events-none opacity-60' : ''}`}>
+          <ISync width={16} height={16} className={fullBusy === 'restore' ? 'animate-spin' : ''} /> {fullBusy === 'restore' ? 'Восстанавливаю…' : 'Восстановить всё из копии'}
+          <input type="file" accept=".tar,.tgz,.gz,application/x-tar" className="hidden" onChange={(e) => { restoreEverything(e.target.files?.[0]); e.target.value = '' }} />
+        </label>
+      </div>
+      <div className="card flex flex-wrap items-center justify-between gap-4 border-bad/30 p-5">
+        <div className="max-w-xl">
+          <div className="text-sm font-semibold text-fg-50">Стереть всё, кроме подключения</div>
+          <div className="text-xs text-fg-500">Удаляет закупки, матрицы, цены, точки, связи, заметки и настройки. Остаются только доступы к iiko и Google-таблице. Перед стиранием скачивается полная копия — по ней всё возвращается кнопкой выше.</div>
+        </div>
+        <button onClick={wipeEverything} disabled={!!fullBusy} className="btn border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20 disabled:opacity-60">
+          <ITrash width={16} height={16} /> {fullBusy === 'wipe' ? 'Стираю…' : 'Стереть всё, кроме подключения'}
+        </button>
+      </div>
+      {fullResult && (
+        <span className={`chip ${fullResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+          {fullResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{fullResult.message}
+        </span>
+      )}
       </>)}
       </div>
     </div>

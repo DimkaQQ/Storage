@@ -297,6 +297,21 @@ export async function restoreConnectionFromBackup(file: File, force = false): Pr
     return r.ok ? await r.json() : { ok: false, message: r.status === 413 ? 'Файл слишком большой для сервера — выберите обычный restore.tar (не сжатый)' : await errorMessage(r) }
   } catch (e) { return { ok: false, message: errMsg(e) } }
 }
+/** Полное восстановление данных организации из restore.tar (закупки, матрицы, снимки, точки, настройки, правки и привязки). */
+export async function restoreAllFromBackup(file: File): Promise<{ ok: boolean; files?: number; periods?: number; edits?: boolean; message?: string }> {
+  try {
+    const r = await fetch('/api/org-data/restore', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...authHeaders() }, body: file })
+    if (r.status === 413) return { ok: false, message: 'Файл слишком большой для сервера (лимит веб-сервера). Увеличьте client_max_body_size в nginx.conf.' }
+    return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
+  } catch (e) { return { ok: false, message: errMsg(e) } }
+}
+/** Стереть всё, кроме доступов к iiko и Google (закупки, матрицы, снимки, точки, правки, настройки). */
+export async function wipeAllKeepConnection(): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const r = await fetch('/api/org-data/wipe', { method: 'POST', headers: authHeaders() })
+    return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
+  } catch (e) { return { ok: false, message: errMsg(e) } }
+}
 /** Безвозвратный сброс всех данных организации (факты/матрицы/правки/включённые точки) — настройки подключения не трогает. */
 export async function resetOrgData(): Promise<{ ok: boolean; message?: string }> {
   try {

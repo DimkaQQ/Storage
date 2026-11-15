@@ -1,13 +1,14 @@
 import express from 'express'
-import { existsSync } from 'node:fs'
-import { join as joinPath } from 'node:path'
-import { networkInterfaces } from 'node:os'
+import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
+import { join as joinPath, dirname, resolve as resolvePath, sep } from 'node:path'
+import { networkInterfaces, tmpdir } from 'node:os'
 import cron from 'node-cron'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
   getDataset, saveDataset, getVenues, listDatasetPeriods, getSeedPeriods,
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
+  orgDataDir, wipeOrgKeepConnection, clearOrgFiles, CONNECTION_KEYS,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
   getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData, freezePastMonthsOnce,
 } from './store.js'
@@ -287,6 +288,8 @@ app.get('/api/settings', requireAuth, requireAdmin, (req, res) => {
 app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
   const incoming = { ...req.body }
   for (const f of SECRET_FIELDS) if (incoming[f] === '********') delete incoming[f]
+  // эти поля меняются только своими действиями (Точки сети, ручной режим, миграции) — устаревшая форма в браузере не должна их затирать
+  for (const f of ['enabledRestaurants', 'manualLinks', 'manualFreeze', 'matrixKeysV2', 'matrixHistoryFrozen']) delete incoming[f]
   const next = saveSettings(req.auth.orgId, incoming)
   armSchedule(req.auth.orgId)
   res.json(maskSecrets(next))
@@ -810,6 +813,76 @@ app.post('/api/org-data/reset', requireAuth, requireAdmin, (req, res) => {
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.stack || e?.message || e) })
+  }
+})
+
+// «Стереть всё, кроме подключения»: закупки, матрицы, снимки, каталог, точки, правки/привязки и настройки (кроме доступов к iiko и Google).
+// Вернуть всё можно из ранее скачанной копии (restore.tar): Резервная копия → «Восстановить всё из копии».
+app.post('/api/org-data/wipe', requireAuth, requireAdmin, (req, res) => {
+  try {
+    wipeOrgKeepConnection(req.auth.orgId)
+    editsDb.resetEdits(req.auth.orgId)
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: String(e?.message || e) })
+  }
+})
+
+// «Восстановить всё из копии»: из restore.tar (полная копия папки данных) возвращаются данные ЭТОЙ организации — закупки, матрицы и снимки,
+// каталог, точки, настройки, правки и привязки. Доступы к iiko/Google берутся из копии, только если в текущих настройках они пусты
+// (то, что вы ввели сейчас, не затирается). Пользователи и пароли входа не трогаются.
+app.post('/api/org-data/restore', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '600mb' }), (req, res) => {
+  const tmp = joinPath(tmpdir(), `pricecheck-restore-${Date.now()}.db`)
+  try {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ ok: false, message: 'Файл не получен' })
+    const orgId = req.auth.orgId
+    const files = readTarFiles(req.body, (n) => /^orgs\/[^/]+\/[^/]+$/.test(n) || n === 'edits.db')
+    const srcOrgs = new Set([...files.keys()].filter((n) => n.startsWith('orgs/')).map((n) => n.split('/')[1]))
+    // копия этой организации (по id), иначе единственная в файле
+    const srcOrg = srcOrgs.has(orgId) ? orgId : (srcOrgs.size === 1 ? [...srcOrgs][0] : null)
+    if (!srcOrg) return res.status(400).json({ ok: false, message: srcOrgs.size ? 'В копии несколько организаций, и нет вашей — восстановление остановлено.' : 'В файле нет данных организации — это не restore.tar.' })
+    const dir = resolvePath(orgDataDir(orgId))
+    // 1) всё проверяем ДО записи: известные имена файлов, корректный JSON, база правок читается — иначе ничего не меняем
+    const KNOWN = /^(settings|status|venues|matrix|catalog)\.json$|^dataset-[\w.-]+\.json$|^matrixsnap-[\w.-]+\.json$|^matrixtab-[\w.-]+\.json$/
+    const plan = []
+    let savedSettings = null
+    for (const [name, data] of files) {
+      if (!name.startsWith(`orgs/${srcOrg}/`)) continue
+      const rel = name.slice(`orgs/${srcOrg}/`.length)
+      if (!KNOWN.test(rel)) continue
+      let parsed
+      try { parsed = JSON.parse(data.toString('utf8')) } catch { return res.status(400).json({ ok: false, message: `Файл «${rel}» в копии повреждён — ничего не восстановлено.` }) }
+      if (rel === 'settings.json') savedSettings = parsed
+      else plan.push({ target: resolvePath(dir, rel), data })
+    }
+    if (!plan.length && !savedSettings) return res.status(400).json({ ok: false, message: 'В копии нет данных этой организации.' })
+    let edits = null
+    const db = files.get('edits.db')
+    if (db) {
+      writeFileSync(tmp, db)
+      try { edits = editsDb.readEditsFromFile(tmp, srcOrg) } catch (e) { return res.status(400).json({ ok: false, message: `База привязок в копии не читается (${String(e?.message || e)}) — ничего не восстановлено.` }) }
+    }
+    // 2) заменяем: сначала убираем текущие файлы данных, чтобы не осталось лишнего, потом пишем из копии
+    clearOrgFiles(orgId)
+    const current = getSettings(orgId)
+    for (const { target, data } of plan) {
+      if (!target.startsWith(dir + sep)) continue
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, data)
+    }
+    if (savedSettings) {
+      const next = { ...savedSettings }
+      for (const k of CONNECTION_KEYS) if (current[k]) next[k] = current[k] // уже введённые доступы не затираем
+      saveSettings(orgId, next)
+    }
+    if (edits) editsDb.replaceAllEdits(orgId, edits)
+    const written = plan.length + (savedSettings ? 1 : 0)
+    armSchedule(orgId)
+    res.json({ ok: true, files: written, edits: !!edits, periods: listDatasetPeriods(orgId).length })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: String(e?.message || e) })
+  } finally {
+    try { unlinkSync(tmp) } catch { /* временного файла может не быть */ }
   }
 })
 

@@ -105,6 +105,7 @@ function orgDir(orgId) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
 }
+export const orgDataDir = (orgId) => orgDir(orgId)
 function orgPaths(orgId) {
   const dir = orgDir(orgId)
   return {
@@ -551,3 +552,25 @@ export function resetOrgData(orgId) {
   saveStatus(orgId, { lastSync: null, lastResult: null, source: null, message: 'Данные сброшены — настройте синк заново' })
 }
 
+
+/** Поля подключения (iiko и Google-таблицы) — единственное, что остаётся после «Стереть всё, кроме подключения». */
+export const CONNECTION_KEYS = ['provider', 'serverUrl', 'login', 'password', 'apiLogin', 'organizationId', 'googleServiceAccountKey', 'googleSheetId', 'astanaSheetId']
+
+/** Удаляет файлы данных организации (закупки, матрицы, снимки, каталог, точки, статус) — перед полным восстановлением из копии. */
+export function clearOrgFiles(orgId) {
+  resetOrgData(orgId)
+  const catalog = orgPaths(orgId).catalog
+  if (existsSync(catalog)) unlinkSync(catalog)
+}
+
+/**
+ * «Стереть всё, кроме подключения»: закупки, матрицы и снимки, каталог, точки, статус и ВСЕ настройки, кроме доступов к iiko и Google.
+ * Правки/привязки (editsDb) стирает вызывающая сторона. Вернуть всё можно из ранее скачанной копии restore.tar.
+ */
+export function wipeOrgKeepConnection(orgId) {
+  resetOrgData(orgId)
+  const catalog = orgPaths(orgId).catalog
+  if (existsSync(catalog)) unlinkSync(catalog)
+  const keep = Object.fromEntries(CONNECTION_KEYS.map((k) => [k, getSettings(orgId)[k]]))
+  write(orgPaths(orgId).settings, { ...DEFAULT_SETTINGS, ...keep, matrixHistoryFrozen: true }) // новые данные не «замораживать» при следующем запуске сервера
+}
