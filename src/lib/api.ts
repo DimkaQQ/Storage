@@ -247,6 +247,14 @@ export async function fetchFullExport(withSecrets = true): Promise<{ ok: true; b
     return { ok: true, blob: await r.blob() }
   } catch (e) { return { ok: false, message: errMsg(e) } }
 }
+/** Вернуть доступы (iiko, Google-таблицы) из скачанной ранее копии restore.tar — читаются только поля подключения. */
+export async function restoreConnectionFromBackup(file: File, force = false): Promise<{ ok: boolean; restored?: string[]; missing?: string[]; message?: string; conflict?: boolean }> {
+  try {
+    const r = await fetch(`/api/settings/restore-connection${force ? '?force=1' : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...authHeaders() }, body: file })
+    if (r.status === 409) return { ...(await r.json()), ok: false, conflict: true }
+    return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
+  } catch (e) { return { ok: false, message: errMsg(e) } }
+}
 /** Безвозвратный сброс всех данных организации (факты/матрицы/правки/включённые точки) — настройки подключения не трогает. */
 export async function resetOrgData(): Promise<{ ok: boolean; message?: string }> {
   try {

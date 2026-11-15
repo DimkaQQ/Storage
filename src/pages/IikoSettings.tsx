@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -43,6 +43,8 @@ export default function IikoSettings() {
     { id: 'backup', label: 'Резервная копия' },
   ] as const
   type SectionId = typeof SECTIONS[number]['id']
+  const [restoring, setRestoring] = useState(false)
+  const [restoreResult, setRestoreResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [section, setSection] = useState<SectionId>(() => { try { const v = localStorage.getItem('settingsSection'); return SECTIONS.some((x) => x.id === v) ? (v as SectionId) : 'iiko' } catch { return 'iiko' } })
   const pickSection = (id: SectionId) => { setSection(id); try { localStorage.setItem('settingsSection', id) } catch { /* без запоминания */ } }
   const [form, setForm] = useState<Settings | null>(null)
@@ -244,6 +246,18 @@ export default function IikoSettings() {
     )
   }
 
+  const restoreConnection = async (file: File | undefined) => {
+    if (!file) return
+    setRestoring(true); setRestoreResult(null)
+    let r = await restoreConnectionFromBackup(file)
+    if (r.conflict) r = window.confirm(`${r.message} Продолжить?`) ? await restoreConnectionFromBackup(file, true) : { ok: false, message: 'Отменено — доступы не менялись' }
+    setRestoring(false)
+    if (r.ok) {
+      setRestoreResult({ ok: !r.missing?.length, message: `Восстановлено: ${(r.restored ?? []).join(', ')}${r.missing?.length ? ` · не хватает: ${r.missing.join(', ')} — введите вручную` : ''}` })
+      const fresh = await fetchSettings(); if (fresh) setForm(fresh)
+      await reloadStatus()
+    } else setRestoreResult({ ok: false, message: r.message })
+  }
   const dot = (id: string) => (id === 'iiko' ? (status?.lastSync ? 'bg-good' : 'bg-fg-600') : id === 'matrix' ? (tabList.length > 0 ? 'bg-good' : 'bg-fg-600') : form?.autoEnabled ? 'bg-good' : 'bg-fg-600')
 
   const summary = 'cursor-pointer select-none text-sm font-medium text-fg-300 hover:text-fg-100'
@@ -679,6 +693,23 @@ export default function IikoSettings() {
             <span className={`chip ${exportResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
               {exportResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
               {exportResult.ok ? 'Скачано' : exportResult.message}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
+        <div>
+          <div className="text-sm font-semibold text-fg-50">Вернуть доступы из копии</div>
+          <div className="text-xs text-fg-500">Если доступы к iiko или Google-таблице пропали: выберите ранее скачанный файл restore.tar. Из него возьмутся только доступы (iiko, ID таблиц, ключ); данные и остальные настройки не изменятся.</div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className={`btn cursor-pointer border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 ${restoring ? 'pointer-events-none opacity-60' : ''}`}>
+            <ISync width={16} height={16} className={restoring ? 'animate-spin' : ''} /> {restoring ? 'Читаю файл…' : 'Выбрать restore.tar'}
+            <input type="file" accept=".tar,.tgz,.gz,application/x-tar" className="hidden" onChange={(e) => { restoreConnection(e.target.files?.[0]); e.target.value = '' }} />
+          </label>
+          {restoreResult && (
+            <span className={`chip ${restoreResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+              {restoreResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{restoreResult.message}
             </span>
           )}
         </div>

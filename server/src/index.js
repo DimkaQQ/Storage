@@ -12,7 +12,7 @@ import {
   getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData, freezePastMonthsOnce,
 } from './store.js'
 import * as editsDb from './editsDb.js'
-import { buildDataTar } from './migration.js'
+import { buildDataTar, readTarFiles } from './migration.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, sliceMatching, stripTabs, DEFAULT_EXCLUDED_TABS, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
@@ -290,6 +290,46 @@ app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
   const next = saveSettings(req.auth.orgId, incoming)
   armSchedule(req.auth.orgId)
   res.json(maskSecrets(next))
+})
+
+// Вернуть доступы (iiko, Google-таблицы) из ранее скачанной копии restore.tar: из неё читаются ТОЛЬКО поля подключения из settings.json.
+// Значения никуда не возвращаются (ответ — только названия восстановленных групп), остальные настройки и данные не трогаются.
+const CONNECTION_FIELDS = {
+  iiko: ['provider', 'serverUrl', 'login', 'password', 'apiLogin', 'organizationId'],
+  'Google-таблица': ['googleServiceAccountKey', 'googleSheetId'],
+  'таблица Астаны': ['astanaSheetId'],
+}
+app.post('/api/settings/restore-connection', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '200mb' }), (req, res) => {
+  try {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ ok: false, message: 'Файл не получен' })
+    const files = readTarFiles(req.body, (n) => /^orgs\/[^/]+\/settings\.json$/.test(n))
+    if (!files.size) return res.status(400).json({ ok: false, message: 'В файле нет настроек организации — выберите restore.tar, скачанный из этой программы' })
+    // своя организация (точный сегмент пути), иначе единственная в файле
+    const mine = [...files.keys()].find((n) => n === `orgs/${req.auth.orgId}/settings.json`) ?? (files.size === 1 ? [...files.keys()][0] : null)
+    if (!mine) return res.status(400).json({ ok: false, message: 'В копии несколько организаций, и вашей среди них нет' })
+    const src = JSON.parse(files.get(mine).toString('utf8'))
+    const ok = (v) => typeof v === 'string' && v.trim() && v !== '********'
+    // группа восстанавливается ЦЕЛИКОМ и только если в копии она полная — иначе получилась бы смесь старого и нового (чужой адрес с прежним паролем)
+    const groups = [
+      { name: 'iiko', fields: CONNECTION_FIELDS.iiko, complete: (ok(src.serverUrl) && ok(src.login) && ok(src.password)) || (ok(src.apiLogin) && ok(src.organizationId)), need: 'пароль iiko', present: ok(src.serverUrl) || ok(src.login) || ok(src.apiLogin) },
+      { name: 'Google-таблица', fields: CONNECTION_FIELDS['Google-таблица'], complete: ok(src.googleServiceAccountKey) && ok(src.googleSheetId), need: 'ключ сервисного аккаунта', present: ok(src.googleSheetId) || ok(src.googleServiceAccountKey) },
+      { name: 'таблица Астаны', fields: CONNECTION_FIELDS['таблица Астаны'], complete: ok(src.astanaSheetId), need: '', present: false },
+    ]
+    const patch = {}, restored = [], missing = []
+    for (const g of groups) {
+      if (g.complete) { for (const f of g.fields) if (ok(src[f])) patch[f] = src[f]; restored.push(g.name) }
+      else if (g.present && g.need) missing.push(g.need)
+    }
+    if (!restored.length) return res.status(400).json({ ok: false, message: 'В этой копии нет полных доступов (скорее всего, это копия «без паролей»). Нужен полный restore.tar' })
+    // уже заданные другие доступы не затираем молча
+    const cur = getSettings(req.auth.orgId)
+    const differs = Object.keys(patch).some((f) => ok(cur[f]) && cur[f] !== patch[f])
+    if (differs && req.query.force !== '1') return res.status(409).json({ ok: false, conflict: true, message: 'У вас уже заданы другие доступы — они будут заменены данными из копии.' })
+    saveSettings(req.auth.orgId, patch)
+    res.json({ ok: true, restored, missing })
+  } catch (e) {
+    res.status(400).json({ ok: false, message: 'Не удалось прочитать файл: ' + String(e.message || e).slice(0, 120) })
+  }
 })
 
 app.post('/api/test-connection', requireAuth, requireAdmin, async (req, res) => {

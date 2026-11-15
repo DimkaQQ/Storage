@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import { snapshotTo } from './editsDb.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -82,4 +83,39 @@ export function buildDataTar(withSecrets = true) {
   }
   parts.push(Buffer.alloc(1024))
   return Buffer.concat(parts)
+}
+
+
+/**
+ * Читает из tar (или tar.gz) только нужные файлы: wanted(путь) -> true. Возвращает Map путь -> Buffer.
+ * Разбор ustar (то, что пишет buildDataTar и обычный `tar`), плюс длинные имена GNU (тип L) и PAX (тип x, запись path=).
+ * Ссылки и каталоги пропускаются; на повреждённом файле чтение просто останавливается.
+ */
+export function readTarFiles(input, wanted) {
+  let buf = Buffer.isBuffer(input) ? input : Buffer.from(input)
+  if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) buf = gunzipSync(buf, { maxOutputLength: 600 * 1024 * 1024 })
+  const out = new Map()
+  const str = (o, n) => { const e = buf.indexOf(0, o); return buf.toString('utf8', o, e === -1 || e > o + n ? o + n : e) }
+  const zeroBlock = (o) => { for (let i = o; i < o + 512; i++) if (buf[i] !== 0) return false; return true }
+  let off = 0, longName = null
+  while (off + 512 <= buf.length) {
+    if (zeroBlock(off)) break // пустой блок — конец архива
+    const size = parseInt(str(off + 124, 12).trim() || '0', 8)
+    if (!Number.isFinite(size) || size < 0) break // не tar или неподдерживаемый размер
+    const type = String.fromCharCode(buf[off + 156] || 48)
+    const data = off + 512
+    if (data + size > buf.length) break
+    if (type === 'L') longName = buf.toString('utf8', data, data + size).replace(/\0+$/, '')
+    else if (type === 'x') {
+      const m = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(buf.toString('utf8', data, data + size))
+      if (m) longName = m[1]
+    } else if (type === '0' || type === '\0') {
+      const prefix = str(off + 345, 155)
+      const name = (longName ?? ((prefix ? prefix + '/' : '') + str(off, 100))).replace(/^\.\//, '')
+      longName = null
+      if (wanted(name)) out.set(name, buf.subarray(data, data + size))
+    } else if (type !== 'g') longName = null
+    off = data + Math.ceil(size / 512) * 512
+  }
+  return out
 }
