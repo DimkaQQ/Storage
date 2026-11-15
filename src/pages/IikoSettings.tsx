@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { norm, matchRestaurant } from '../lib/data'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+import { norm, matchRestaurant, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
@@ -34,6 +34,17 @@ function ago(iso: string | null): string {
 
 export default function IikoSettings() {
   const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
+  // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
+  const SECTIONS = [
+    { id: 'iiko', label: 'Данные из iiko' },
+    { id: 'matrix', label: 'Матрица' },
+    { id: 'venues', label: 'Точки сети' },
+    { id: 'auto', label: 'Автообновление' },
+    { id: 'backup', label: 'Резервная копия' },
+  ] as const
+  type SectionId = typeof SECTIONS[number]['id']
+  const [section, setSection] = useState<SectionId>(() => { try { const v = localStorage.getItem('settingsSection'); return SECTIONS.some((x) => x.id === v) ? (v as SectionId) : 'iiko' } catch { return 'iiko' } })
+  const pickSection = (id: SectionId) => { setSection(id); try { localStorage.setItem('settingsSection', id) } catch { /* без запоминания */ } }
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -233,6 +244,8 @@ export default function IikoSettings() {
     )
   }
 
+  const dot = (id: string) => (id === 'iiko' ? (status?.lastSync ? 'bg-good' : 'bg-fg-600') : id === 'matrix' ? (tabList.length > 0 ? 'bg-good' : 'bg-fg-600') : form?.autoEnabled ? 'bg-good' : 'bg-fg-600')
+
   const summary = 'cursor-pointer select-none text-sm font-medium text-fg-300 hover:text-fg-100'
   const checkChip = (r: { ok: boolean; message: string } | null) => r && (
     <span className={`chip ${r.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
@@ -241,7 +254,19 @@ export default function IikoSettings() {
   )
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-10">
+
+      <nav className="flex shrink-0 flex-col gap-0.5 lg:w-56" aria-label="Разделы">
+        {SECTIONS.map((x) => (
+          <button key={x.id} onClick={() => pickSection(x.id)}
+            className={`flex h-10 items-center justify-between rounded-xl px-3 text-left text-sm ${section === x.id ? 'bg-ink-750 text-fg-50' : 'text-fg-300 hover:bg-ink-800/70 hover:text-fg-100'}`}>
+            <span>{x.label}</span>
+            {x.id === 'venues' ? <span className="rounded-full bg-ink-800 px-2 py-0.5 text-xs text-fg-400">{venues.enabled.length}</span> : x.id === 'backup' ? null : <i className={`h-2 w-2 rounded-full ${dot(x.id)}`} />}
+          </button>
+        ))}
+      </nav>
+      <div className="min-w-0 flex-1 space-y-5">
+      {section === 'iiko' && (<>
       {/* iiko: загрузка закупок — одна зона */}
       <div className="card space-y-5 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -385,17 +410,30 @@ export default function IikoSettings() {
           )}
       </div>
 
-      {/* матрица (план-цены из Google-таблицы) — только обновление, доступы спрятаны */}
-      <div className="card space-y-4 p-5">
-        <div>
-          <div className="text-sm font-semibold text-fg-50">Матрица — план-цены из Google-таблицы</div>
-          <div className="text-xs text-fg-500">Нажмите «Обновить», чтобы подтянуть свежие цены и названия из таблицы.</div>
+      </>)}
+      {section === 'matrix' && (<>
+      <div>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="text-xl font-semibold text-fg-50">Матрица</h2>
         </div>
+        <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: какие листы берём и за какой период фиксируем цены.</p>
+        <div className="mt-5">
+          <SettingsRow title="Состояние" desc="Подключена ли таблица и что в ней нашлось.">
+            {tabList.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><div className="text-sm font-semibold text-fg-50">Таблица синхронизирована · {tabList.length} {plural(tabList.length, 'лист', 'листа', 'листов')}</div>
+                <div className="text-[13px] text-fg-500">Алматы {(matching?.allTabsByTarget?.almaty ?? matching?.tabsByTarget?.almaty ?? []).length} · Астана {(matching?.allTabsByTarget?.astana ?? matching?.tabsByTarget?.astana ?? []).length}</div></div>
+                <span className="chip border-good/30 bg-good/10 text-good"><ICheck width={13} height={13} /> подключена</span>
+              </div>
+            ) : (
+              <div className="text-sm text-fg-400">Таблица ещё не синхронизирована. Укажите доступы ниже и нажмите «Обновить» в блоке «Цены за период».</div>
+            )}
+          </SettingsRow>
+          <SettingsRow title="Листы" desc="Берутся все листы. Служебные выключите — они сразу пропадут из программы.">
         {tabList.length === 0 ? (
-          <div className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3 text-xs text-fg-500">Листы таблицы появятся здесь после первой синхронизации — тогда можно выбрать, какие листы брать, а какие (служебные) нет. Пока по умолчанию берутся все.</div>
+          <div className="text-xs text-fg-500">Листы таблицы появятся здесь после первой синхронизации — тогда можно выбрать, какие листы брать, а какие (служебные) нет. Пока по умолчанию берутся все.</div>
         ) : (
-          <div className="space-y-1.5 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
-            <div className="text-xs font-medium text-fg-300">Листы таблицы — какие берём <span className="font-normal text-fg-500">(серым — не берём; по умолчанию берутся все, служебные листы отключите сами)</span></div>
+          <div className="space-y-2">
             <div className="flex flex-wrap gap-1.5">
               {tabList.map((x) => {
                 const off = isTabExcluded(x.tab)
@@ -410,11 +448,10 @@ export default function IikoSettings() {
             <div className="text-[11px] text-fg-500">Выключенный лист сразу пропадает из программы. Включили лист — нажмите «Обновить», чтобы его цены загрузились.</div>
           </div>
         )}
-        <div className="space-y-3 rounded-xl border border-brand-500/40 bg-brand-500/5 p-4">
-          <div className="flex items-center gap-2"><span className="chip border-brand-500/40 bg-brand-500/15 text-fg-50">План-цены</span><span className="text-sm font-semibold text-fg-50">Фиксация цен матрицы по периодам</span></div>
+          </SettingsRow>
+          <SettingsRow title="Цены за период" desc="Текущие цены таблицы фиксируются за выбранный период. Другие периоды не меняются.">
         {MATRIX_SNAPSHOTS && (
-          <div className="space-y-2 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
-            <div className="text-xs font-medium text-fg-300">Цены за период — «Обновить» ниже зафиксирует текущие цены таблицы именно за него; другие периоды не меняются</div>
+          <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
               <button onClick={() => setMatrixMode('month')} className={`chip ${matrixMode === 'month' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Месяц</button>
               <button onClick={() => setMatrixMode('range')} className={`chip ${matrixMode === 'range' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>День / неделя / отрезок</button>
@@ -528,8 +565,9 @@ export default function IikoSettings() {
             </button>
           </div>
         )}
-        </div>
-        <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
+          </SettingsRow>
+          <SettingsRow title="Доступ к таблицам" desc="ID таблиц и ключ сервисного аккаунта.">
+        <details>
           <summary className={summary}>Доступ к таблицам</summary>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <Field label="Таблица Алматы — ссылка или ID" hint="Можно вставить прямо ссылку из адресной строки — ID вытащится сам" value={form.googleSheetId} onChange={(v) => set({ googleSheetId: extractSheetId(v) })} placeholder="https://docs.google.com/spreadsheets/d/…/edit" full />
@@ -552,8 +590,11 @@ export default function IikoSettings() {
             {checkChip(astanaTestResult && { ...astanaTestResult, message: 'Астана: ' + astanaTestResult.message })}
           </div>
         </details>
+          </SettingsRow>
+        </div>
       </div>
-
+      </>)}
+      {section === 'venues' && (<>
       {/* venues */}
       <Section title="Точки сети" subtitle="Точки приходят из iiko вместе с закупками: найдите нужную в списке «Обнаружены в закупках» и нажмите «Добавить». Дальше в Справочниках → Точки выберите для неё вкладку матрицы (матрица читает все вкладки таблицы сама) и, при желании, своё название — после этого закупки и план тянутся по этой вкладке, без правки кода.">
         <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
@@ -595,6 +636,8 @@ export default function IikoSettings() {
         )}
       </Section>
 
+      </>)}
+      {section === 'auto' && (<>
       {/* schedule */}
       <Section title="Автообновление" subtitle="Приложение будет само подтягивать данные из iiko по расписанию.">
         <label className="flex cursor-pointer items-center gap-3">
@@ -617,6 +660,8 @@ export default function IikoSettings() {
         {saved && <span className="chip border-good/30 bg-good/10 text-good"><ICheck width={13} height={13} /> Сохранено</span>}
       </div>
 
+      </>)}
+      {section === 'backup' && (<>
       {/* резервная копия */}
       <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
         <div>
@@ -638,6 +683,21 @@ export default function IikoSettings() {
           )}
         </div>
       </div>
+      </>)}
+      </div>
+    </div>
+  )
+}
+
+/** Строка настроек: слева название и пояснение, справа панель (как в настройках приложений). */
+function SettingsRow({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-4 border-t border-ink-700/60 py-6 first:border-t-0 lg:grid-cols-[250px_minmax(0,1fr)] lg:gap-8">
+      <div>
+        <h3 className="text-[15px] font-semibold text-fg-50">{title}</h3>
+        {desc && <p className="mt-1 text-[13px] leading-snug text-fg-500">{desc}</p>}
+      </div>
+      <div className="min-w-0 space-y-3 rounded-2xl border border-ink-700/60 bg-ink-900/40 p-4">{children}</div>
     </div>
   )
 }
