@@ -301,13 +301,20 @@ const CONNECTION_FIELDS = {
 }
 app.post('/api/settings/restore-connection', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '200mb' }), (req, res) => {
   try {
-    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ ok: false, message: 'Файл не получен' })
-    const files = readTarFiles(req.body, (n) => /^orgs\/[^/]+\/settings\.json$/.test(n))
-    if (!files.size) return res.status(400).json({ ok: false, message: 'В файле нет настроек организации — выберите restore.tar, скачанный из этой программы' })
-    // своя организация (точный сегмент пути), иначе единственная в файле
-    const mine = [...files.keys()].find((n) => n === `orgs/${req.auth.orgId}/settings.json`) ?? (files.size === 1 ? [...files.keys()][0] : null)
-    if (!mine) return res.status(400).json({ ok: false, message: 'В копии несколько организаций, и вашей среди них нет' })
-    const src = JSON.parse(files.get(mine).toString('utf8'))
+    // два способа: браузер сам достал settings.json из tar и прислал маленький JSON ({ candidates: [{ orgId, settings }] }),
+    // либо прислал весь tar (так работает и без разбора в браузере, но упирается в лимит размера запроса веб-сервера)
+    const candidates = new Map()
+    if (req.body && !Buffer.isBuffer(req.body) && Array.isArray(req.body.candidates)) {
+      for (const c of req.body.candidates) if (c && typeof c.orgId === 'string' && c.settings && typeof c.settings === 'object') candidates.set(c.orgId, c.settings)
+    } else {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ ok: false, message: 'Файл не получен' })
+      const files = readTarFiles(req.body, (n) => /^orgs\/[^/]+\/settings\.json$/.test(n))
+      for (const [name, data] of files) candidates.set(name.split('/')[1], JSON.parse(data.toString('utf8')))
+    }
+    if (!candidates.size) return res.status(400).json({ ok: false, message: 'В файле нет настроек организации — выберите restore.tar, скачанный из этой программы' })
+    // своя организация (по id), иначе единственная в файле
+    const src = candidates.get(req.auth.orgId) ?? (candidates.size === 1 ? [...candidates.values()][0] : null)
+    if (!src) return res.status(400).json({ ok: false, message: 'В копии несколько организаций, и вашей среди них нет' })
     const ok = (v) => typeof v === 'string' && v.trim() && v !== '********'
     // группа восстанавливается ЦЕЛИКОМ и только если в копии она полная — иначе получилась бы смесь старого и нового (чужой адрес с прежним паролем)
     const groups = [

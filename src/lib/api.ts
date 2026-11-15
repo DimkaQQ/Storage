@@ -247,12 +247,54 @@ export async function fetchFullExport(withSecrets = true): Promise<{ ok: true; b
     return { ok: true, blob: await r.blob() }
   } catch (e) { return { ok: false, message: errMsg(e) } }
 }
+/**
+ * Достаёт из tar (без распаковки в память целиком) настройки организаций orgs/<id>/settings.json: читаются только заголовки и нужные
+ * файлы, поэтому даже копия на сотни мегабайт обрабатывается мгновенно и в программу уходит маленький JSON, а не весь файл.
+ */
+async function readSettingsFromTar(file: File): Promise<{ orgId: string; settings: Record<string, unknown> }[]> {
+  const out: { orgId: string; settings: Record<string, unknown> }[] = []
+  const td = new TextDecoder()
+  const cstr = (b: Uint8Array) => { const i = b.indexOf(0); return td.decode(i === -1 ? b : b.subarray(0, i)) }
+  let off = 0, longName: string | null = null
+  while (off + 512 <= file.size) {
+    const h = new Uint8Array(await file.slice(off, off + 512).arrayBuffer())
+    if (h.every((x) => x === 0)) break
+    const size = parseInt(cstr(h.subarray(124, 136)).trim() || '0', 8)
+    if (!Number.isFinite(size) || size < 0) break
+    const type = String.fromCharCode(h[156] || 48)
+    const data = off + 512
+    if (data + size > file.size) break
+    const text = async () => td.decode(await file.slice(data, data + size).arrayBuffer())
+    if (type === 'L') longName = (await text()).replace(/\0+$/, '')
+    else if (type === 'x') { const m = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(await text()); if (m) longName = m[1] }
+    else if (type === '0' || type === '\0') {
+      const prefix = cstr(h.subarray(345, 500))
+      const name = (longName ?? ((prefix ? prefix + '/' : '') + cstr(h.subarray(0, 100)))).replace(/^\.\//, '')
+      longName = null
+      const m = /^orgs\/([^/]+)\/settings\.json$/.exec(name)
+      if (m && size < 1_000_000) out.push({ orgId: m[1], settings: JSON.parse(await text()) })
+    } else if (type !== 'g') longName = null
+    off = data + Math.ceil(size / 512) * 512
+  }
+  return out
+}
+
 /** Вернуть доступы (iiko, Google-таблицы) из скачанной ранее копии restore.tar — читаются только поля подключения. */
 export async function restoreConnectionFromBackup(file: File, force = false): Promise<{ ok: boolean; restored?: string[]; missing?: string[]; message?: string; conflict?: boolean }> {
   try {
-    const r = await fetch(`/api/settings/restore-connection${force ? '?force=1' : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...authHeaders() }, body: file })
+    const url = `/api/settings/restore-connection${force ? '?force=1' : ''}`
+    let init: RequestInit
+    try {
+      // обычный tar разбираем в браузере и шлём только настройки (маленький запрос)
+      if (/\.t?gz$/i.test(file.name)) throw new Error('gz')
+      const candidates = await readSettingsFromTar(file)
+      init = { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ candidates }) }
+    } catch {
+      init = { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...authHeaders() }, body: file } // сжатый или нестандартный файл — отправляем целиком
+    }
+    const r = await fetch(url, init)
     if (r.status === 409) return { ...(await r.json()), ok: false, conflict: true }
-    return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
+    return r.ok ? await r.json() : { ok: false, message: r.status === 413 ? 'Файл слишком большой для сервера — выберите обычный restore.tar (не сжатый)' : await errorMessage(r) }
   } catch (e) { return { ok: false, message: errMsg(e) } }
 }
 /** Безвозвратный сброс всех данных организации (факты/матрицы/правки/включённые точки) — настройки подключения не трогает. */
