@@ -5,10 +5,11 @@ import { networkInterfaces, tmpdir } from 'node:os'
 import cron from 'node-cron'
 import {
   getSettings, saveSettings, getStatus, saveStatus,
-  getDataset, getDatasetVisible, saveDataset, getVenues, listDatasetPeriods, getSeedPeriods,
+  getDataset, saveDataset, getVenues, listDatasetPeriods, getSeedPeriods,
   bootstrapOrgData, bootstrapAccounts,
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   orgDataDir, wipeOrgKeepConnection, clearOrgFiles, CONNECTION_KEYS,
+  getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
   getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData, freezePastMonthsOnce,
 } from './store.js'
 import * as editsDb from './editsDb.js'
@@ -100,6 +101,21 @@ async function runSync(orgId, trigger, explicitPeriod) {
       if (facts.fetchStats) fetchStatsByPeriod.push({ period: periodMeta.period, ...facts.fetchStats })
       if (!facts.length) continue
       const built = buildDataset(facts, venues, periodMeta)
+      // buildDataset группирует только по фактам — точка без ни одной
+      // закупки за этот период (есть план-цены, но просто ничего не
+      // купили) в built.restaurants не попадёт вообще, не как "0 закупок",
+      // а целиком: ни в выборе точек, ни строкой "не закупали" в "Проверка
+      // цен" (computeRows строит её meta из base, а base для такой точки
+      // пустой). Добираем явно включённые точки, которых нет среди фактов,
+      // с пустым items — дальше фронт сам решит, показывать ли что-то по
+      // ним (addPlanOnlyRow из матрицы), опираясь на их meta.
+      const present = new Set(built.restaurants.map((r) => r.name))
+      // только ЯВНО включённые: если список не настраивали (показаны все точки из закупок), ничего не добираем
+      for (const name of (getSettings(orgId).enabledRestaurants ?? [])) {
+        if (present.has(name)) continue
+        const meta = venues.find((v) => v.name === name) || {}
+        built.restaurants.push({ name, entity: meta.entity || '', brand: meta.brand || name, city: cityForRestaurant(name), category: meta.category || 'Кухня', items: [] })
+      }
       saveDataset(orgId, periodMeta.period, built)
       positions += facts.length
       loaded.push({ period: periodMeta.period, periodLabel: periodMeta.periodLabel, rows: facts.length })
@@ -209,7 +225,7 @@ app.get('/api/data', requireAuth, (req, res) => {
   // по умолчанию — последний МЕСЯЦ (отрезки «с … по …» не должны становиться периодом по умолчанию)
   const period = req.query.period || (periods.filter((p) => MONTH_RE.test(p.period)).at(-1) ?? periods.at(-1))?.period
   if (!period) return res.json({ restaurants: [] })
-  res.json(getDatasetVisible(req.auth.orgId, period))
+  res.json(getDataset(req.auth.orgId, period))
 })
 
 app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId), manualLinks: getSettings(req.auth.orgId).manualLinks === true, manualFreeze: Number(getSettings(req.auth.orgId).manualFreeze) || 0 }))
@@ -470,7 +486,7 @@ app.get('/api/debug/dataset-items', requireAuth, requireAdmin, (req, res) => {
   const period = req.query.period || periods.at(-1)?.period
   if (!period) return res.json({ ok: true, items: [] })
   const needle = String(req.query.search || '').toLowerCase()
-  const dataset = getDatasetVisible(req.auth.orgId, period)
+  const dataset = getDataset(req.auth.orgId, period)
   const items = []
   for (const r of dataset.restaurants || []) {
     for (const it of r.items || []) {
@@ -745,9 +761,31 @@ app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
 })
 
 
-// Списка «включённых» точек нет: показываются все кухонные склады из закупок (all: true — фронт ничего не фильтрует по именам)
+/**
+ * «Точки сети» (Настройки iiko): enabled — сейчас показываются в
+ * приложении; discovered — реально встречались в закупках этой
+ * организации (по сохранённым датасетам всех периодов), но пока не
+ * включены. buildDataset (dataset.js) не фильтрует факты по точкам сам —
+ * всё, что вернул iiko, уже лежит в датасете, так что "включить" здесь —
+ * это только снять фильтр на фронте, без пересинхронизации.
+ */
 app.get('/api/venues', requireAuth, (req, res) => {
-  res.json({ enabled: [], all: true, discovered: [] })
+  // all: список не настраивали — показаны ВСЕ точки из закупок (фронт тогда не фильтрует по именам)
+  res.json({ enabled: getEnabledRestaurants(req.auth.orgId), all: getSettings(req.auth.orgId).enabledRestaurants == null, discovered: discoverRestaurants(req.auth.orgId) })
+})
+
+app.post('/api/venues/enable', requireAuth, requireAdmin, (req, res) => {
+  const name = String(req.body?.name || '').trim()
+  if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
+  const enabled = enableRestaurant(req.auth.orgId, name)
+  res.json({ enabled, all: false, discovered: discoverRestaurants(req.auth.orgId) })
+})
+
+app.post('/api/venues/disable', requireAuth, requireAdmin, (req, res) => {
+  const name = String(req.body?.name || '').trim()
+  if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
+  const enabled = disableRestaurant(req.auth.orgId, name)
+  res.json({ enabled, all: false, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
 /**

@@ -217,6 +217,18 @@ export async function fetchAssortmentDebug(search: string, period = ''): Promise
 
 export interface Venues { enabled: string[]; discovered: string[]; all?: boolean }  // all — список не настраивали: показаны все точки из закупок
 export const fetchVenues = () => get<Venues>('/api/venues')
+export async function enableVenue(name: string): Promise<Venues | null> {
+  try {
+    const r = await fetch('/api/venues/enable', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name }) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
+export async function disableVenue(name: string): Promise<Venues | null> {
+  try {
+    const r = await fetch('/api/venues/disable', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ name }) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
 
 /** Если тело ответа — JSON с message, возвращает его; иначе общий код HTTP. */
 async function errorMessage(r: Response): Promise<string> {

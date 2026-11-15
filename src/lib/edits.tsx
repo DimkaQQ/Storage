@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { MATRIX_SNAPSHOTS } from './features'
 import { BUNDLED, BUNDLED_PERIODS, bundledDataset, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, EMPTY_MATCHING, computeRows, parseDataset, applyVenueOverrides, setRestaurantScope } from './data'
-import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
+import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 
@@ -220,6 +220,8 @@ interface Ctx {
   // точки сети — какие сейчас включены/показаны, и какие видны в закупках,
   // но пока не включены (Настройки iiko → «Точки сети»)
   venues: Venues
+  enableVenueByName: (name: string) => Promise<void>
+  disableVenueByName: (name: string) => Promise<void>
   refreshMatrix: () => Promise<void>
   // edits
   renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
@@ -277,7 +279,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const [edits, setEdits] = useState<Edits>(load)
   const [parsed, setParsed] = useState<Parsed>(BUNDLED)
   const [periodKey, setPeriodKey] = useState<string>(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })
-  // refreshMatrix и другие async-действия ждут ответ сервера (await), и если пользователь
+  // enableVenueByName ниже ждёт ответ сервера (await), и если пользователь
   // успеет переключить период за это время, обычный захват periodKey по
   // замыканию в useCallback перезагрузил бы данные УЖЕ СТАРОГО периода поверх
   // только что выбранного нового — ref всегда отражает текущий period на
@@ -460,7 +462,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // (демо/офлайн) остаётся дефолтный список как есть, ничего не меняем.
   const loadVenues = useCallback(async () => {
     const v = await fetchVenues()
-    if (v) { setRestaurantScope(null); setVenuesState(v); setBackendOnline(true) } // списка «включённых» точек нет — по именам ничего не фильтруем
+    if (v) { setRestaurantScope(v.all ? null : v.enabled); setVenuesState(v); setBackendOnline(true) }
   }, [])
   // Матрица — свой источник, свой фетч, не завязан на loadData (закупки), но
   // действует по месяцам (снимки цен), поэтому берётся под выбранный период.
@@ -503,6 +505,29 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // «Обновить сейчас» самой Google-таблицы) — просто перечитывает уже
   // сохранённую бэкендом (единую, без периода) матрицу.
   const refreshMatrix = useCallback(() => loadMatching(periodKeyRef.current), [loadMatching])
+
+  // Кнопка «Добавить» у обнаруженной, но пока не включённой точки
+  // (Настройки iiko → «Точки сети»). Точка уже есть в данных (iiko прислал
+  // закупки под этим Store, backend ничего не фильтрует) — включить это
+  // просто снять фильтр по имени и пересчитать текущий период.
+  const enableVenueByName = useCallback(async (name: string) => {
+    const v = await enableVenue(name)
+    if (!v) return
+    setRestaurantScope(v.all ? null : v.enabled)
+    setVenuesState(v)
+    await loadData(periodKeyRef.current)
+  }, [loadData])
+
+  // Обратное к enableVenueByName — для точек, которые когда-то включили
+  // (обычно самим стартовым DEFAULT_ENABLED_RESTAURANTS), а потом оказалось,
+  // что они закрыты/не нужны вообще (как French bar/Камчатка).
+  const disableVenueByName = useCallback(async (name: string) => {
+    const v = await disableVenue(name)
+    if (!v) return
+    setRestaurantScope(v.all ? null : v.enabled)
+    setVenuesState(v)
+    await loadData(periodKeyRef.current)
+  }, [loadData])
 
   const setPeriod = useCallback((period: string) => {
     setPeriodKey(period)
@@ -784,7 +809,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
     backendOnline, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, reloadStatus,
-    venues, refreshMatrix,
+    venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setProductLinks, setSupplierLinks, manualMode, enableManualMode, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
