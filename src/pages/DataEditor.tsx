@@ -2,7 +2,6 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, parseDataset, computeRows, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
-import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { useAuth } from '../lib/auth'
 import { syncMatrix, fetchPeriods, fetchDataset } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
@@ -63,7 +62,7 @@ export default function DataEditor() {
     edits, rows, renameSupplier, setVenue,
     acknowledgeSupplier, unacknowledgeSupplier, setProductLink, setProductLinks, pendingProductLinks, stageProductLink, undo, canUndo,
     suppliers: suppliersBase, restaurants, matching: matchingBase, refreshMatrix, setSupplierLinks, manualMode, enableManualMode, status,
-    catalogDirty, catalogChanges, savingCatalog, saveCatalog, period, periodKey,
+    catalogDirty, catalogChanges, savingCatalog, saveCatalog,
   } = useEdits()
   // матрица + ручные привязки поставщиков из программы (см. withSupplierLinks в lib/data.ts)
   const matching = useMemo(() => withSupplierLinks(matchingBase, edits, manualMode), [matchingBase, edits.supplierLinks, edits.venueOverrides, manualMode])
@@ -93,19 +92,16 @@ export default function DataEditor() {
   // конкретной закупке этого периода (см. AmbiguousPicker в
   // PriceCheck.tsx), а не одним выбором "навсегда" для всей сети.
   const refreshFromMatrix = async () => {
-    // Цены матрицы действуют по периодам: «Обновить» фиксирует текущие цены таблицы за ОТКРЫТЫЙ период
-    // (другие периоды не меняются). Для уже прошедшего периода спрашиваем — это перезапись его цен.
-    const snapPeriod = MATRIX_SNAPSHOTS ? periodKey : undefined
-    if (snapPeriod && snapPeriod < new Date().toISOString().slice(0, 7) && !window.confirm(`Цены за «${period}» будут заменены текущими ценами из Google-таблицы. Другие периоды не изменятся. Продолжить?`)) return
+    // «Обновить» — только названия (листы, поставщики, товары, новые строки); цены зафиксированных периодов не меняются (их фиксируют в Обновление → Матрица)
     setMatrixSyncing(true); setMatrixSyncMsg(null)
     // по очереди, не параллельно: защита от одинаковых названий вкладок сверяет
     // города по уже сохранённой матрице, второй синк должен видеть первый
-    const almaty = await syncMatrix('almaty', snapPeriod)
-    const astana = await syncMatrix('astana', snapPeriod)
+    const almaty = await syncMatrix('almaty')
+    const astana = await syncMatrix('astana')
     await refreshMatrix()
     setMatrixSyncing(false)
     const skipped = [...(almaty.conflicts ?? []), ...(astana.conflicts ?? [])]
-    const failed = [!almaty.ok && almaty.message && `Алматы: ${almaty.message}`, !astana.ok && astana.message && `Астана: ${astana.message}`].filter(Boolean)
+    const failed = [!almaty.ok && almaty.message && `Алматы: ${almaty.message}`, !astana.ok && astana.message && !/ID таблицы/.test(astana.message) && `Астана: ${astana.message}`].filter(Boolean)
     setMatrixSyncMsg(almaty.ok || astana.ok
       ? 'Обновлено' + (failed.length ? ` · не обновилось — ${failed.join('; ')}` : '') + (skipped.length ? ` · пропущены вкладки с занятым названием: ${skipped.join(', ')} — переименуйте в таблице` : '')
       : (almaty.message || astana.message || 'Не удалось обновить'))
@@ -845,7 +841,7 @@ export default function DataEditor() {
           <button
             onClick={refreshFromMatrix}
             disabled={matrixSyncing}
-            title="Перечитать названия и цены прямо из Google-таблицы матрицы — если там только что что-то поправили"
+            title="Перечитать названия из Google-таблицы (листы, поставщики, товары). Цены зафиксированных периодов не меняются"
             className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-60"
           ><ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Обновляю…' : 'Обновить'}</button>
           <button

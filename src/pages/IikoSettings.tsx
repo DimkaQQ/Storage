@@ -43,6 +43,8 @@ export default function IikoSettings() {
     { id: 'backup', label: 'Резервная копия' },
   ] as const
   type SectionId = typeof SECTIONS[number]['id']
+  const [namesSyncing, setNamesSyncing] = useState(false)
+  const [namesResult, setNamesResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [restoring, setRestoring] = useState(false)
   const [restoreResult, setRestoreResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [section, setSection] = useState<SectionId>(() => { try { const v = localStorage.getItem('settingsSection'); return SECTIONS.some((x) => x.id === v) ? (v as SectionId) : 'iiko' } catch { return 'iiko' } })
@@ -200,6 +202,21 @@ export default function IikoSettings() {
     setMatrixSyncResult(r)
     if (r.ok) { await refreshMatrix(); loadSnapshots() }
     setMatrixSyncing(false)
+  }
+  // «Синхронизировать матрицу»: прочитать из таблицы листы, поставщиков и товары (новые строки подхватываются) БЕЗ фиксации цен —
+  // цены уже зафиксированных периодов не меняются, их фиксируют отдельно ниже («Цены за период»)
+  const doSyncNames = async () => {
+    if (!form) return
+    setNamesSyncing(true); setNamesResult(null)
+    const r0 = await saveSettings(form)
+    if (r0) { setForm(r0); setSaved(true); reloadStatus() }
+    const a = await syncMatrix(undefined)
+    const b = form.astanaSheetId ? await syncMatrix('astana') : null
+    await refreshMatrix()
+    setNamesSyncing(false)
+    const failed = [!a.ok && a.message && `Алматы: ${a.message}`, b && !b.ok && b.message && `Астана: ${b.message}`].filter(Boolean)
+    const skipped = [...(a.conflicts ?? []), ...(b?.conflicts ?? [])]
+    setNamesResult(failed.length ? { ok: false, message: failed.join('; ') } : { ok: true, message: 'Матрица синхронизирована' + (skipped.length ? ` · пропущены листы с занятым названием: ${skipped.join(', ')} — переименуйте в таблице` : '') })
   }
   const doSyncAstana = async () => {
     if (!form) return
@@ -459,20 +476,28 @@ export default function IikoSettings() {
                   <div className="text-[13px] text-fg-500">
                     {tabList.length > 0
                       ? `Загружено: ${tabList.length} ${plural(tabList.length, 'лист', 'листа', 'листов')} · Алматы ${(matching?.allTabsByTarget?.almaty ?? matching?.tabsByTarget?.almaty ?? []).length} · Астана ${(matching?.allTabsByTarget?.astana ?? matching?.tabsByTarget?.astana ?? []).length}`
-                      : hasSheetAccess ? 'Ещё не загружены — доступы есть, осталось нажать «Обновить из таблицы».' : 'Появятся после подключения и первой загрузки.'}
+                      : hasSheetAccess ? 'Ещё не загружены — доступы есть, осталось нажать «Синхронизировать матрицу».' : 'Появятся после подключения и первой загрузки.'}
                   </div>
                 </div>
               </div>
-              <button
-                onClick={async () => { await doSyncMatrix(); if (form?.astanaSheetId) await doSyncAstana() }}
-                disabled={matrixSyncing || astanaSyncing || !matrixPeriod || !hasSheetAccess}
-                title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : !matrixPeriod ? 'Выберите период ниже («Цены за период»)' : 'Загрузить листы и цены из таблицы за выбранный ниже период'}
-                className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-                <ISync width={16} height={16} className={matrixSyncing || astanaSyncing ? 'animate-spin' : ''} /> {matrixSyncing || astanaSyncing ? 'Читаю таблицу…' : 'Обновить из таблицы'}
-              </button>
-            </div>
-          </SettingsRow>
-          <SettingsRow title="Листы" desc="Берутся все листы. Служебные выключите — они сразу пропадут из программы.">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={doSyncNames}
+                  disabled={namesSyncing || matrixSyncing || astanaSyncing || !hasSheetAccess}
+                  title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : 'Прочитать из таблицы листы, поставщиков и товары. Цены периодов не меняются.'}
+                  className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+                  <ISync width={16} height={16} className={namesSyncing ? 'animate-spin' : ''} /> {namesSyncing ? 'Читаю таблицу…' : 'Синхронизировать матрицу'}
+                </button>
+                {namesResult && (
+                  <span className={`chip ${namesResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+                    {namesResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{namesResult.message}
+                  </span>
+                )}
+              </div>
+              <div className="text-[12px] text-fg-500">Подхватывает новые листы, поставщиков и товары. Цены здесь не фиксируются — это отдельный шаг ниже.</div>
+              <details className="border-t border-ink-700/60 pt-3">
+                <summary className="cursor-pointer select-none text-[13px] text-fg-400 hover:text-fg-200">Какие листы брать <span className="text-fg-600">(по умолчанию все; нужно только чтобы спрятать служебные)</span></summary>
+                <div className="mt-3">
         {tabList.length === 0 ? (
           <div className="text-xs text-fg-500">Листы таблицы появятся здесь после первой синхронизации — тогда можно выбрать, какие листы брать, а какие (служебные) нет. Пока по умолчанию берутся все.</div>
         ) : (
@@ -488,11 +513,14 @@ export default function IikoSettings() {
                 )
               })}
             </div>
-            <div className="text-[11px] text-fg-500">Выключенный лист сразу пропадает из программы. Включили лист — нажмите «Обновить», чтобы его цены загрузились.</div>
+            <div className="text-[11px] text-fg-500">Выключенный лист сразу пропадает из программы. Включили лист — нажмите «Синхронизировать матрицу», чтобы он загрузился.</div>
           </div>
         )}
+                </div>
+              </details>
+            </div>
           </SettingsRow>
-          <SettingsRow title="Цены за период" desc="Текущие цены таблицы фиксируются за выбранный период. Другие периоды не меняются.">
+          <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период. Другие периоды не меняются. Новые строки и листы подхватывает «Синхронизировать матрицу» выше.">
         {MATRIX_SNAPSHOTS && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
@@ -535,7 +563,7 @@ export default function IikoSettings() {
                     </select>
                   </label>
                 </div>
-                {sheetTabs.length === 0 && <div className="text-[11px] text-warn">Список вкладок таблицы пока пуст — один раз нажмите «Обновить» в блоке «Все рестораны», чтобы он загрузился.</div>}
+                {sheetTabs.length === 0 && <div className="text-[11px] text-warn">Список вкладок таблицы пока пуст — один раз нажмите «Синхронизировать матрицу», чтобы он загрузился.</div>}
                 {oneRest && !oneTab && sheetTabs.length > 0 && <div className="text-[11px] text-warn">У этого ресторана не настроена вкладка таблицы — выберите её в Справочники → Точки → «Вкладка матрицы».</div>}
                 {oneRest && oneTab && !tabMatchesRestaurant && <div className="text-[11px] text-bad">Ресторан «{oneRest}» сверяется с другой вкладкой: «{realTitle(matchRestaurant(edits, oneRest))}». Чтобы цены не попали не туда, выберите её тут или измените вкладку в Справочники → Точки.</div>}
                 <div className="flex flex-wrap items-center gap-3">
@@ -579,20 +607,20 @@ export default function IikoSettings() {
         )}
         <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="w-16 text-sm text-fg-300">Алматы</span>
-          <button onClick={doSyncMatrix} disabled={matrixSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Обновить'}
+          <button onClick={doSyncMatrix} disabled={matrixSyncing || namesSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены'}
           </button>
           {matrixSyncResult && (
               <span className={`chip ${matrixSyncResult.ok && matrixSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
                 {matrixSyncResult.ok && !matrixSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-                {matrixSyncResult.ok ? (matrixSyncResult.period ? `Цены зафиксированы за ${matrixSyncResult.period}` : 'Обновлено') + (matrixSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${matrixSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : matrixSyncResult.message}
+                {matrixSyncResult.ok ? (matrixSyncResult.period ? `Цены зафиксированы за ${matrixSyncResult.period}` : 'Готово') + (matrixSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${matrixSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : matrixSyncResult.message}
               </span>
             )}
         </div>
         <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="w-16 text-sm text-fg-300">Астана</span>
-          <button onClick={doSyncAstana} disabled={astanaSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Обновить'}
+          <button onClick={doSyncAstana} disabled={astanaSyncing || namesSyncing || !form?.astanaSheetId || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены'}
           </button>
           {astanaSyncResult && (
               <span className={`chip ${astanaSyncResult.ok && astanaSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : astanaSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
@@ -603,8 +631,8 @@ export default function IikoSettings() {
         </div>
         {MATRIX_SNAPSHOTS && matrixScope === 'all' && (
           <div className="flex flex-wrap items-center gap-3">
-            <button onClick={async () => { await doSyncMatrix(); await doSyncAstana() }} disabled={matrixSyncing || astanaSyncing || !matrixPeriod} className="btn border border-brand-500/50 bg-brand-500/10 text-fg-100 hover:bg-brand-500/20 disabled:opacity-60">
-              <ISync width={16} height={16} className={matrixSyncing || astanaSyncing ? 'animate-spin' : ''} /> Обновить все рестораны (Алматы и Астана)
+            <button onClick={async () => { await doSyncMatrix(); if (form?.astanaSheetId) await doSyncAstana() }} disabled={matrixSyncing || astanaSyncing || namesSyncing || !matrixPeriod} className="btn border border-brand-500/50 bg-brand-500/10 text-fg-100 hover:bg-brand-500/20 disabled:opacity-60">
+              <ISync width={16} height={16} className={matrixSyncing || astanaSyncing ? 'animate-spin' : ''} /> Зафиксировать цены для всех (Алматы и Астана)
             </button>
           </div>
         )}

@@ -367,7 +367,41 @@ export function resolveMatrixFor(orgId, period, { allowLater = true, withTabs = 
       tabSnapshots[tab] = pick.p
     }
   }
+  // Названия, появившиеся в таблице ПОСЛЕ снимка (новые строки, листы, поставщики — их подхватывает «Синхронизировать матрицу»), добавляем
+  // в снимок без цены: цену им даст только фиксация за этот период. Цены и строки самого снимка не меняются.
+  if (withTabs && matching) {
+    const base = getMatrix(orgId)
+    if (base && matching !== base) matching = withNewNames(matching, base)
+  }
   return { matching, snapshotPeriod, tabSnapshots }
+}
+
+/** Снимок + строки и названия из общей матрицы, которых в снимке нет (они без цены — noPriceExact). Исходные объекты не меняются. */
+// списки вкладок по городам: объединение (вкладки снимка не пропадают, новые из таблицы добавляются)
+function mergeTabLists(a, b) {
+  if (!a || !b) return a ?? b
+  const out = { ...a }
+  for (const [k, v] of Object.entries(b)) out[k] = Array.isArray(v) || Array.isArray(out[k]) ? [...new Set([...(out[k] ?? []), ...(v ?? [])])] : (out[k] ?? v)
+  return out
+}
+
+function withNewNames(m, base) {
+  const has = new Set([...Object.keys(m.planPairs ?? {}), ...Object.keys(m.planPairsByPack ?? {}), ...Object.keys(m.noPriceExact ?? {})])
+  const noPrice = { ...(m.noPriceExact ?? {}) }, labels = { ...(m.productLabels ?? {}) }, noName = { ...(m.noIikoName ?? {}) }
+  for (const k of new Set([...Object.keys(base.planPairs ?? {}), ...Object.keys(base.planPairsByPack ?? {}), ...Object.keys(base.noPriceExact ?? {})])) {
+    if (has.has(k)) continue
+    noPrice[k] = true
+    if (labels[k] == null && base.productLabels?.[k] != null) labels[k] = base.productLabels[k]
+    if (base.noIikoName?.[k]) noName[k] = true
+  }
+  return {
+    ...m, noPriceExact: noPrice, productLabels: labels, noIikoName: noName,
+    supplierAlias: { ...(base.supplierAlias ?? {}), ...(m.supplierAlias ?? {}) },
+    supplierOrder: { ...(base.supplierOrder ?? {}), ...(m.supplierOrder ?? {}) },
+    restaurantNames: { ...(base.restaurantNames ?? {}), ...(m.restaurantNames ?? {}) },
+    tabTitles: { ...(base.tabTitles ?? {}), ...(m.tabTitles ?? {}) },
+    tabsByTarget: mergeTabLists(m.tabsByTarget, base.tabsByTarget), allTabsByTarget: mergeTabLists(m.allTabsByTarget, base.allTabsByTarget),
+  }
 }
 
 /**
