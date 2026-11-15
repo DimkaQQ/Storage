@@ -74,7 +74,6 @@ export default function IikoSettings() {
   const [matrixSyncing, setMatrixSyncing] = useState(false)
   // Период, ЗА КОТОРЫЙ фиксируем цены матрицы (снимок): месяц или отрезок «с … по …» (день, неделя, любой отрезок)
   const [matrixMode, setMatrixMode] = useState<'month' | 'range'>('month')
-  const [syncMonth, setSyncMonth] = useState(iso(nowDate).slice(0, 7)) // месяц у кнопки «Синхронизировать матрицу»
   const [matrixMonth, setMatrixMonth] = useState(iso(nowDate).slice(0, 7))
   const [matrixFrom, setMatrixFrom] = useState('')
   const [matrixTo, setMatrixTo] = useState('')
@@ -209,24 +208,17 @@ export default function IikoSettings() {
   // зафиксировать цены за него. Другие периоды не меняются; день/неделя/отрезок и один ресторан — ниже («Цены за период»)
   const doSyncNames = async () => {
     if (!form) return
-    if (MATRIX_SNAPSHOTS && syncMonth && snapshots.some((x) => x.period === syncMonth) && !window.confirm(`Цены за «${syncMonth}» уже зафиксированы. Перезаписать их текущими ценами таблицы?`)) return
     setNamesSyncing(true); setNamesResult(null)
     type R = Awaited<ReturnType<typeof syncMatrix>>
-    let a: R = { ok: false }, b: R | null = null, conflicts0: string[] = []
+    let a: R = { ok: false }, b: R | null = null
     try {
       const r0 = await saveSettings(form)
       if (r0) { setForm(r0); setSaved(true); reloadStatus() }
-      // сначала названия (общая матрица), затем цены выбранного месяца (снимок месяца)
+      // только названия (листы, поставщики, товары); цены не трогаются — за них отвечает «Цены за период»
       setNamesStep('Алматы — читаю листы…')
       a = await syncMatrix(undefined)
       setNamesStep('Астана — читаю листы…')
       b = form.astanaSheetId ? await syncMatrix('astana') : null
-      conflicts0 = [...(a.conflicts ?? []), ...(b?.conflicts ?? [])]
-      if (MATRIX_SNAPSHOTS && syncMonth && a.ok && (!b || b.ok)) {
-        setNamesStep(`Алматы — цены за ${syncMonth}…`)
-        a = await syncMatrix(undefined, syncMonth)
-        if (b) { setNamesStep(`Астана — цены за ${syncMonth}…`); b = await syncMatrix('astana', syncMonth) }
-      }
       await refreshMatrix()
     } catch (e) {
       setNamesResult({ ok: false, message: String((e as Error)?.message || e) }); setNamesSyncing(false); setNamesStep(''); return
@@ -234,8 +226,8 @@ export default function IikoSettings() {
     setNamesSyncing(false); setNamesStep('')
     const failed = [!a.ok && a.message && `Алматы: ${a.message}`, b && !b.ok && b.message && `Астана: ${b.message}`].filter(Boolean)
     loadSnapshots()
-    const skipped = [...new Set([...(a.conflicts ?? []), ...(b?.conflicts ?? []), ...conflicts0])]
-    setNamesResult(failed.length ? { ok: false, message: failed.join('; ') } : { ok: true, message: (MATRIX_SNAPSHOTS && syncMonth ? 'Матрица синхронизирована, цены зафиксированы за ' + syncMonth : 'Матрица синхронизирована') + (skipped.length ? ` · пропущены листы с занятым названием: ${skipped.join(', ')} — переименуйте в таблице` : '') })
+    const skipped = [...(a.conflicts ?? []), ...(b?.conflicts ?? [])]
+    setNamesResult(failed.length ? { ok: false, message: failed.join('; ') } : { ok: true, message: 'Матрица синхронизирована (названия; цены не менялись)' + (skipped.length ? ` · пропущены листы с занятым названием: ${skipped.join(', ')} — переименуйте в таблице` : '') })
   }
   const doSyncAstana = async () => {
     if (!form) return
@@ -500,16 +492,10 @@ export default function IikoSettings() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3 pt-1">
-                {MATRIX_SNAPSHOTS && (
-                  <label className="flex items-center gap-2 text-xs text-fg-400">Месяц
-                    <input type="month" value={syncMonth} max={nextMonth} onChange={(e) => setSyncMonth(e.target.value)}
-                      className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-                  </label>
-                )}
                 <button
                   onClick={doSyncNames}
                   disabled={namesSyncing || matrixSyncing || astanaSyncing || !hasSheetAccess}
-                  title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : 'Прочитать таблицу и зафиксировать цены за выбранный месяц'}
+                  title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : 'Прочитать из таблицы листы, поставщиков и товары. Цены не меняются.'}
                   className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
                   <ISync width={16} height={16} className={namesSyncing ? 'animate-spin' : ''} /> {namesSyncing ? (namesStep || 'Читаю таблицу…') : 'Синхронизировать матрицу'}
                 </button>
@@ -523,10 +509,10 @@ export default function IikoSettings() {
                 )}
                 </div>
               )}
-              <div className="text-[12px] text-fg-500">Подхватывает новые листы, поставщиков и товары и фиксирует цены за выбранный месяц. День, неделя, отрезок и один ресторан — ниже.</div>
+              <div className="text-[12px] text-fg-500">Подхватывает новые листы, поставщиков и товары. Цены не меняются — их фиксируют ниже, в «Цены за период».</div>
             </div>
           </SettingsRow>
-          <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период: день, неделя, отрезок или один ресторан. Другие периоды не меняются. Целый месяц — кнопкой «Синхронизировать матрицу» выше.">
+          <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период: день, неделя, отрезок или один ресторан. Другие периоды не меняются. Новые строки и листы подхватывает «Синхронизировать матрицу» выше.">
         <div className="space-y-4">
         {MATRIX_SNAPSHOTS && (
           <div className="space-y-4">

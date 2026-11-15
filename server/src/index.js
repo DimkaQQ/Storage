@@ -665,6 +665,9 @@ async function matrixSyncHandler(req, res) {
       saveMatrixTabSnapshot(orgId, hit, period, slice)
       return res.json({ ok: true, target, period, tab: hit, rows: Object.keys(slice.planPairs).length, conflicts: summary.conflicts ?? [] })
     }
+    // Без периода («Синхронизировать матрицу») — только названия: цены уже известных строк остаются прежними, новые строки приходят без цены.
+    // Цены меняет только фиксация за период.
+    if (!period && prev) matching = keepExistingPrices(matching, prev) // первая синхронизация (матрицы ещё нет) — цены берутся как есть
     const merged = mergeMatching(prev, matching, ownTabs)
     merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: ownTabs }
     merged.allTabsByTarget = { ...(prev?.allTabsByTarget ?? {}), [target]: summary.allTabs ?? [] }
@@ -680,6 +683,21 @@ async function matrixSyncHandler(req, res) {
     console.warn(`[matrix] ошибка синка: ${String(e.message || e)}`)
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
+}
+
+/** Свежая матрица, но цены — как в prev: известные ключи берут прежнюю цену, новые остаются без цены (noPriceExact). */
+function keepExistingPrices(fresh, prev) {
+  const out = { ...fresh, planPairs: {}, planPairsByPack: {}, noPriceExact: { ...(fresh.noPriceExact ?? {}) } }
+  const ambiguous = {}
+  for (const f of ['planPairs', 'planPairsByPack']) {
+    for (const key of Object.keys(fresh[f] ?? {})) {
+      if (prev?.[f] && key in prev[f]) { out[f][key] = prev[f][key]; delete out.noPriceExact[key] }
+      else out.noPriceExact[key] = true
+    }
+  }
+  for (const key of Object.keys(fresh.ambiguous ?? {})) if (prev?.ambiguous?.[key]) ambiguous[key] = prev.ambiguous[key]
+  out.ambiguous = ambiguous
+  return out
 }
 
 // Синк таблицы идёт долго (десяток вкладок + сеть до Google), а перед сервером бывает прокси с коротким
