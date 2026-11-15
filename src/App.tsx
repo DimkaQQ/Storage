@@ -7,6 +7,7 @@ import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
 import PeriodPicker from './components/PeriodPicker'
+import { DYNAMICS } from './lib/features'
 
 // Pages are code-split: only the open page's code is downloaded.
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -23,7 +24,7 @@ type PageId = 'dashboard' | 'pricecheck' | 'dynamics' | 'data' | 'iiko' | 'users
 const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Анализ потерь', icon: IGauge, hint: 'Ключевые показатели' },
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
-  { id: 'dynamics', label: 'Динамика цен', icon: IChart, hint: 'История цены по позициям' },
+  ...(DYNAMICS ? [{ id: 'dynamics' as const, label: 'Динамика цен', icon: IChart, hint: 'История цены по позициям' }] : []),
   { id: 'data', label: 'Справочники', icon: IDatabase, hint: 'Компании, товары, точки' },
   { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko', adminOnly: true },
   { id: 'users', label: 'Команда', icon: IUser, hint: 'Пользователи вашей сети', adminOnly: true },
@@ -225,7 +226,7 @@ export default function App() {
                 <Suspense fallback={<PageLoading />}>
                   {id === 'dashboard' && <Dashboard rows={dashboardRows} onNav={(p) => goTo(p as PageId)} />}
                   {id === 'pricecheck' && <PriceCheck rows={priceCheckRows} />}
-                  {id === 'dynamics' && <PriceDynamics />}
+                  {DYNAMICS && id === 'dynamics' && <PriceDynamics />}
                   {id === 'data' && <DataEditor />}
                   {id === 'iiko' && <IikoSettings />}
                   {id === 'users' && <UsersAdmin />}

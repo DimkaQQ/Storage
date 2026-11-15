@@ -5,3 +5,9 @@
  * MATRIX_SNAPSHOTS=0 (см. server/src/index.js).
  */
 export const MATRIX_SNAPSHOTS = true
+
+/**
+ * DYNAMICS — вкладка «Динамика цен» (src/pages/PriceDynamics.tsx). Код готов, но скрыта из меню,
+ * пока заказчик не согласовал функцию. Включить: тут true и пересобрать/задеплоить.
+ */
+export const DYNAMICS = false
