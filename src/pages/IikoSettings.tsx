@@ -73,6 +73,7 @@ export default function IikoSettings() {
   const [matrixSyncing, setMatrixSyncing] = useState(false)
   // Период, ЗА КОТОРЫЙ фиксируем цены матрицы (снимок): месяц или отрезок «с … по …» (день, неделя, любой отрезок)
   const [matrixMode, setMatrixMode] = useState<'month' | 'range'>('month')
+  const [syncMonth, setSyncMonth] = useState(iso(nowDate).slice(0, 7)) // месяц у кнопки «Синхронизировать матрицу»
   const [matrixMonth, setMatrixMonth] = useState(iso(nowDate).slice(0, 7))
   const [matrixFrom, setMatrixFrom] = useState('')
   const [matrixTo, setMatrixTo] = useState('')
@@ -203,20 +204,28 @@ export default function IikoSettings() {
     if (r.ok) { await refreshMatrix(); loadSnapshots() }
     setMatrixSyncing(false)
   }
-  // «Синхронизировать матрицу»: прочитать из таблицы листы, поставщиков и товары (новые строки подхватываются) БЕЗ фиксации цен —
-  // цены уже зафиксированных периодов не меняются, их фиксируют отдельно ниже («Цены за период»)
+  // «Синхронизировать матрицу»: прочитать из таблицы листы, поставщиков и товары (новые строки подхватываются) и, если выбран месяц,
+  // зафиксировать цены за него. Другие периоды не меняются; день/неделя/отрезок и один ресторан — ниже («Цены за период»)
   const doSyncNames = async () => {
     if (!form) return
+    if (MATRIX_SNAPSHOTS && syncMonth && snapshots.some((x) => x.period === syncMonth) && !window.confirm(`Цены за «${syncMonth}» уже зафиксированы. Перезаписать их текущими ценами таблицы?`)) return
     setNamesSyncing(true); setNamesResult(null)
     const r0 = await saveSettings(form)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
-    const a = await syncMatrix(undefined)
-    const b = form.astanaSheetId ? await syncMatrix('astana') : null
+    // сначала названия (общая матрица), затем цены выбранного месяца (снимок месяца)
+    let a = await syncMatrix(undefined)
+    let b = form.astanaSheetId ? await syncMatrix('astana') : null
+    const conflicts0 = [...(a.conflicts ?? []), ...(b?.conflicts ?? [])]
+    if (MATRIX_SNAPSHOTS && syncMonth && a.ok && (!b || b.ok)) {
+      a = await syncMatrix(undefined, syncMonth)
+      if (b) b = await syncMatrix('astana', syncMonth)
+    }
     await refreshMatrix()
     setNamesSyncing(false)
     const failed = [!a.ok && a.message && `Алматы: ${a.message}`, b && !b.ok && b.message && `Астана: ${b.message}`].filter(Boolean)
-    const skipped = [...(a.conflicts ?? []), ...(b?.conflicts ?? [])]
-    setNamesResult(failed.length ? { ok: false, message: failed.join('; ') } : { ok: true, message: 'Матрица синхронизирована' + (skipped.length ? ` · пропущены листы с занятым названием: ${skipped.join(', ')} — переименуйте в таблице` : '') })
+    loadSnapshots()
+    const skipped = [...new Set([...(a.conflicts ?? []), ...(b?.conflicts ?? []), ...conflicts0])]
+    setNamesResult(failed.length ? { ok: false, message: failed.join('; ') } : { ok: true, message: (MATRIX_SNAPSHOTS && syncMonth ? 'Матрица синхронизирована, цены зафиксированы за ' + syncMonth : 'Матрица синхронизирована') + (skipped.length ? ` · пропущены листы с занятым названием: ${skipped.join(', ')} — переименуйте в таблице` : '') })
   }
   const doSyncAstana = async () => {
     if (!form) return
@@ -480,39 +489,52 @@ export default function IikoSettings() {
                   </div>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                {MATRIX_SNAPSHOTS && (
+                  <label className="flex items-center gap-2 text-xs text-fg-400">Месяц
+                    <input type="month" value={syncMonth} max={nextMonth} onChange={(e) => setSyncMonth(e.target.value)}
+                      className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                  </label>
+                )}
                 <button
                   onClick={doSyncNames}
                   disabled={namesSyncing || matrixSyncing || astanaSyncing || !hasSheetAccess}
-                  title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : 'Прочитать из таблицы листы, поставщиков и товары. Цены периодов не меняются.'}
+                  title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : 'Прочитать таблицу и зафиксировать цены за выбранный месяц'}
                   className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
                   <ISync width={16} height={16} className={namesSyncing ? 'animate-spin' : ''} /> {namesSyncing ? 'Читаю таблицу…' : 'Синхронизировать матрицу'}
                 </button>
+              </div>
+              {namesResult && (
+                <div>
                 {namesResult && (
                   <span className={`chip ${namesResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
                     {namesResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{namesResult.message}
                   </span>
                 )}
-              </div>
-              <div className="text-[12px] text-fg-500">Подхватывает новые листы, поставщиков и товары. Цены здесь не фиксируются — это отдельный шаг ниже.</div>
+                </div>
+              )}
+              <div className="text-[12px] text-fg-500">Подхватывает новые листы, поставщиков и товары и фиксирует цены за выбранный месяц. День, неделя, отрезок и один ресторан — ниже.</div>
             </div>
           </SettingsRow>
-          <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период. Другие периоды не меняются. Новые строки и листы подхватывает «Синхронизировать матрицу» выше.">
+          <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период: день, неделя, отрезок или один ресторан. Другие периоды не меняются. Целый месяц — кнопкой «Синхронизировать матрицу» выше.">
+        <div className="space-y-4">
         {MATRIX_SNAPSHOTS && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
               <button onClick={() => setMatrixMode('month')} className={`chip ${matrixMode === 'month' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Месяц</button>
-              <button onClick={() => setMatrixMode('range')} className={`chip ${matrixMode === 'range' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>День / неделя / отрезок</button>
+              <button onClick={() => setMatrixMode('range')} className={`chip ${matrixMode === 'range' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Период</button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
               {matrixMode === 'month' ? (
                 <input type="month" value={matrixMonth} max={nextMonth}
                   onChange={(e) => { setMatrixMonth(e.target.value); setMatrixPeriodTouched(true) }}
-                  className="h-9 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                  className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
               ) : (
                 <>
                   с <input type="date" value={matrixFrom} onChange={(e) => setMatrixFrom(e.target.value)}
-                    className="h-9 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                    className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
                   по <input type="date" value={matrixTo} onChange={(e) => setMatrixTo(e.target.value)}
-                    className="h-9 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                    className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
                   {matrixFrom && matrixTo && matrixFrom > matrixTo && <span className="chip border-bad/30 bg-bad/10 text-bad">Дата «с» позже даты «по»</span>}
                 </>
               )}
@@ -557,7 +579,7 @@ export default function IikoSettings() {
             )}
             {snapshots.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
-                Зафиксировано:
+                Уже зафиксированные даты:
                 {snapshots.map((x) => (
                   <span key={x.period} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
                     {x.periodLabel}
@@ -566,7 +588,7 @@ export default function IikoSettings() {
                   </span>
                 ))}
               </div>
-            ) : <div className="text-xs text-fg-500">Для всех ресторанов пока ничего не зафиксировано: все периоды берут общую матрицу.</div>}
+            ) : <div className="text-xs text-fg-500">Зафиксированных дат пока нет: все периоды берут общую матрицу.</div>}
             {tabSnapshots.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
                 Отдельно по ресторанам:
@@ -579,7 +601,6 @@ export default function IikoSettings() {
                 ))}
               </div>
             )}
-            <div className="text-[11px] text-fg-500">Для сверки берутся цены, действовавшие в первый день периода: снимок этого периода, иначе самый узкий покрывающий, иначе ближайший более ранний.</div>
           </div>
         )}
         <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
@@ -608,11 +629,12 @@ export default function IikoSettings() {
         </div>
         {MATRIX_SNAPSHOTS && matrixScope === 'all' && (
           <div className="flex flex-wrap items-center gap-3">
-            <button onClick={async () => { await doSyncMatrix(); if (form?.astanaSheetId) await doSyncAstana() }} disabled={matrixSyncing || astanaSyncing || namesSyncing || !matrixPeriod} className="btn border border-brand-500/50 bg-brand-500/10 text-fg-100 hover:bg-brand-500/20 disabled:opacity-60">
-              <ISync width={16} height={16} className={matrixSyncing || astanaSyncing ? 'animate-spin' : ''} /> Зафиксировать цены для всех (Алматы и Астана)
+            <button onClick={async () => { await doSyncMatrix(); if (form?.astanaSheetId) await doSyncAstana() }} disabled={matrixSyncing || astanaSyncing || namesSyncing || !matrixPeriod} className="btn h-9 bg-brand-500 px-3 text-[13px] text-white hover:bg-brand-600 disabled:opacity-60">
+              <ISync width={16} height={16} className={matrixSyncing || astanaSyncing ? 'animate-spin' : ''} /> Оба города сразу
             </button>
           </div>
         )}
+        </div>
           </SettingsRow>
           <SettingsRow title="Доступ к таблицам" desc="ID таблиц и ключ сервисного аккаунта.">
         <details>
