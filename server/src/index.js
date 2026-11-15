@@ -583,7 +583,8 @@ app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, r
 const MATRIX_SNAPSHOTS = process.env.MATRIX_SNAPSHOTS !== '0'
 
 // Листы таблицы, которые не берём (по умолчанию служебные; настраивается в Настройки iiko → «Листы таблицы»)
-const excludedTabsOf = (settings) => (Array.isArray(settings.excludedTabs) ? settings.excludedTabs : DEFAULT_EXCLUDED_TABS)
+// Выбор листов убран из интерфейса (ноябрь 2026): берутся ВСЕ листы; ранее сохранённые исключения игнорируются, иначе их нечем было бы снять
+const excludedTabsOf = () => DEFAULT_EXCLUDED_TABS
 
 // Синки матрицы идут строго по одному: read-modify-write matrix.json иначе терял бы город при параллельных запросах
 let matrixSyncQueue = Promise.resolve()

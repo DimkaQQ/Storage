@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -102,9 +102,6 @@ export default function IikoSettings() {
   }
   const oneTabInfo = sheetTabs.find((t) => t.tab === oneTab)
   const tabMatchesRestaurant = !!oneRest && !!oneTab && norm(oneTab) === norm(matchRestaurant(edits, oneRest))
-  // «Листы таблицы»: какие листы берём. По умолчанию не берём служебные и общие справочники «Сырье F»; можно включить/выключить любой
-  const excludedTabs = form?.excludedTabs ?? DEFAULT_EXCLUDED_TABS
-  const isTabExcluded = (tab: string) => excludedTabs.some((x) => norm(x) === norm(tab) || norm(realTitle(x)) === norm(tab)) // выключен мог быть записан и под нашим названием
   const knownTabs = [
     ...(matching?.allTabsByTarget?.almaty ?? []).map((tab) => ({ tab, city: 'Алматы' })),
     ...(matching?.allTabsByTarget?.astana ?? []).map((tab) => ({ tab, city: 'Астана' })),
@@ -113,14 +110,7 @@ export default function IikoSettings() {
   const tabList = (knownTabs.length ? knownTabs : [
     ...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Алматы' })),
     ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Астана' })),
-    ...excludedTabs.map((tab) => ({ tab: realTitle(tab), city: '' })), // выключенные тоже видны — чтобы можно было включить обратно
   ]).filter((x, i, arr) => arr.findIndex((y) => norm(y.tab) === norm(x.tab)) === i)
-  const toggleTab = async (tab: string) => {
-    if (!form) return
-    const next = isTabExcluded(tab) ? excludedTabs.filter((x) => norm(x) !== norm(tab) && norm(realTitle(x)) !== norm(tab)) : [...excludedTabs, tab]
-    const r = await saveSettings({ ...form, excludedTabs: next })
-    if (r) { setForm(r); setSaved(true); await refreshMatrix() }
-  }
   const doSyncOne = async () => {
     if (!form || !oneTabInfo || !matrixPeriod) return
     setOneSyncing(true); setOneResult(null)
@@ -495,29 +485,6 @@ export default function IikoSettings() {
                 )}
               </div>
               <div className="text-[12px] text-fg-500">Подхватывает новые листы, поставщиков и товары. Цены здесь не фиксируются — это отдельный шаг ниже.</div>
-              <details className="border-t border-ink-700/60 pt-3">
-                <summary className="cursor-pointer select-none text-[13px] text-fg-400 hover:text-fg-200">Какие листы брать <span className="text-fg-600">(по умолчанию все; нужно только чтобы спрятать служебные)</span></summary>
-                <div className="mt-3">
-        {tabList.length === 0 ? (
-          <div className="text-xs text-fg-500">Листы таблицы появятся здесь после первой синхронизации — тогда можно выбрать, какие листы брать, а какие (служебные) нет. Пока по умолчанию берутся все.</div>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {tabList.map((x) => {
-                const off = isTabExcluded(x.tab)
-                return (
-                  <button key={x.tab} onClick={() => toggleTab(x.tab)} title={off ? 'Не берётся. Нажмите, чтобы взять (потом «Обновить»)' : 'Берётся. Нажмите, чтобы не брать'}
-                    className={`chip ${off ? 'border-ink-700 bg-ink-900/40 text-fg-600 line-through' : 'border-brand-500/40 bg-brand-500/10 text-fg-100'}`}>
-                    {off ? '✕' : '✓'} {x.tab}{x.city ? ` · ${x.city}` : ''}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="text-[11px] text-fg-500">Выключенный лист сразу пропадает из программы. Включили лист — нажмите «Синхронизировать матрицу», чтобы он загрузился.</div>
-          </div>
-        )}
-                </div>
-              </details>
             </div>
           </SettingsRow>
           <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период. Другие периоды не меняются. Новые строки и листы подхватывает «Синхронизировать матрицу» выше.">
