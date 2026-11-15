@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, parseDataset, computeRows, anySupplierAlias, supplierAliasFor } from '../lib/data'
+import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, parseDataset, computeRows, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { useAuth } from '../lib/auth'
 import { syncMatrix, fetchPeriods, fetchDataset } from '../lib/api'
@@ -283,6 +283,8 @@ export default function DataEditor() {
       const supplier = supplierDisplayByNorm.get(supplierNorm) ?? supplierNorm
       const matrixLabel = m.productLabels[key] ?? capitalize(productSegment)
       const noName = !!m.noIikoName?.[key]
+      // пары, которые приложение сознательно не сверяет (свежие овощи и т.п.), без названия в iiko не предлагаем заполнять
+      if (noName && (isExcludedPair(supplier, matrixLabel) || isExcludedPair(supplierNorm, matrixLabel))) continue
       result.push({
         key, restaurantNorm, restaurant, supplierNorm, supplier,
         productSegment, matrixLabel,

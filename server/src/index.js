@@ -15,7 +15,7 @@ import {
 import * as editsDb from './editsDb.js'
 import { buildDataTar, readTarFiles } from './migration.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
-import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, sliceMatching, stripTabs, DEFAULT_EXCLUDED_TABS, mergeCatalog, applyCatalog, norm as normKey } from './sheets.js'
+import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, sliceMatching, stripTabs, DEFAULT_EXCLUDED_TABS, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { isValidPeriod, MONTH_RE } from './period.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -578,7 +578,7 @@ app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, r
   const merged = { ...s, ...req.body }
   if (req.body?.googleServiceAccountKey === '********') merged.googleServiceAccountKey = s.googleServiceAccountKey
   const googleSheetId = astana ? (req.body?.astanaSheetId ?? s.astanaSheetId) : merged.googleSheetId
-  res.json(await testSheetsConnection({ googleSheetId, googleServiceAccountKey: merged.googleServiceAccountKey }))
+  res.json(await testSheetsConnection({ googleSheetId, googleServiceAccountKey: merged.googleServiceAccountKey }, astana ? SHEET_TO_RESTAURANT_ASTANA : undefined))
 })
 
 // Цены матрицы по периодам (снимки: месяц, неделя, день или любой отрезок) — включены. Аварийно выключить:
@@ -600,6 +600,7 @@ async function matrixSyncHandler(req, res) {
   const googleSheetId = astana ? settings.astanaSheetId : settings.googleSheetId
   if (!googleSheetId && !req.fileSource) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
   try {
+    const sheetMap = astana ? SHEET_TO_RESTAURANT_ASTANA : SHEET_TO_RESTAURANT
     const rawPeriod = MATRIX_SNAPSHOTS ? req.body?.period : undefined
     if (rawPeriod != null && (typeof rawPeriod !== 'string' || !isValidPeriod(rawPeriod))) {
       return res.status(400).json({ ok: false, message: 'Период должен быть месяцем (ГГГГ-ММ, например 2026-06) или отрезком (ГГГГ-ММ-ДД..ГГГГ-ММ-ДД, не длиннее ~3 месяцев)' })
@@ -615,15 +616,17 @@ async function matrixSyncHandler(req, res) {
     if (tab && !period) return res.status(400).json({ ok: false, message: 'Для одного ресторана нужен период' })
     const target = astana ? 'astana' : 'almaty'
     const otherTarget = astana ? 'almaty' : 'astana'
+    const otherMap = astana ? SHEET_TO_RESTAURANT : SHEET_TO_RESTAURANT_ASTANA
     // база слияния — та же матрица, в которую пишем (снимок месяца или общая)
     const prev = period ? (getMatrixSnapshot(orgId, period) ?? resolveMatrixFor(orgId, period, { allowLater: false, withTabs: false }).matching) : getMatrix(orgId)
     // имена вкладок другого города — занятые: одноимённая вкладка этого города не должна затереть их
     // (свои вкладки — из sheetMap и прошлых синков этого города — не считаются занятыми)
-    const own = new Set((prev?.tabsByTarget?.[target] ?? []).map(normKey))
-    const reserved = (prev?.tabsByTarget?.[otherTarget] ?? []).filter((n) => !own.has(normKey(n)))
+    const own = new Set([...Object.values(sheetMap), ...(prev?.tabsByTarget?.[target] ?? [])].map(normKey))
+    const reserved = [...Object.values(otherMap), ...(prev?.tabsByTarget?.[otherTarget] ?? [])].filter((n) => !own.has(normKey(n)))
     const t0 = Date.now()
     let { matching, summary } = await syncMatrix(
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
+      sheetMap,
       reserved,
       { keysV2, excludeTabs, source: req.fileSource ?? null },
     )
@@ -671,7 +674,7 @@ async function matrixSyncHandler(req, res) {
     // Без периода («Синхронизировать матрицу») — только названия: цены уже известных строк остаются прежними, новые строки приходят без цены.
     // Цены меняет только фиксация за период.
     if (!period && prev) matching = keepExistingPrices(matching, prev) // первая синхронизация (матрицы ещё нет) — цены берутся как есть
-    const merged = mergeMatching(prev, matching, ownTabs)
+    const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...ownTabs])
     merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: ownTabs }
     merged.allTabsByTarget = { ...(prev?.allTabsByTarget ?? {}), [target]: summary.allTabs ?? [] }
     if (period) {

@@ -3,7 +3,6 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID, createHash } from 'node:crypto'
 import { mergeMatching, norm as sheetNorm } from './sheets.js'
-import { isKitchenStore } from './kitchen-filter.js'
 import { isValidPeriod, periodBounds, MONTH_RE } from './period.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -154,8 +153,8 @@ export const DEFAULT_SETTINGS = {
   googleSheetId: '',
   // Астана — отдельная таблица (свои точки, свои вкладки), но тот же
   // сервисный аккаунт (googleServiceAccountKey выше) — его достаточно
-  // пригласить читателем и в эту таблицу тоже.
-  // (названия вкладок берутся из таблицы как есть).
+  // пригласить читателем и в эту таблицу тоже. См.
+  // SHEET_TO_RESTAURANT_ASTANA в sheets.js.
   astanaSheetId: '',
 }
 
@@ -504,7 +503,7 @@ export function disableRestaurant(orgId, name) {
 export function discoverRestaurants(orgId) {
   if (getSettings(orgId).enabledRestaurants == null) return [] // не настраивали — показаны все, добавлять нечего
   const enabled = new Set(getEnabledRestaurants(orgId))
-  return allDatasetRestaurants(orgId).filter((name) => !enabled.has(name) && isKitchenStore(name)) // склады бара/хозтоваров и т.п. не предлагаем
+  return allDatasetRestaurants(orgId).filter((name) => !enabled.has(name))
 }
 
 /**
