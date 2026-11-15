@@ -834,10 +834,10 @@ app.post('/api/org-data/reset', requireAuth, requireAdmin, (req, res) => {
 // Вернуть всё можно из ранее скачанной копии (restore.tar): Резервная копия → «Восстановить всё из копии».
 app.post('/api/org-data/wipe', requireAuth, requireAdmin, (req, res) => {
   try {
-    wipeOrgKeepConnection(req.auth.orgId)
+    const backup = wipeOrgKeepConnection(req.auth.orgId, (file) => editsDb.backupDbTo(file))
     editsDb.resetEdits(req.auth.orgId)
-    console.log(`[wipe] организация ${req.auth.orgId}: стёрто всё, кроме подключения (${req.auth.email ?? req.auth.userId ?? 'админ'})`)
-    res.json({ ok: true })
+    console.log(`[wipe] организация ${req.auth.orgId}: стёрто всё, кроме подключения; копия — data/${backup}`)
+    res.json({ ok: true, backup })
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.message || e) })
   }

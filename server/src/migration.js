@@ -54,6 +54,7 @@ function walk(dir, base, out, withSecrets) {
     const full = join(dir, name)
     const rel = base ? `${base}/${name}` : name
     const st = statSync(full)
+    if (!base && name.startsWith('_backup')) continue // серверные копии (перед стиранием, перед миграцией) в restore.tar не кладём — иначе он растёт с каждой копией
     if (st.isDirectory()) walk(full, rel, out, withSecrets)
     else if (SKIP.has(rel)) continue
     else if (!withSecrets && name === 'users.json') continue // пользователи и хэши паролей

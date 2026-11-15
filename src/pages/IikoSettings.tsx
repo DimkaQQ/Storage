@@ -288,21 +288,16 @@ export default function IikoSettings() {
     setFullResult({ ok: true, message: `Восстановлено: файлов ${r.files ?? 0}, периодов ${r.periods ?? 0}${r.edits ? ', привязки и правки' : ''}. Страница перезагрузится.` })
     setTimeout(() => window.location.reload(), 1500)
   }
-  // «Стереть всё, кроме подключения»: сначала скачивается полная копия (restore.tar), потом данные стираются
+  // «Стереть всё, кроме подключения»: сервер сам сохраняет копию данных у себя (папка _backup-wipe-<время>) и стирает; скачивание файла в браузере
+  // в этот шаг не входит (на телефоне оно рвало запрос) — файл при желании скачивают отдельной кнопкой «Скачать бэкап» ДО стирания
   const wipeEverything = async () => {
-    if (!window.confirm('Стереть ВСЁ, кроме доступов к iiko и Google-таблице? Закупки, матрицы, цены, точки, связи, заметки и настройки будут удалены. Сначала скачается полная копия restore.tar — по ней всё можно вернуть кнопкой «Восстановить всё из копии».')) return
+    if (!window.confirm('Стереть ВСЁ, кроме доступов к iiko и Google-таблице? Закупки, матрицы, цены, точки, связи, заметки и настройки будут удалены. Перед стиранием сервер сохранит копию у себя. Если хотите файл — сначала нажмите «Скачать бэкап». Стереть сейчас?')) return
     setFullBusy('wipe'); setFullResult(null)
-    const backup = await fetchFullExport(true)
-    if (!backup.ok) { setFullBusy(''); setFullResult({ ok: false, message: `Копию скачать не удалось — ничего не стёрто. ${backup.message}` }); return }
-    const url = URL.createObjectURL(backup.blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'restore.tar'; document.body.appendChild(a); a.click(); a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 60000)
-    if (!window.confirm('Копия restore.tar скачана. Проверьте, что файл сохранился. Стереть данные сейчас?')) { setFullBusy(''); setFullResult({ ok: false, message: 'Отменено — ничего не стёрто.' }); return }
     const r = await wipeAllKeepConnection()
     setFullBusy('')
     if (!r.ok) { setFullResult({ ok: false, message: cutOff(r.message) ?? `Стирание не удалось: ${r.message ?? 'неизвестная ошибка'}` }); return }
-    setFullResult({ ok: true, message: 'Всё стёрто, кроме подключения. Страница перезагрузится.' })
-    setTimeout(() => window.location.reload(), 1500)
+    setFullResult({ ok: true, message: r.backup ? `Всё стёрто, кроме подключения. Копия на сервере: data/${r.backup}. Страница перезагрузится.` : 'Всё стёрто, кроме подключения. Копия на сервере НЕ создана (старая версия сервера) — выкатите обновление. Страница перезагрузится.' })
+    setTimeout(() => window.location.reload(), 2500)
   }
 
   if (!backendOnline || !form) {
@@ -670,13 +665,6 @@ export default function IikoSettings() {
               </span>
             )}
         </div>
-        {MATRIX_SNAPSHOTS && matrixScope === 'all' && (
-          <div className="flex flex-wrap items-center gap-3">
-            <button onClick={async () => { await doSyncMatrix(); if (form?.astanaSheetId) await doSyncAstana() }} disabled={matrixSyncing || astanaSyncing || namesSyncing || !matrixPeriod} className="btn h-9 bg-brand-500 px-3 text-[13px] text-white hover:bg-brand-600 disabled:opacity-60">
-              <ISync width={16} height={16} className={matrixSyncing || astanaSyncing ? 'animate-spin' : ''} /> Оба города сразу
-            </button>
-          </div>
-        )}
         </div>
           </SettingsRow>
           <SettingsRow title="Таблица из файла (временно)" desc="Только для проверок. Вместо ссылки на Google-таблицу берётся загруженный xlsx; дальше всё работает так же, как при чтении по ссылке.">
@@ -875,7 +863,7 @@ export default function IikoSettings() {
       <div className="card flex flex-wrap items-center justify-between gap-4 border-bad/30 p-5">
         <div className="max-w-xl">
           <div className="text-sm font-semibold text-fg-50">Стереть всё, кроме подключения</div>
-          <div className="text-xs text-fg-500">Удаляет закупки, матрицы, цены, точки, связи, заметки и настройки. Остаются только доступы к iiko и Google-таблице. Перед стиранием скачивается полная копия — по ней всё возвращается кнопкой выше.</div>
+          <div className="text-xs text-fg-500">Удаляет закупки, матрицы, цены, точки, связи, заметки и настройки. Остаются только доступы к iiko и Google-таблице. Перед стиранием сервер сохраняет копию у себя; файл для себя скачайте заранее кнопкой «Скачать бэкап» — по нему всё возвращается кнопкой выше.</div>
         </div>
         <button onClick={wipeEverything} disabled={!!fullBusy} className="btn border border-bad/40 bg-bad/10 text-bad hover:bg-bad/20 disabled:opacity-60">
           <ITrash width={16} height={16} /> {fullBusy === 'wipe' ? 'Стираю…' : 'Стереть всё, кроме подключения'}

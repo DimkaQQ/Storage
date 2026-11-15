@@ -306,7 +306,7 @@ export async function restoreAllFromBackup(file: File): Promise<{ ok: boolean; f
   } catch (e) { return { ok: false, message: errMsg(e) } }
 }
 /** Стереть всё, кроме доступов к iiko и Google (закупки, матрицы, снимки, точки, правки, настройки). */
-export async function wipeAllKeepConnection(): Promise<{ ok: boolean; message?: string }> {
+export async function wipeAllKeepConnection(): Promise<{ ok: boolean; message?: string; backup?: string }> {
   try {
     const r = await fetch('/api/org-data/wipe', { method: 'POST', headers: authHeaders() })
     return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }

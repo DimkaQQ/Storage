@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdirSync, unlinkSync, cpSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID, createHash } from 'node:crypto'
@@ -567,10 +567,16 @@ export function clearOrgFiles(orgId) {
  * «Стереть всё, кроме подключения»: закупки, матрицы и снимки, каталог, точки, статус и ВСЕ настройки, кроме доступов к iiko и Google.
  * Правки/привязки (editsDb) стирает вызывающая сторона. Вернуть всё можно из ранее скачанной копии restore.tar.
  */
-export function wipeOrgKeepConnection(orgId) {
+export function wipeOrgKeepConnection(orgId, backupEdits = null) {
+  // копия данных организации у сервера (папка data/_backup-wipe-<время>/): стирать без копии нельзя
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const backupDir = join(DATA_DIR, `_backup-wipe-${stamp}`)
+  cpSync(orgDir(orgId), join(backupDir, 'orgs', orgId), { recursive: true })
+  if (backupEdits) backupEdits(join(backupDir, 'edits.db'))
   resetOrgData(orgId)
   const catalog = orgPaths(orgId).catalog
   if (existsSync(catalog)) unlinkSync(catalog)
   const keep = Object.fromEntries(CONNECTION_KEYS.map((k) => [k, getSettings(orgId)[k]]))
   write(orgPaths(orgId).settings, { ...DEFAULT_SETTINGS, ...keep, matrixHistoryFrozen: true }) // новые данные не «замораживать» при следующем запуске сервера
+  return `_backup-wipe-${stamp}`
 }
