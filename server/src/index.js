@@ -598,7 +598,7 @@ async function matrixSyncHandler(req, res) {
   const settings = getSettings(orgId)
   const astana = req.body?.target === 'astana'
   const googleSheetId = astana ? settings.astanaSheetId : settings.googleSheetId
-  if (!googleSheetId) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
+  if (!googleSheetId && !req.fileSource) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
   try {
     const rawPeriod = MATRIX_SNAPSHOTS ? req.body?.period : undefined
     if (rawPeriod != null && (typeof rawPeriod !== 'string' || !isValidPeriod(rawPeriod))) {
@@ -625,7 +625,7 @@ async function matrixSyncHandler(req, res) {
     let { matching, summary } = await syncMatrix(
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       reserved,
-      { keysV2, excludeTabs },
+      { keysV2, excludeTabs, source: req.fileSource ?? null },
     )
     console.log(`[matrix] ${target}${period ? ' ' + period : ''}: таблица прочитана за ${Math.round((Date.now() - t0) / 1000)} с (листов: ${summary.sheets}, строк: ${summary.rows})`)
     // Каталог названий iiko: пока колонки D/E/F в таблице есть — запоминаем их; когда их удалят — накладываем каталог.
@@ -707,7 +707,7 @@ function keepExistingPrices(fresh, prev) {
 // лимитом — тогда браузер получал не JSON, а страницу ошибки («The string did not match the expected pattern»).
 // Поэтому отвечаем сразу «принято», а результат клиент берёт опросом GET /api/matrix/sync-status.
 const matrixJobs = {}
-app.post('/api/matrix/sync', requireAuth, requireAdmin, (req, res) => {
+function startMatrixJob(req, res) {
   const key = `${req.auth.orgId}:${req.body?.target === 'astana' ? 'astana' : 'almaty'}`
   if (matrixJobs[key]?.running) return res.status(409).json({ ok: false, message: 'Обновление матрицы уже выполняется' })
   matrixJobs[key] = { running: true }
@@ -717,6 +717,20 @@ app.post('/api/matrix/sync', requireAuth, requireAdmin, (req, res) => {
     try { await matrixSyncHandler(req, out) } catch (e) { out.body = { ok: false, message: String(e?.message || e) } }
     matrixJobs[key] = { running: false, result: out.body ?? { ok: false, message: 'Нет ответа' } }
   })
+}
+app.post('/api/matrix/sync', requireAuth, requireAdmin, startMatrixJob)
+
+// ВРЕМЕННО, для проверок: «загрузить таблицу из файла». Браузер читает xlsx и присылает значения листов (то же, что вернул бы Google Sheets API:
+// листы и строки C1:AF); дальше — ровно тот же путь, что при чтении по ссылке (matrixSyncHandler: разбор, слияние, снимок за период).
+// Тело — JSON {titles, values}, отправленный как octet-stream (общий JSON-парсер ограничен 2 МБ). target/period — в адресной строке.
+app.post('/api/matrix/sync-file', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '200mb' }), (req, res) => {
+  if (process.env.MATRIX_FILE_SYNC === '0') return res.status(403).json({ ok: false, message: 'Загрузка таблицы из файла отключена (MATRIX_FILE_SYNC=0)' })
+  let src
+  try { src = JSON.parse(req.body.toString('utf8')) } catch { return res.status(400).json({ ok: false, message: 'Файл не разобран' }) }
+  if (!src || !Array.isArray(src.titles) || !src.titles.length || !src.values || typeof src.values !== 'object' || Array.isArray(src.values) || Object.values(src.values).some((v) => !Array.isArray(v))) return res.status(400).json({ ok: false, message: 'В файле нет листов' })
+  req.fileSource = { titles: src.titles.map(String), values: src.values }
+  req.body = { target: req.query.target === 'astana' ? 'astana' : 'almaty', ...(typeof req.query.period === 'string' && req.query.period ? { period: req.query.period } : {}) }
+  startMatrixJob(req, res)
 })
 app.get('/api/matrix/sync-status', requireAuth, (req, res) => {
   const j = matrixJobs[`${req.auth.orgId}:${req.query.target === 'astana' ? 'astana' : 'almaty'}`]

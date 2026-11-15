@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, syncMatrixFromFile, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -47,6 +47,9 @@ export default function IikoSettings() {
   const [namesStep, setNamesStep] = useState('')
   const [namesResult, setNamesResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [restoring, setRestoring] = useState(false)
+  const [fileTarget, setFileTarget] = useState<'almaty' | 'astana'>('almaty')
+  const [fileBusy, setFileBusy] = useState(false)
+  const [fileResult, setFileResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [fullBusy, setFullBusy] = useState<'' | 'restore' | 'wipe'>('')
   const [fullResult, setFullResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [restoreResult, setRestoreResult] = useState<{ ok: boolean; message?: string } | null>(null)
@@ -260,6 +263,16 @@ export default function IikoSettings() {
     setExportResult({ ok: true })
   }
 
+  // ВРЕМЕННО, для проверок: тот же синк, но таблица берётся из загруженного xlsx (без Google). withPeriod — «зафиксировать цены за выбранный период», иначе только названия
+  const syncFromFile = async (file: File | undefined, withPeriod: boolean) => {
+    if (!file) return
+    if (withPeriod && !matrixPeriod) { setFileResult({ ok: false, message: 'Сначала выберите период в блоке «Цены за период» выше' }); return }
+    setFileBusy(true); setFileResult(null)
+    const r = await syncMatrixFromFile(file, fileTarget, withPeriod ? matrixPeriod : undefined)
+    setFileBusy(false)
+    if (r.ok) { await refreshMatrix(); loadSnapshots() }
+    setFileResult(r.ok ? { ok: true, message: withPeriod ? `Цены из файла (${fileTarget === 'astana' ? 'Астана' : 'Алматы'}) зафиксированы за ${matrixPeriod}${r.conflicts?.length ? ` · пропущены листы: ${r.conflicts.join(', ')}` : ''}` : `Названия из файла (${fileTarget === 'astana' ? 'Астана' : 'Алматы'}) загружены, цены не менялись` } : { ok: false, message: r.message ?? 'Не удалось загрузить файл' })
+  }
   // «Восстановить всё из копии»: данные, матрицы, снимки, точки, настройки, правки и привязки из restore.tar
   const restoreEverything = async (file: File | undefined) => {
     if (!file) return
@@ -661,6 +674,31 @@ export default function IikoSettings() {
           </div>
         )}
         </div>
+          </SettingsRow>
+          <SettingsRow title="Таблица из файла (временно)" desc="Только для проверок. Вместо ссылки на Google-таблицу берётся загруженный xlsx; дальше всё работает так же, как при чтении по ссылке.">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
+                Какая таблица:
+                <button onClick={() => setFileTarget('almaty')} className={`chip ${fileTarget === 'almaty' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Алматы</button>
+                <button onClick={() => setFileTarget('astana')} className={`chip ${fileTarget === 'astana' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Астана</button>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className={`btn cursor-pointer border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 ${fileBusy ? 'pointer-events-none opacity-60' : ''}`}>
+                  <ISync width={16} height={16} className={fileBusy ? 'animate-spin' : ''} /> {fileBusy ? 'Читаю файл…' : 'Синхронизировать из файла'}
+                  <input type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { syncFromFile(e.target.files?.[0], false); e.target.value = '' }} />
+                </label>
+                <label className={`btn cursor-pointer bg-brand-500 text-white hover:bg-brand-600 ${fileBusy ? 'pointer-events-none opacity-60' : ''}`}>
+                  <ISync width={16} height={16} className={fileBusy ? 'animate-spin' : ''} /> Зафиксировать цены из файла
+                  <input type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { syncFromFile(e.target.files?.[0], true); e.target.value = '' }} />
+                </label>
+              </div>
+              <div className="text-[12px] text-fg-500">Первая кнопка — как «Синхронизировать матрицу» (только названия). Вторая — как «Зафиксировать цены» за период, выбранный в блоке «Цены за период» выше{matrixPeriod ? ` (сейчас: ${matrixPeriod})` : ''}.</div>
+              {fileResult && (
+                <span className={`chip ${fileResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+                  {fileResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{fileResult.message}
+                </span>
+              )}
+            </div>
           </SettingsRow>
           <SettingsRow title="Доступ к таблицам" desc="ID таблиц и ключ сервисного аккаунта.">
         <details>

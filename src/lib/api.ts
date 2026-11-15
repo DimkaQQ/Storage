@@ -333,8 +333,48 @@ export async function testMatrixConnection(s: Partial<IikoSettings>, target?: 'a
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
+type SyncResult = { ok: boolean; message?: string; rows?: number; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number }
+/** Опрос фонового синка матрицы (результат берётся из /api/matrix/sync-status, до ~5 минут). */
+async function pollMatrixSync(target?: 'almaty' | 'astana'): Promise<SyncResult> {
+  for (let i = 0; i < 150; i++) {
+    await new Promise((res) => setTimeout(res, 2000))
+    try {
+      const sr = await fetch(`/api/matrix/sync-status?target=${target === 'astana' ? 'astana' : 'almaty'}`, { headers: authHeaders() })
+      const st = await sr.json()
+      if (st && !st.running) return st.result ?? { ok: false, message: 'Результат обновления неизвестен' }
+    } catch { /* разовый сбой сети — пробуем дальше */ }
+  }
+  return { ok: false, message: 'Обновление идёт дольше обычного — подождите минуту и нажмите «Обновить» ещё раз.' }
+}
+/**
+ * ВРЕМЕННО, для проверок: «загрузить таблицу из файла». xlsx читается здесь (значения листов, колонки C..AF — то же, что отдаёт Google Sheets API),
+ * дальше сервер ведёт ровно тот же путь, что при чтении по ссылке (разбор листов, слияние, снимок за период). period — как у syncMatrix.
+ */
+export async function syncMatrixFromFile(file: File, target: 'almaty' | 'astana', period?: string): Promise<SyncResult> {
+  try {
+    const XLSX = await import('xlsx')
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellFormula: false, cellStyles: false })
+    const values: Record<string, unknown[][]> = {}
+    for (const name of wb.SheetNames) {
+      const ws = wb.Sheets[name]
+      if (!ws || !ws['!ref']) { values[name] = []; continue }
+      const last = XLSX.utils.decode_range(ws['!ref']).e.r
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, range: { s: { r: 0, c: 2 }, e: { r: last, c: 31 } }, defval: '', raw: true, blankrows: true })
+      for (const row of rows) while (row.length && (row[row.length - 1] === '' || row[row.length - 1] == null)) row.pop() // как Google: хвост из пустых ячеек не отдаётся
+      while (rows.length && rows[rows.length - 1].length === 0) rows.pop()
+      values[name] = rows
+    }
+    const q = new URLSearchParams({ target, ...(period ? { period } : {}) })
+    const r = await fetch(`/api/matrix/sync-file?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...authHeaders() }, body: JSON.stringify({ titles: wb.SheetNames, values }) })
+    if (r.status === 413) return { ok: false, message: 'Файл слишком большой для сервера (лимит веб-сервера)' }
+    const first = await r.json().catch(() => null)
+    if (!first) return { ok: false, message: `Сервер ответил не так, как ожидалось (HTTP ${r.status})` }
+    if (!first.started) return first
+    return await pollMatrixSync(target)
+  } catch (e) { return { ok: false, message: errMsg(e) } }
+}
 /** period ("YYYY-MM") — зафиксировать цены матрицы ЗА ЭТОТ месяц отдельным снимком (остальные месяцы не трогаются); без period — общая матрица, как раньше. */
-export async function syncMatrix(target?: 'almaty' | 'astana', period?: string, tab?: string): Promise<{ ok: boolean; message?: string; rows?: number; period?: string | null; conflicts?: string[]; catalogOverlay?: boolean; catalogUnmatched?: number; catalogRows?: number }> {
+export async function syncMatrix(target?: 'almaty' | 'astana', period?: string, tab?: string): Promise<SyncResult> {
   try {
     const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}), ...(period ? { period } : {}), ...(tab ? { tab } : {}) }) })
     const text = await r.text()
@@ -342,16 +382,7 @@ export async function syncMatrix(target?: 'almaty' | 'astana', period?: string, 
     try { first = JSON.parse(text) } catch { /* не JSON — ниже сообщим код ответа */ }
     if (!first) return { ok: false, message: `Сервер ответил не так, как ожидалось (HTTP ${r.status}) — возможно, он перезапускается или прокси оборвал запрос. Попробуйте ещё раз.` }
     if (!first.started) return first // старый сервер отвечал результатом сразу / ошибка запуска
-    // синк идёт в фоне — результат берём опросом (до ~5 минут)
-    for (let i = 0; i < 150; i++) {
-      await new Promise((res) => setTimeout(res, 2000))
-      try {
-        const sr = await fetch(`/api/matrix/sync-status?target=${target === 'astana' ? 'astana' : 'almaty'}`, { headers: authHeaders() })
-        const st = await sr.json()
-        if (st && !st.running) return st.result ?? { ok: false, message: 'Результат обновления неизвестен' }
-      } catch { /* разовый сбой сети — пробуем дальше */ }
-    }
-    return { ok: false, message: 'Обновление идёт дольше обычного — подождите минуту и нажмите «Обновить» ещё раз.' }
+    return await pollMatrixSync(target) // синк идёт в фоне — результат берём опросом (до ~5 минут)
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 /** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. period — матрица, действующая для этого месяца (снимок месяца, иначе ближайший более ранний). */

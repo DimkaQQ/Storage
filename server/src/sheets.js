@@ -142,9 +142,11 @@ export function detectColumns(rows) {
  * (свой googleSheetId, тот же сервисный аккаунт) — вызывающая сторона
  * (index.js) сама решает, какой googleSheetId и какой маппинг сюда подать.
  */
-export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, reservedNames = [], { keysV2 = false, excludeTabs = [] } = {}) {
-  const token = await getAccessToken(googleServiceAccountKey)
-  const titles = await fetchSheetTitles(token, googleSheetId)
+// source — ВРЕМЕННЫЙ режим проверки: вместо чтения Google-таблицы берутся уже готовые значения {titles, values: {лист: строки C1:AF}} из загруженного
+// файла (xlsx). Дальше путь тот же самый, что и при чтении по ссылке: те же правила разбора листов, ключей, слияния и снимков.
+export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, reservedNames = [], { keysV2 = false, excludeTabs = [], source = null } = {}) {
+  const token = source ? null : await getAccessToken(googleServiceAccountKey)
+  const titles = source ? source.titles : await fetchSheetTitles(token, googleSheetId)
   // Сканируем ВСЕ вкладки: каждая — отдельная точка под своим названием из таблицы (ненужные человек убирает списком исключений).
   // Вкладки с "::" в названии пропускаем — двоеточия в ключах матрицы зарезервированы.
   // Защита от одинаковых названий: ключ матрицы — norm(название), поэтому две
@@ -172,7 +174,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, res
   // из синка без единой ошибки.
   // C1:AF — с шапкой: колонки ищем по заголовкам, а не по номерам (см. detectColumns)
   const ranges = sheets.flatMap((t) => [`'${t.replace(/'/g, "''")}'!C1:AF`])
-  const valueRanges = await batchGetValues(token, googleSheetId, ranges)
+  const valueRanges = source ? sheets.map((t) => ({ values: source.values[t] ?? [] })) : await batchGetValues(token, googleSheetId, ranges)
 
   const out = parseMatrixSheets(sheets, valueRanges, conflicts, { keysV2 })
   out.summary.allTabs = titles.filter((t) => !String(t).includes('::')).map(String) // все листы таблицы — для выбора, какие брать
