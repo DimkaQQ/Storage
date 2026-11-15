@@ -618,11 +618,13 @@ async function matrixSyncHandler(req, res) {
     // (свои вкладки — из sheetMap и прошлых синков этого города — не считаются занятыми)
     const own = new Set((prev?.tabsByTarget?.[target] ?? []).map(normKey))
     const reserved = (prev?.tabsByTarget?.[otherTarget] ?? []).filter((n) => !own.has(normKey(n)))
+    const t0 = Date.now()
     let { matching, summary } = await syncMatrix(
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       reserved,
       { keysV2, excludeTabs },
     )
+    console.log(`[matrix] ${target}${period ? ' ' + period : ''}: таблица прочитана за ${Math.round((Date.now() - t0) / 1000)} с (листов: ${summary.sheets}, строк: ${summary.rows})`)
     // Каталог названий iiko: пока колонки D/E/F в таблице есть — запоминаем их; когда их удалят — накладываем каталог.
     // applyCatalog трогает только строки без iiko-названия, поэтому его безопасно применять всегда (в т.ч. к смешанным вкладкам).
     // keysV2 (после migrate-keys.js): строки по ресторану+поставщику+названию (I), колонки D/E/F не читаются — каталог не нужен
@@ -675,6 +677,7 @@ async function matrixSyncHandler(req, res) {
     else saveMatrix(orgId, merged)
     res.json({ ok: true, target, period, ...summary })
   } catch (e) {
+    console.warn(`[matrix] ошибка синка: ${String(e.message || e)}`)
     res.status(502).json({ ok: false, message: String(e.message || e) })
   }
 }

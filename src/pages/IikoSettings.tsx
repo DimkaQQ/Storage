@@ -44,6 +44,7 @@ export default function IikoSettings() {
   ] as const
   type SectionId = typeof SECTIONS[number]['id']
   const [namesSyncing, setNamesSyncing] = useState(false)
+  const [namesStep, setNamesStep] = useState('')
   const [namesResult, setNamesResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [restoring, setRestoring] = useState(false)
   const [restoreResult, setRestoreResult] = useState<{ ok: boolean; message?: string } | null>(null)
@@ -210,18 +211,27 @@ export default function IikoSettings() {
     if (!form) return
     if (MATRIX_SNAPSHOTS && syncMonth && snapshots.some((x) => x.period === syncMonth) && !window.confirm(`Цены за «${syncMonth}» уже зафиксированы. Перезаписать их текущими ценами таблицы?`)) return
     setNamesSyncing(true); setNamesResult(null)
-    const r0 = await saveSettings(form)
-    if (r0) { setForm(r0); setSaved(true); reloadStatus() }
-    // сначала названия (общая матрица), затем цены выбранного месяца (снимок месяца)
-    let a = await syncMatrix(undefined)
-    let b = form.astanaSheetId ? await syncMatrix('astana') : null
-    const conflicts0 = [...(a.conflicts ?? []), ...(b?.conflicts ?? [])]
-    if (MATRIX_SNAPSHOTS && syncMonth && a.ok && (!b || b.ok)) {
-      a = await syncMatrix(undefined, syncMonth)
-      if (b) b = await syncMatrix('astana', syncMonth)
+    type R = Awaited<ReturnType<typeof syncMatrix>>
+    let a: R = { ok: false }, b: R | null = null, conflicts0: string[] = []
+    try {
+      const r0 = await saveSettings(form)
+      if (r0) { setForm(r0); setSaved(true); reloadStatus() }
+      // сначала названия (общая матрица), затем цены выбранного месяца (снимок месяца)
+      setNamesStep('Алматы — читаю листы…')
+      a = await syncMatrix(undefined)
+      setNamesStep('Астана — читаю листы…')
+      b = form.astanaSheetId ? await syncMatrix('astana') : null
+      conflicts0 = [...(a.conflicts ?? []), ...(b?.conflicts ?? [])]
+      if (MATRIX_SNAPSHOTS && syncMonth && a.ok && (!b || b.ok)) {
+        setNamesStep(`Алматы — цены за ${syncMonth}…`)
+        a = await syncMatrix(undefined, syncMonth)
+        if (b) { setNamesStep(`Астана — цены за ${syncMonth}…`); b = await syncMatrix('astana', syncMonth) }
+      }
+      await refreshMatrix()
+    } catch (e) {
+      setNamesResult({ ok: false, message: String((e as Error)?.message || e) }); setNamesSyncing(false); setNamesStep(''); return
     }
-    await refreshMatrix()
-    setNamesSyncing(false)
+    setNamesSyncing(false); setNamesStep('')
     const failed = [!a.ok && a.message && `Алматы: ${a.message}`, b && !b.ok && b.message && `Астана: ${b.message}`].filter(Boolean)
     loadSnapshots()
     const skipped = [...new Set([...(a.conflicts ?? []), ...(b?.conflicts ?? []), ...conflicts0])]
@@ -501,7 +511,7 @@ export default function IikoSettings() {
                   disabled={namesSyncing || matrixSyncing || astanaSyncing || !hasSheetAccess}
                   title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : 'Прочитать таблицу и зафиксировать цены за выбранный месяц'}
                   className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-                  <ISync width={16} height={16} className={namesSyncing ? 'animate-spin' : ''} /> {namesSyncing ? 'Читаю таблицу…' : 'Синхронизировать матрицу'}
+                  <ISync width={16} height={16} className={namesSyncing ? 'animate-spin' : ''} /> {namesSyncing ? (namesStep || 'Читаю таблицу…') : 'Синхронизировать матрицу'}
                 </button>
               </div>
               {namesResult && (
@@ -706,7 +716,10 @@ export default function IikoSettings() {
         </div>
         {venues.discovered.length > 0 ? (
           <div className="mt-3">
-            <div className="mb-2 text-xs font-medium text-fg-400">Обнаружены в закупках, но пока не показаны:</div>
+            <div className="mb-2 flex flex-wrap items-center gap-3 text-xs font-medium text-fg-400">Обнаружены в закупках, но пока не показаны:
+              <button disabled={addingVenue === '*'} onClick={async () => { setAddingVenue('*'); try { for (const n of [...venues.discovered]) await enableVenueByName(n) } finally { setAddingVenue(null) } }}
+                className="chip border-brand-500/40 bg-brand-500/10 text-brand-300 hover:bg-brand-500/20 disabled:opacity-60">{addingVenue === '*' ? 'Добавляю…' : `Добавить все (${venues.discovered.length})`}</button>
+            </div>
             <div className="flex flex-wrap gap-2">
               {venues.discovered.map((name) => (
                 <button
