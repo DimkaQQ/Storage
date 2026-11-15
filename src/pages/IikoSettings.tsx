@@ -274,6 +274,9 @@ export default function IikoSettings() {
     if (r.ok) { await refreshMatrix(); loadSnapshots() }
     setFileResult(r.ok ? { ok: true, message: withPeriod ? `Цены из файла (${fileTarget === 'astana' ? 'Астана' : 'Алматы'}) зафиксированы за ${matrixPeriod}${r.conflicts?.length ? ` · пропущены листы: ${r.conflicts.join(', ')}` : ''}` : `Названия из файла (${fileTarget === 'astana' ? 'Астана' : 'Алматы'}) загружены, цены не менялись` } : { ok: false, message: r.message ?? 'Не удалось загрузить файл' })
   }
+  // Обрыв связи («Load failed» в Safari, «Failed to fetch» в Chrome) при долгом действии: сервер мог успеть выполнить его — результат неизвестен
+  const cutOff = (m: string | undefined) => /^(Load failed|Failed to fetch|NetworkError)/i.test(m ?? '')
+    ? `Связь с сервером оборвалась (${m}) — результат неизвестен. Обновите страницу и проверьте данные. Большие файлы надёжнее загружать с компьютера.` : null
   // «Восстановить всё из копии»: данные, матрицы, снимки, точки, настройки, правки и привязки из restore.tar
   const restoreEverything = async (file: File | undefined) => {
     if (!file) return
@@ -281,7 +284,7 @@ export default function IikoSettings() {
     setFullBusy('restore'); setFullResult(null)
     const r = await restoreAllFromBackup(file)
     setFullBusy('')
-    if (!r.ok) { setFullResult({ ok: false, message: r.message ?? 'Не удалось восстановить' }); return }
+    if (!r.ok) { setFullResult({ ok: false, message: cutOff(r.message) ?? `Восстановление из копии не удалось: ${r.message ?? 'неизвестная ошибка'}` }); return }
     setFullResult({ ok: true, message: `Восстановлено: файлов ${r.files ?? 0}, периодов ${r.periods ?? 0}${r.edits ? ', привязки и правки' : ''}. Страница перезагрузится.` })
     setTimeout(() => window.location.reload(), 1500)
   }
@@ -297,7 +300,7 @@ export default function IikoSettings() {
     if (!window.confirm('Копия restore.tar скачана. Проверьте, что файл сохранился. Стереть данные сейчас?')) { setFullBusy(''); setFullResult({ ok: false, message: 'Отменено — ничего не стёрто.' }); return }
     const r = await wipeAllKeepConnection()
     setFullBusy('')
-    if (!r.ok) { setFullResult({ ok: false, message: r.message ?? 'Не удалось стереть' }); return }
+    if (!r.ok) { setFullResult({ ok: false, message: cutOff(r.message) ?? `Стирание не удалось: ${r.message ?? 'неизвестная ошибка'}` }); return }
     setFullResult({ ok: true, message: 'Всё стёрто, кроме подключения. Страница перезагрузится.' })
     setTimeout(() => window.location.reload(), 1500)
   }

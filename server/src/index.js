@@ -836,6 +836,7 @@ app.post('/api/org-data/wipe', requireAuth, requireAdmin, (req, res) => {
   try {
     wipeOrgKeepConnection(req.auth.orgId)
     editsDb.resetEdits(req.auth.orgId)
+    console.log(`[wipe] организация ${req.auth.orgId}: стёрто всё, кроме подключения (${req.auth.email ?? req.auth.userId ?? 'админ'})`)
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.message || e) })
@@ -892,6 +893,7 @@ app.post('/api/org-data/restore', requireAuth, requireAdmin, express.raw({ type:
     if (edits) editsDb.replaceAllEdits(orgId, edits)
     const written = plan.length + (savedSettings ? 1 : 0)
     armSchedule(orgId)
+    console.log(`[restore] организация ${orgId}: получено ${Math.round(req.body.length / 1048576)} МБ, восстановлено файлов ${written}${edits ? ' и привязки' : ''}`)
     res.json({ ok: true, files: written, edits: !!edits, periods: listDatasetPeriods(orgId).length })
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.message || e) })
