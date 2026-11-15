@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { getSeedPeriods, getSeedPeriod } from './store.js'
+import { isKitchenStore } from './kitchen-filter.js'
 
 const sha1 = (s) => createHash('sha1').update(s).digest('hex')
 
@@ -46,11 +47,11 @@ const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
  * Точка = склад (Store) ровно так, как его назвал iiko: пробелы схлопнуты, больше ничего не меняется.
  * Никаких словарей «склад → ресторан», отсева отделов (бар/хозтовары) и закрытых брендов — человек сам решает в программе
  * (Настройки iiko → «Точки сети» и Справочники → Точки), какие склады брать и к какому листу матрицы они относятся.
- * Пустой склад — null (такие строки пропускаются).
+ * Берутся только кухонные склады (isKitchenStore в stores.js); бар/хозтовары/посуда/кальян и т.п. и пустой склад — null (пропускаются).
  */
 function resolveStoreRestaurant(storeRaw) {
   const name = String(storeRaw || '').replace(/\s+/g, ' ').trim()
-  return name || null
+  return name && isKitchenStore(name) ? name : null
 }
 
 /* ------------------------------------------------------------------ *

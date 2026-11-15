@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID, createHash } from 'node:crypto'
 import { mergeMatching, norm as sheetNorm } from './sheets.js'
+import { isKitchenStore } from './kitchen-filter.js'
 import { isValidPeriod, periodBounds, MONTH_RE } from './period.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -502,7 +503,7 @@ export function disableRestaurant(orgId, name) {
 export function discoverRestaurants(orgId) {
   if (getSettings(orgId).enabledRestaurants == null) return [] // не настраивали — показаны все, добавлять нечего
   const enabled = new Set(getEnabledRestaurants(orgId))
-  return allDatasetRestaurants(orgId).filter((name) => !enabled.has(name))
+  return allDatasetRestaurants(orgId).filter((name) => !enabled.has(name) && isKitchenStore(name)) // склады бара/хозтоваров и т.п. не предлагаем
 }
 
 /**
