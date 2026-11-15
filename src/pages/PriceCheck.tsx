@@ -1,8 +1,7 @@
 import { Fragment, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, signedMoney, pct, fmt, summarize, norm, capitalize, plural } from '../lib/data'
+import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, signedMoney, pct, fmt, summarize, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
-import { useAuth } from '../lib/auth'
 import { useClickOutside } from '../lib/hooks'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -60,9 +59,7 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
-  const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel, venues, enableVenueByName } = useEdits()
-  const isAdmin = useAuth().user?.role === 'admin'
-  const [addingHidden, setAddingHidden] = useState(false)
+  const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel } = useEdits()
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   // «С заметкой» — строки, где уже есть свой комментарий или цветовая
@@ -365,19 +362,6 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
 
   return (
     <div className="space-y-4">
-      {/* закупки по складам, не включённым в «Точки сети», в таблице не видны — говорим об этом прямо */}
-      {isAdmin && venues.discovered.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/10 px-4 py-3 text-sm text-fg-200">
-          <div className="min-w-0">
-            <span className="font-medium text-warn">Часть закупок не показана:</span> {venues.discovered.length} {plural(venues.discovered.length, 'точка', 'точки', 'точек')} из iiko не включено в «Точки сети»
-            <span className="text-fg-500"> — {venues.discovered.slice(0, 3).join(', ')}{venues.discovered.length > 3 ? '…' : ''}</span>
-          </div>
-          {(
-            <button disabled={addingHidden} onClick={async () => { setAddingHidden(true); try { for (const n of [...venues.discovered]) await enableVenueByName(n) } finally { setAddingHidden(false) } }}
-              className="btn border border-warn/40 bg-warn/10 text-warn hover:bg-warn/20 disabled:opacity-60">{addingHidden ? 'Добавляю…' : 'Добавить все'}</button>
-          )}
-        </div>
-      )}
       {/* mini KPIs for current filter */}
       <div className="grid grid-cols-4 gap-4">
         <MiniStat delay={0} label="Позиций в срезе" value={fmt(filtered.length)} tone="slate" />

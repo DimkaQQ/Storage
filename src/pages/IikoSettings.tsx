@@ -4,7 +4,7 @@ import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, syncMatrixFromFile, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
-import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
+import { ISync, IPlug, ICheck, IClose, IChevron, ITrash } from '../components/icons'
 
 function extractSheetId(input: string): string {
   const m = input.match(/\/d\/([a-zA-Z0-9_-]+)/)
@@ -33,12 +33,12 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const SECTIONS = [
     { id: 'iiko', label: 'Данные из iiko' },
     { id: 'matrix', label: 'Матрица' },
-    { id: 'venues', label: 'Точки сети' },
+    { id: 'venues', label: 'Листы таблицы' },
     { id: 'auto', label: 'Автообновление' },
     { id: 'backup', label: 'Резервная копия' },
   ] as const
@@ -59,8 +59,6 @@ export default function IikoSettings() {
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [addingVenue, setAddingVenue] = useState<string | null>(null)
-  const [removingVenue, setRemovingVenue] = useState<string | null>(null)
   const nowDate = new Date()
   const [historicalYear, setHistoricalYear] = useState(nowDate.getFullYear())
   const [historicalMonthNum, setHistoricalMonthNum] = useState<number | null>(null) // 1-12
@@ -142,8 +140,6 @@ export default function IikoSettings() {
   const [matrixSyncResult, setMatrixSyncResult] = useState<SyncRes | null>(null)
   // Астана — отдельная таблица, свои test/sync, тот же сервисный аккаунт.
   // Название склада так, как его прислал iiko (из загруженных закупок); пока для точки нет — показываем её название
-  // подсказка к точке: какие склады iiko в ней в выбранном периоде (САМА точка называется так, как сохранена — подпись не должна зависеть от периода)
-  const storesHint = (name: string) => restaurants.find((r) => r.name === name)?.stores?.join('; ') || ''
   // после завершения загрузки индикатор на несколько секунд «вспыхивает» зелёным
   const [justLoaded, setJustLoaded] = useState(false)
   const wasSyncing = useRef(false)
@@ -348,7 +344,7 @@ export default function IikoSettings() {
           <button key={x.id} onClick={() => pickSection(x.id)}
             className={`flex h-10 items-center justify-between rounded-xl px-3 text-left text-sm ${section === x.id ? 'bg-ink-750 text-fg-50' : 'text-fg-300 hover:bg-ink-800/70 hover:text-fg-100'}`}>
             <span>{x.label}</span>
-            {x.id === 'venues' ? <span className="rounded-full bg-ink-800 px-2 py-0.5 text-xs text-fg-400">{venues.enabled.length}</span> : x.id === 'backup' ? null : <i className={`h-2 w-2 rounded-full ${dot(x.id)}`} />}
+            {x.id === 'venues' ? null : x.id === 'backup' ? null : <i className={`h-2 w-2 rounded-full ${dot(x.id)}`} />}
           </button>
         ))}
       </nav>
@@ -752,48 +748,6 @@ export default function IikoSettings() {
         )}
       </Section>
 
-      <Section title="Точки сети" subtitle="Точки приходят из iiko вместе с закупками: найдите нужную в списке «Обнаружены в закупках» и нажмите «Добавить». Дальше в Справочниках → Точки выберите для неё вкладку матрицы (матрица читает все вкладки таблицы сама) и, при желании, своё название — после этого закупки и план тянутся по этой вкладке, без правки кода.">
-        <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {venues.enabled.map((name) => (
-            <span key={name} title={storesHint(name) ? `${name} — склады iiko: ${storesHint(name)}` : name} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
-              <IStore width={13} height={13} />{name}
-              <button
-                disabled={removingVenue === name}
-                onClick={async () => { setRemovingVenue(name); await disableVenueByName(name); setRemovingVenue(null) }}
-                title="Убрать точку (закрыта/не нужна вообще)"
-                className="ml-1 text-fg-500 hover:text-bad disabled:opacity-60"
-              >
-                <ITrash width={12} height={12} />
-              </button>
-            </span>
-          ))}
-        </div>
-        {venues.discovered.length > 0 ? (
-          <div className="mt-3">
-            <div className="mb-2 flex flex-wrap items-center gap-3 text-xs font-medium text-fg-400">Обнаружены в закупках, но пока не показаны:
-              <button disabled={addingVenue === '*'} onClick={async () => { setAddingVenue('*'); try { for (const n of [...venues.discovered]) await enableVenueByName(n) } finally { setAddingVenue(null) } }}
-                className="chip border-brand-500/40 bg-brand-500/10 text-brand-300 hover:bg-brand-500/20 disabled:opacity-60">{addingVenue === '*' ? 'Добавляю…' : `Добавить все (${venues.discovered.length})`}</button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {venues.discovered.map((name) => (
-                <button
-                  key={name}
-                  disabled={addingVenue === name}
-                  onClick={async () => { setAddingVenue(name); await enableVenueByName(name); setAddingVenue(null) }}
-                  className="chip border-brand-500/40 bg-brand-500/10 text-brand-300 hover:bg-brand-500/20 disabled:opacity-60"
-                >
-                  <IStore width={13} height={13} />{name}
-                  <IPlus width={13} height={13} />
-                  {addingVenue === name ? 'Добавляю…' : 'Добавить'}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-fg-500">Новых точек, которых ещё нет в списке, не найдено.</p>
-        )}
-      </Section>
 
       </>)}
       {section === 'auto' && (<>

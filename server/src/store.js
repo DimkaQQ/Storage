@@ -140,11 +140,6 @@ export const DEFAULT_SETTINGS = {
   autoEnabled: false,
   interval: 'daily',           // 'hourly' | 'daily' | 'weekly' | 'monthly'
   period: 'current-month',     // отчётный период выгрузки
-  // точки сети, включённые в приложение — null = ещё не настраивали вручную,
-  // тогда при первом обращении к /api/venues материализуется в
-  // (список включённых точек по умолчанию не задан, см. getEnabledRestaurants) и с этого момента сохраняется как
-  // обычное поле настроек.
-  enabledRestaurants: null,
   // Матрица (план-цены) — читается напрямую из Google-таблицы Сырьё Ф через
   // сервисный аккаунт (Sheets API, только чтение), а не из iiko — iiko
   // ничего не знает про договорные цены. googleServiceAccountKey хранит
@@ -158,15 +153,6 @@ export const DEFAULT_SETTINGS = {
   // (названия вкладок берутся из таблицы как есть).
   astanaSheetId: '',
 }
-
-/**
- * То же самое, что раньше было зашито в коде фронтенда (RESTAURANT_SCOPE в
- * src/lib/data.ts) — те же точки, кроме "French bar". Используется только
- * как разовое стартовое значение при первом обращении к /api/venues для
- * органиазции, у которой ещё нет своего сохранённого enabledRestaurants —
- * дальше источник правды один, тут (settings.json), а не в двух местах.
- */
-// (список включённых точек по умолчанию не задан: пока человек его не настроил, показываются все точки, что есть в закупках)
 
 /**
  * Bundled demo data ships as one file per month (server/seed/dataset-<period>.json)
@@ -218,6 +204,11 @@ export const saveSettings = (orgId, s) => { const next = { ...getSettings(orgId)
 export const getStatus = (orgId) => read(orgPaths(orgId).status, { lastSync: null, lastResult: null, source: null })
 export const saveStatus = (orgId, s) => { write(orgPaths(orgId).status, s); return s }
 export const getDataset = (orgId, period) => read(orgDatasetPath(orgId, period), { restaurants: [] })
+/** Датасет для показа в программе: без складов бара/хозтоваров и т.п. (kitchen-filter.js), в том числе в ранее загруженных периодах. Файл на диске и бэкапы остаются «сырыми». */
+export const getDatasetVisible = (orgId, period) => {
+  const d = getDataset(orgId, period)
+  return { ...d, restaurants: (d.restaurants || []).filter((r) => isKitchenStore(r.name)) }
+}
 export const saveDataset = (orgId, period, d) => write(orgDatasetPath(orgId, period), d)
 export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])
 
@@ -443,71 +434,6 @@ export function listDatasetPeriods(orgId) {
 }
 
 /**
- * Список точек, включённых в приложение для этой организации. При первом
- * обращении (enabledRestaurants ещё null) материализует и сохраняет
- * DEFAULT_ENABLED_RESTAURANTS — дальше это обычное сохранённое поле, не
- * дефолт, вычисляемый каждый раз заново.
- */
-export function getEnabledRestaurants(orgId) {
-  const settings = getSettings(orgId)
-  if (settings.enabledRestaurants != null) return settings.enabledRestaurants
-  // не настраивали вручную — включены ВСЕ точки, которые есть в закупках (не сохраняем: новые точки появляются сами)
-  return allDatasetRestaurants(orgId)
-}
-
-/** Все точки, встречавшиеся в закупках организации (по всем сохранённым периодам). */
-function allDatasetRestaurants(orgId) {
-  const seen = new Set()
-  for (const { period } of listDatasetPeriods(orgId)) {
-    for (const r of getDataset(orgId, period).restaurants || []) seen.add(r.name)
-  }
-  return [...seen]
-}
-
-/**
- * Добавляет одну точку в список включённых (если её там ещё нет) и
- * сохраняет. dataset.js ничего не фильтрует по точкам сам — что реально
- * пришло из iiko (buildDataset группирует факты по Store как есть), то и
- * лежит в файлах датасета, так что включить точку — это только снять
- * фильтр на фронте, без пересборки/повторной синхронизации.
- */
-export function enableRestaurant(orgId, name) {
-  const enabled = getEnabledRestaurants(orgId)
-  const configured = getSettings(orgId).enabledRestaurants != null
-  if (configured && enabled.includes(name)) return enabled
-  const next = enabled.includes(name) ? enabled : [...enabled, name]
-  saveSettings(orgId, { enabledRestaurants: next }) // с этого момента список зафиксирован вручную (иначе фронт и сервер расходились бы)
-  return next
-}
-
-/**
- * Снимает точку со включённых — обратное к enableRestaurant. Нужно для
- * точек, которые когда-то попали в enabledRestaurants (обычно при самом
- * первом обращении к /api/venues — см. getEnabledRestaurants), но
- * оказались закрытыми/не нужны вообще (как French bar/Камчатка) — без
- * этого они продолжали бы висеть пустыми "0 закупок" точками, потому что
- * DEFAULT_ENABLED_RESTAURANTS — это разовое стартовое значение, а не
- * источник правды на каждый запрос.
- */
-export function disableRestaurant(orgId, name) {
-  const enabled = getEnabledRestaurants(orgId)
-  const next = enabled.filter((n) => n !== name)
-  saveSettings(orgId, { enabledRestaurants: next })
-  return next
-}
-
-/**
- * Точки, которые реально встречались в закупках этой организации (по всем
- * сохранённым периодам), но ещё не включены — кандидаты на кнопку
- * «Добавить» в Настройки iiko → «Точки сети».
- */
-export function discoverRestaurants(orgId) {
-  if (getSettings(orgId).enabledRestaurants == null) return [] // не настраивали — показаны все, добавлять нечего
-  const enabled = new Set(getEnabledRestaurants(orgId))
-  return allDatasetRestaurants(orgId).filter((name) => !enabled.has(name) && isKitchenStore(name)) // склады бара/хозтоваров и т.п. не предлагаем
-}
-
-/**
  * Полный снимок данных организации — для «скачать бэкап» перед сбросом.
  * Намеренно НЕ включает настройки подключения (serverUrl/login/password/
  * googleServiceAccountKey/sheetId и т.п.) — это конфигурация, не данные,
@@ -520,7 +446,6 @@ export function exportOrgData(orgId) {
   for (const { period } of listDatasetPeriods(orgId)) datasets[period] = getDataset(orgId, period)
   return {
     exportedAt: new Date().toISOString(),
-    enabledRestaurants: getEnabledRestaurants(orgId),
     venues: getVenues(orgId),
     status: getStatus(orgId),
     datasets,
@@ -533,9 +458,8 @@ export function exportOrgData(orgId) {
 
 /**
  * Полностью чистит данные организации (факты закупок за все периоды,
- * матрицы план-цен за все периоды, venues.json, список включённых точек,
+ * матрицы план-цен за все периоды, venues.json,
  * статус синка) — НЕ трогая настройки подключения (см. exportOrgData).
- * enabledRestaurants сбрасывается в null, а не в пустой массив — снова показаны все точки из закупок.
  * Правки (editsDb) сюда не входят — сбрасываются отдельным вызовом
  * editsDb.resetEdits, вызывающая сторона (index.js) делает оба вызова
  * вместе под одной кнопкой «Сбросить всё».
@@ -548,7 +472,6 @@ export function resetOrgData(orgId) {
   for (const period of listMatrixSnapshots(orgId)) unlinkSync(matrixSnapPath(orgId, period))
   for (const t of listMatrixTabSnapshots(orgId)) deleteMatrixTabSnapshot(orgId, t.tab, t.period)
   write(orgPaths(orgId).venues, [])
-  saveSettings(orgId, { enabledRestaurants: null })
   saveStatus(orgId, { lastSync: null, lastResult: null, source: null, message: 'Данные сброшены — настройте синк заново' })
 }
 
