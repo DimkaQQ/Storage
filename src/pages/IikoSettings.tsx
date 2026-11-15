@@ -142,7 +142,8 @@ export default function IikoSettings() {
   const [matrixSyncResult, setMatrixSyncResult] = useState<SyncRes | null>(null)
   // Астана — отдельная таблица, свои test/sync, тот же сервисный аккаунт.
   // Название склада так, как его прислал iiko (из загруженных закупок); пока для точки нет — показываем её название
-  const iikoName = (name: string) => restaurants.find((r) => r.name === name)?.stores?.join('; ') || name
+  // подсказка к точке: какие склады iiko в ней в выбранном периоде (САМА точка называется так, как сохранена — подпись не должна зависеть от периода)
+  const storesHint = (name: string) => restaurants.find((r) => r.name === name)?.stores?.join('; ') || ''
   // после завершения загрузки индикатор на несколько секунд «вспыхивает» зелёным
   const [justLoaded, setJustLoaded] = useState(false)
   const wasSyncing = useRef(false)
@@ -755,8 +756,8 @@ export default function IikoSettings() {
         <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
         <div className="mt-3 flex flex-wrap gap-2">
           {venues.enabled.map((name) => (
-            <span key={name} title={name} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
-              <IStore width={13} height={13} />{iikoName(name)}
+            <span key={name} title={storesHint(name) ? `${name} — склады iiko: ${storesHint(name)}` : name} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
+              <IStore width={13} height={13} />{name}
               <button
                 disabled={removingVenue === name}
                 onClick={async () => { setRemovingVenue(name); await disableVenueByName(name); setRemovingVenue(null) }}
