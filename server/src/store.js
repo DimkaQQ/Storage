@@ -140,6 +140,7 @@ export const DEFAULT_SETTINGS = {
   autoEnabled: false,
   interval: 'daily',           // 'hourly' | 'daily' | 'weekly' | 'monthly'
   period: 'current-month',     // отчётный период выгрузки
+  excludedVenues: [],          // точки сети, которые человек убрал (закрытые бренды и т.п.); меняется только через /api/venues/exclude|include
   // Матрица (план-цены) — читается напрямую из Google-таблицы Сырьё Ф через
   // сервисный аккаунт (Sheets API, только чтение), а не из iiko — iiko
   // ничего не знает про договорные цены. googleServiceAccountKey хранит
@@ -207,7 +208,28 @@ export const getDataset = (orgId, period) => read(orgDatasetPath(orgId, period),
 /** Датасет для показа в программе: без складов бара/хозтоваров и т.п. (kitchen-filter.js), в том числе в ранее загруженных периодах. Файл на диске и бэкапы остаются «сырыми». */
 export const getDatasetVisible = (orgId, period) => {
   const d = getDataset(orgId, period)
-  return { ...d, restaurants: (d.restaurants || []).filter((r) => isKitchenStore(r.name)) }
+  const hidden = new Set(getSettings(orgId).excludedVenues ?? [])
+  return { ...d, restaurants: (d.restaurants || []).filter((r) => isKitchenStore(r.name) && !hidden.has(r.name)) }
+}
+
+/**
+ * Точки сети = ВСЕ кухонные склады из закупок (по всем периодам) — добавляются сами. Человек может убрать ненужные (закрытые бренды и т.п.):
+ * это список ИСКЛЮЧЕНИЙ (`excludedVenues`), а не список «включённых» — новые склады появляются без действий. Список меняется только
+ * своими действиями (exclude/include), не через общее сохранение настроек.
+ */
+export function listVenues(orgId) {
+  const all = new Set()
+  for (const { period } of listDatasetPeriods(orgId)) for (const r of getDataset(orgId, period).restaurants || []) if (isKitchenStore(r.name)) all.add(r.name)
+  const excluded = (getSettings(orgId).excludedVenues ?? []).filter((n) => typeof n === 'string')
+  const hidden = new Set(excluded)
+  // «убранные» — только те, что реально есть в данных (устаревшие названия из списка не показываем)
+  return { enabled: [...all].filter((n) => !hidden.has(n)), excluded: [...all].filter((n) => hidden.has(n)), all: true, discovered: [] }
+}
+export function setVenueExcluded(orgId, name, excluded) {
+  const cur = new Set(getSettings(orgId).excludedVenues ?? [])
+  if (excluded) cur.add(name); else cur.delete(name)
+  saveSettings(orgId, { excludedVenues: [...cur] })
+  return listVenues(orgId)
 }
 export const saveDataset = (orgId, period, d) => write(orgDatasetPath(orgId, period), d)
 export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])

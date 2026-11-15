@@ -33,12 +33,12 @@ function ago(iso: string | null): string {
 }
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
+  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, setVenueHidden, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const SECTIONS = [
     { id: 'iiko', label: 'Данные из iiko' },
     { id: 'matrix', label: 'Матрица' },
-    { id: 'venues', label: 'Листы таблицы' },
+    { id: 'venues', label: 'Точки сети' },
     { id: 'auto', label: 'Автообновление' },
     { id: 'backup', label: 'Резервная копия' },
   ] as const
@@ -47,6 +47,7 @@ export default function IikoSettings() {
   const [namesStep, setNamesStep] = useState('')
   const [namesResult, setNamesResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [restoring, setRestoring] = useState(false)
+  const [venueBusy, setVenueBusy] = useState<string | null>(null)
   const [fileTarget, setFileTarget] = useState<'almaty' | 'astana'>('almaty')
   const [fileBusy, setFileBusy] = useState(false)
   const [fileResult, setFileResult] = useState<{ ok: boolean; message: string } | null>(null)
@@ -727,6 +728,35 @@ export default function IikoSettings() {
       </>)}
       {section === 'venues' && (<>
       {/* venues */}
+      <Section title="Точки сети" subtitle="Все склады iiko со словом «кухня» добавляются сами. Ненужные (например, закрытые бренды) уберите — они пропадут из программы, вернуть можно здесь же.">
+        {venues.enabled.length + (venues.excluded?.length ?? 0) === 0 ? (
+          <div className="text-xs text-fg-500">Точки появятся после первой загрузки закупок из iiko.</div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-1.5">
+              {venues.enabled.map((name) => (
+                <span key={name} className="chip border-brand-500/40 bg-brand-500/10 text-fg-100">
+                  {name}
+                  <button disabled={venueBusy === name} title="Убрать точку из программы" onClick={async () => { setVenueBusy(name); try { await setVenueHidden(name, true) } finally { setVenueBusy(null) } }}
+                    className="ml-1 text-fg-500 hover:text-bad disabled:opacity-60"><IClose width={12} height={12} /></button>
+                </span>
+              ))}
+            </div>
+            {(venues.excluded?.length ?? 0) > 0 && (
+              <div>
+                <div className="mb-1.5 text-xs font-medium text-fg-400">Убранные (не показываются в программе):</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {venues.excluded!.map((name) => (
+                    <button key={name} disabled={venueBusy === name} title="Вернуть точку" onClick={async () => { setVenueBusy(name); try { await setVenueHidden(name, false) } finally { setVenueBusy(null) } }}
+                      className="chip border-ink-700 bg-ink-900/40 text-fg-600 line-through hover:text-fg-300 disabled:opacity-60">{name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Section>
+
       <Section title="Листы таблицы — точки матрицы" subtitle="Каждый лист таблицы — одна точка, под тем названием, что в таблице. Служебные листы уберите из списка: убранный лист пропадает из программы.">
         {tabList.length === 0 ? (
           <div className="text-xs text-fg-500">Листы появятся после «Синхронизировать матрицу» (Матрица → Состояние).</div>
