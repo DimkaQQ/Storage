@@ -347,7 +347,7 @@ async function pollMatrixSync(target?: 'almaty' | 'astana'): Promise<SyncResult>
   return { ok: false, message: 'Обновление идёт дольше обычного — подождите минуту и нажмите «Обновить» ещё раз.' }
 }
 /**
- * ВРЕМЕННО, для проверок: «загрузить таблицу из файла». xlsx читается здесь (значения листов, колонки C..AF — то же, что отдаёт Google Sheets API),
+ * ВРЕМЕННО, для проверок: «загрузить таблицу из файла». xlsx читается здесь (значения листов, колонки C..L — то же, что отдаёт Google Sheets API),
  * дальше сервер ведёт ровно тот же путь, что при чтении по ссылке (разбор листов, слияние, снимок за период). period — как у syncMatrix.
  */
 export async function syncMatrixFromFile(file: File, target: 'almaty' | 'astana', period?: string): Promise<SyncResult> {
@@ -359,7 +359,7 @@ export async function syncMatrixFromFile(file: File, target: 'almaty' | 'astana'
       const ws = wb.Sheets[name]
       if (!ws || !ws['!ref']) { values[name] = []; continue }
       const last = XLSX.utils.decode_range(ws['!ref']).e.r
-      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, range: { s: { r: 0, c: 2 }, e: { r: last, c: 31 } }, defval: '', raw: true, blankrows: true })
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, range: { s: { r: 0, c: 2 }, e: { r: last, c: 11 } }, defval: '', raw: true, blankrows: true })
       for (const row of rows) while (row.length && (row[row.length - 1] === '' || row[row.length - 1] == null)) row.pop() // как Google: хвост из пустых ячеек не отдаётся
       while (rows.length && rows[rows.length - 1].length === 0) rows.pop()
       values[name] = rows

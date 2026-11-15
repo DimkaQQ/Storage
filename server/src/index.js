@@ -630,7 +630,8 @@ async function matrixSyncHandler(req, res) {
       reserved,
       { keysV2, excludeTabs, source: req.fileSource ?? null },
     )
-    console.log(`[matrix] ${target}${period ? ' ' + period : ''}: таблица прочитана за ${Math.round((Date.now() - t0) / 1000)} с (листов: ${summary.sheets}, строк: ${summary.rows})`)
+    if (summary.headerWarnings?.length) console.warn(`[matrix] ${target}: на листах не найдены колонки цены/названия (правее L или переименованы): ${summary.headerWarnings.join(', ')}`)
+    console.log(`[matrix] ${target}${period ? ' ' + period : ''}: таблица прочитана за ${Math.round((Date.now() - t0) / 1000)} с (листов: ${summary.sheets}, строк матрицы: ${summary.rows}, ячеек получено: ${summary.cells ?? '?'})`)
     // Каталог названий iiko: пока колонки D/E/F в таблице есть — запоминаем их; когда их удалят — накладываем каталог.
     // applyCatalog трогает только строки без iiko-названия, поэтому его безопасно применять всегда (в т.ч. к смешанным вкладкам).
     // keysV2 (после migrate-keys.js): строки по ресторану+поставщику+названию (I), колонки D/E/F не читаются — каталог не нужен
@@ -724,7 +725,7 @@ function startMatrixJob(req, res) {
 app.post('/api/matrix/sync', requireAuth, requireAdmin, startMatrixJob)
 
 // ВРЕМЕННО, для проверок: «загрузить таблицу из файла». Браузер читает xlsx и присылает значения листов (то же, что вернул бы Google Sheets API:
-// листы и строки C1:AF); дальше — ровно тот же путь, что при чтении по ссылке (matrixSyncHandler: разбор, слияние, снимок за период).
+// листы и строки C1:L); дальше — ровно тот же путь, что при чтении по ссылке (matrixSyncHandler: разбор, слияние, снимок за период).
 // Тело — JSON {titles, values}, отправленный как octet-stream (общий JSON-парсер ограничен 2 МБ). target/period — в адресной строке.
 app.post('/api/matrix/sync-file', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '200mb' }), (req, res) => {
   if (process.env.MATRIX_FILE_SYNC === '0') return res.status(403).json({ ok: false, message: 'Загрузка таблицы из файла отключена (MATRIX_FILE_SYNC=0)' })

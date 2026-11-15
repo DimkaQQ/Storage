@@ -229,11 +229,13 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
   // конца реальных данных листа. Фиксированный потолок в 5000 строк рос бы
   // молча: превысила бы таблица его — часть строк матрицы тихо пропала бы
   // из синка без единой ошибки.
-  // C1:AF — с шапкой: колонки ищем по заголовкам, а не по номерам (см. detectColumns)
-  const ranges = sheets.flatMap((t) => [`'${t.replace(/'/g, "''")}'!C1:AF`])
+  // C1:L — с шапкой: колонки ищем по заголовкам, а не по номерам (см. detectColumns). Нужны только C..I (поставщик, названия, фасовка, цена, описание);
+  // правее лежат формулы и отчёты (до AF, тысячи строк) — раньше они тянулись целиком и синк занимал минуты. L — запас на сдвиг колонок.
+  const ranges = sheets.flatMap((t) => [`'${t.replace(/'/g, "''")}'!C1:L`])
   const valueRanges = source ? sheets.map((t) => ({ values: source.values[t] ?? [] })) : await batchGetValues(token, googleSheetId, ranges)
 
   const out = parseMatrixSheets(sheets, valueRanges, sheetToRestaurant, conflicts, { keysV2 })
+  out.summary.cells = valueRanges.reduce((n, v) => n + (v.values ?? []).reduce((m, r) => m + r.length, 0), 0) // для журнала: сколько ячеек пришло
   out.summary.allTabs = titles.filter((t) => !String(t).includes('::')).map(String) // все листы таблицы — для выбора, какие брать
   return out
 }
@@ -245,6 +247,7 @@ export async function syncMatrix({ googleSheetId, googleServiceAccountKey }, she
  * вручную в Справочниках, поэтому удаление этих колонок из таблицы ничего не меняет. Без keysV2 — прежние ключи (E + F).
  */
 export function parseMatrixSheets(sheets, valueRanges, sheetToRestaurant, conflicts = [], { keysV2 = false } = {}) {
+  const headerWarnings = []
   const supplierAlias = {}
   const planPairs = {}
   const planPairsByPack = {}
@@ -291,6 +294,7 @@ export function parseMatrixSheets(sheets, valueRanges, sheetToRestaurant, confli
     const restaurant = norm(restaurantDisplay)
     const allRows = valueRanges[i]?.values || []
     const cols = detectColumns(allRows)
+    if (!cols.legacy && (cols.price < 0 || cols.label < 0)) headerWarnings.push(String(title)) // шапка есть, но «Цена за 1кг»/«Наименование товара» не найдены в C..L
     if (cols.name >= 0 && !keysV2) hasIikoNames = true
     const rows = allRows.slice(cols.dataStart)
     // Свой счётчик на каждую вкладку/ресторан — "первый поставщик этой
@@ -379,7 +383,7 @@ export function parseMatrixSheets(sheets, valueRanges, sheetToRestaurant, confli
 
   return {
     matching: { supplierAlias, planPairs, planPairsByPack, productLabels, noPriceExact, ambiguous, supplierOrder, noIikoName, restaurantNames, tabTitles },
-    summary: { conflicts, hasIikoNames, sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
+    summary: { conflicts, headerWarnings, hasIikoNames, sheets: sheets.length, restaurants: Object.keys(restaurantNames).length, newTabs: Object.values(restaurantNames).filter((n) => !Object.values(sheetToRestaurant).some((k) => norm(k) === norm(n))), rows: rowsSeen, planPairs: Object.keys(planPairs).length, planPairsByPack: Object.keys(planPairsByPack).length },
   }
 }
 
