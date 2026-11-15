@@ -258,7 +258,8 @@ export default function IikoSettings() {
       await reloadStatus()
     } else setRestoreResult({ ok: false, message: r.message })
   }
-  const dot = (id: string) => (id === 'iiko' ? (status?.lastSync ? 'bg-good' : 'bg-fg-600') : id === 'matrix' ? (tabList.length > 0 ? 'bg-good' : 'bg-fg-600') : form?.autoEnabled ? 'bg-good' : 'bg-fg-600')
+  const hasSheetAccess = !!(form?.googleSheetId && form?.googleServiceAccountKey)
+  const dot = (id: string) => (id === 'iiko' ? (status?.lastSync ? 'bg-good' : 'bg-fg-600') : id === 'matrix' ? (tabList.length > 0 ? 'bg-good' : hasSheetAccess ? 'bg-warn' : 'bg-fg-600') : form?.autoEnabled ? 'bg-good' : 'bg-fg-600')
 
   const summary = 'cursor-pointer select-none text-sm font-medium text-fg-300 hover:text-fg-100'
   const checkChip = (r: { ok: boolean; message: string } | null) => r && (
@@ -432,16 +433,44 @@ export default function IikoSettings() {
         </div>
         <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: какие листы берём и за какой период фиксируем цены.</p>
         <div className="mt-5">
-          <SettingsRow title="Состояние" desc="Подключена ли таблица и что в ней нашлось.">
-            {tabList.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div><div className="text-sm font-semibold text-fg-50">Таблица синхронизирована · {tabList.length} {plural(tabList.length, 'лист', 'листа', 'листов')}</div>
-                <div className="text-[13px] text-fg-500">Алматы {(matching?.allTabsByTarget?.almaty ?? matching?.tabsByTarget?.almaty ?? []).length} · Астана {(matching?.allTabsByTarget?.astana ?? matching?.tabsByTarget?.astana ?? []).length}</div></div>
-                <span className="chip border-good/30 bg-good/10 text-good"><ICheck width={13} height={13} /> подключена</span>
+          <SettingsRow title="Состояние" desc="Сохранены ли доступы и загружены ли данные из таблицы. Это два разных шага.">
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <i className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${hasSheetAccess ? 'bg-good' : 'bg-fg-600'}`} />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-fg-100">Подключение</div>
+                  <div className="text-[13px] text-fg-500">
+                    {hasSheetAccess
+                      ? `Доступы заданы: таблица Алматы${form?.astanaSheetId ? ', таблица Астаны' : ''}. «Сохранить и проверить» (ниже) проверяет, что таблица открывается.`
+                      : 'Доступы не заданы — заполните «Доступ к таблицам» ниже.'}
+                  </div>
+                  {(matrixTestResult || astanaTestResult) && (
+                    <div className="mt-1.5 flex flex-wrap gap-2">
+                      {checkChip(matrixTestResult && { ...matrixTestResult, message: 'Алматы: ' + matrixTestResult.message })}
+                      {checkChip(astanaTestResult && { ...astanaTestResult, message: 'Астана: ' + astanaTestResult.message })}
+                    </div>
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className="text-sm text-fg-400">Таблица ещё не синхронизирована. Укажите доступы ниже и нажмите «Обновить» в блоке «Цены за период».</div>
-            )}
+              <div className="flex items-start gap-3">
+                <i className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${tabList.length > 0 ? 'bg-good' : hasSheetAccess ? 'bg-warn' : 'bg-fg-600'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-fg-100">Данные из таблицы</div>
+                  <div className="text-[13px] text-fg-500">
+                    {tabList.length > 0
+                      ? `Загружено: ${tabList.length} ${plural(tabList.length, 'лист', 'листа', 'листов')} · Алматы ${(matching?.allTabsByTarget?.almaty ?? matching?.tabsByTarget?.almaty ?? []).length} · Астана ${(matching?.allTabsByTarget?.astana ?? matching?.tabsByTarget?.astana ?? []).length}`
+                      : hasSheetAccess ? 'Ещё не загружены — доступы есть, осталось нажать «Обновить из таблицы».' : 'Появятся после подключения и первой загрузки.'}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={async () => { await doSyncMatrix(); if (form?.astanaSheetId) await doSyncAstana() }}
+                disabled={matrixSyncing || astanaSyncing || !matrixPeriod || !hasSheetAccess}
+                title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : !matrixPeriod ? 'Выберите период ниже («Цены за период»)' : 'Загрузить листы и цены из таблицы за выбранный ниже период'}
+                className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+                <ISync width={16} height={16} className={matrixSyncing || astanaSyncing ? 'animate-spin' : ''} /> {matrixSyncing || astanaSyncing ? 'Читаю таблицу…' : 'Обновить из таблицы'}
+              </button>
+            </div>
           </SettingsRow>
           <SettingsRow title="Листы" desc="Берутся все листы. Служебные выключите — они сразу пропадут из программы.">
         {tabList.length === 0 ? (
