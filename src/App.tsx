@@ -226,7 +226,7 @@ export default function App() {
                 <Suspense fallback={<PageLoading />}>
                   {id === 'dashboard' && <Dashboard rows={dashboardRows} onNav={(p) => goTo(p as PageId)} />}
                   {id === 'pricecheck' && <PriceCheck rows={priceCheckRows} />}
-                  {DYNAMICS && id === 'dynamics' && <PriceDynamics />}
+                  {DYNAMICS && id === 'dynamics' && <PriceDynamics active={page === 'dynamics'} />}
                   {id === 'data' && <DataEditor />}
                   {id === 'iiko' && <IikoSettings />}
                   {id === 'users' && <UsersAdmin />}

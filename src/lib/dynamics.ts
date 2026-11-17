@@ -1,4 +1,4 @@
-import { Row } from './data'
+import { Row, unitsLookIncomparable } from './data'
 
 /**
  * Динамика закупочной цены позиции (КП «Динамика цен по позициям»).
@@ -95,7 +95,10 @@ export function buildSeries(data: PeriodRows[], product: string, restaurants: Se
     if (!e) { e = { label, acc: { qty: 0, sum: 0, planQty: 0, planSum: 0, start: span.start, end: span.end } }; m.set(key, e) }
     const a = e.acc
     a.qty += r.qty; a.sum += r.qty * (r.unit as number)
-    const plan = r.plan ?? r.designatedPlan
+    // план берём, только если единицы сопоставимы с ценой закупки (цена за кг против штуки в сравнение не идёт)
+    const unit = r.unit as number
+    const raw = r.plan ?? r.designatedPlan
+    const plan = raw != null && unit > 0 && !unitsLookIncomparable(raw, unit) ? raw : null
     if (plan != null && plan > 0) { a.planQty += r.qty; a.planSum += r.qty * plan }
     if (span.start < a.start) a.start = span.start
     if (span.end > a.end) a.end = span.end

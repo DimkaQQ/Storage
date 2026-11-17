@@ -7,7 +7,7 @@
 export const MATRIX_SNAPSHOTS = true
 
 /**
- * DYNAMICS — вкладка «Динамика цен» (src/pages/PriceDynamics.tsx). Код готов, но скрыта из меню,
- * пока заказчик не согласовал функцию. Включить: тут true и пересобрать/задеплоить.
+ * DYNAMICS — вкладка «Динамика цен» (src/pages/PriceDynamics.tsx). Включена: заказчик согласовал.
+ * Выключить: false (пункт меню и страница исчезнут, код остаётся).
  */
-export const DYNAMICS = false
+export const DYNAMICS = true

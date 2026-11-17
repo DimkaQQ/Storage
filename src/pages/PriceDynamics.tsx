@@ -80,7 +80,7 @@ function ProductPicker({ value, onChange, options }: { value: string; onChange: 
  * настоящая только там, где данные загружены по дням/неделям (Обновление → загрузка за период); месячные данные
  * показываются одной точкой на месяц, в колонке «Данные за» видно, за какие даты точка на самом деле.
  */
-export default function PriceDynamics() {
+export default function PriceDynamics({ active = true }: { active?: boolean }) {
   const { edits, periods, restaurants, venueLabel, status } = useEdits()
   const manual = !!status?.manualLinks
   const allPeriods = useMemo(() => periods.map((p) => p.period), [periods])
@@ -96,6 +96,16 @@ export default function PriceDynamics() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cache = useRef(new Map<string, Loaded>())
+  // Страница остаётся смонтированной, пока открыта другая: после синка или фиксации цен кэш периодов устаревает.
+  // При возвращении на вкладку кэш старше 30 секунд сбрасываем и грузим периоды заново.
+  const [reload, setReload] = useState(0)
+  const wasActive = useRef(active)
+  const loadedAt = useRef(Date.now())
+  useEffect(() => {
+    const back = active && !wasActive.current
+    wasActive.current = active
+    if (back && Date.now() - loadedAt.current > 30_000) { cache.current.clear(); setReload((n) => n + 1) }
+  }, [active])
 
   // окно по умолчанию — последние ~3 месяца, но целыми загруженными периодами: начало сдвигаем к началу самого раннего периода,
   // который попадает в окно (иначе месяц обрезается и показывается предупреждение «период шире выбранных дат»).
@@ -119,8 +129,8 @@ export default function PriceDynamics() {
     ;(async () => {
       const out: Loaded[] = []
       let failed = 0
-      try {
-        for (const p of chosen) {
+      for (const p of chosen) {
+        try { // сбой одного периода не должен обрывать загрузку остальных
           let hit = cache.current.get(p)
           if (!hit) {
             const [data, matching] = await Promise.all([fetchDataset(p), fetchMatching(p)])
@@ -129,14 +139,15 @@ export default function PriceDynamics() {
             cache.current.set(p, hit)
           }
           out.push(hit)
-        }
-      } catch { failed++ }
+        } catch { failed++ }
+      }
       if (dead) return
+      loadedAt.current = Date.now()
       setLoaded(out); setLoading(false)
       if (failed) setError(`Не удалось загрузить периодов: ${failed}`)
     })()
     return () => { dead = true }
-  }, [chosen])
+  }, [chosen, reload])
 
   // строки сверки по каждому периоду: те же связи, привязки и план-цены, что в «Проверке цен», но для СВОЕГО периода
   const parsedList = useMemo(() => loaded.map((l) => ({ l, parsed: parseDataset(l.data) })), [loaded])
