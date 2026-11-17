@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { computeRows, parseDataset, EMPTY_MATCHING, money, signedMoney, pct } from '../lib/data'
 import { fetchDataset, fetchMatching } from '../lib/api'
 import { useEdits } from '../lib/edits'
-import { Granularity, PeriodRows, addDays, buildSeries, pickPeriods, periodSpan, productsIn, summarizeSeries } from '../lib/dynamics'
+import { Granularity, PeriodRows, Position, Series, addDays, buildPositions, pickPeriods, periodSpan, productsIn, summarizeSeries, trendOf, FLAT_EPS } from '../lib/dynamics'
 import MultiSelectFilter from '../components/MultiSelectFilter'
 import { ChartTip, C, SERIES } from '../components/charts'
 import { Section, EmptyHint } from '../components/ui'
@@ -92,6 +92,15 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
   const [showChart, setShowChart] = useState(false) // график есть, но по умолчанию выключен — основной вид это таблица «рестораны × даты»
   const [scope, setScope] = useState<Set<string>>(new Set())
   const [product, setProduct] = useState('')
+  const [scrollTick, setScrollTick] = useState(0)
+  const [selKey, setSelKey] = useState('') // позиция, по строке которой открыли подробности
+  const [q, setQ] = useState('')
+  const [supSel, setSupSel] = useState<Set<string>>(new Set())
+  const [trend, setTrend] = useState<'all' | 'up' | 'down' | 'flat' | 'single' | 'stale'>('all')
+  const [sort, setSort] = useState<'step' | 'impact' | 'total' | 'rest'>('step')
+  const [allCols, setAllCols] = useState(false)
+  const [limit, setLimit] = useState(100)
+  const detailRef = useRef<HTMLDivElement>(null)
   const [loaded, setLoaded] = useState<Loaded[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -163,12 +172,49 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
     return [...seen].sort((a, b) => venueLabel(a).localeCompare(venueLabel(b), 'ru'))
   }, [periodRows, restaurants, venueLabel])
 
-  const series = useMemo(() => (product ? buildSeries(periodRows, product, scope, gran) : []), [periodRows, product, scope, gran])
-  const labelOf = (name: string) => (restaurantNames.includes(name) ? venueLabel(name) : name)
+  // ---- «все позиции сразу» (основной вид, как в «Проверке цен»): цена по группам периодов, изменение к предыдущей, влияние в ₸ ----
+  const built = useMemo(() => buildPositions(periodRows, scope, gran), [periodRows, scope, gran])
+  const supplierOptions = useMemo(() => [...new Set(built.positions.map((p) => p.supplier))].sort((a, b) => a.localeCompare(b, 'ru')).map((x) => ({ key: x, label: x })), [built])
+  // выбранные поставщики, которых нет в текущей выборке (сменили точки/даты), не стираем из выбора, но и не фильтруем по ним
+  const activeSup = useMemo(() => { const ok = new Set(supplierOptions.map((o) => o.key)); return new Set([...supSel].filter((x) => ok.has(x))) }, [supSel, supplierOptions])
+  const base = useMemo(() => {
+    const n = q.trim().toLowerCase()
+    return built.positions.filter((p) => (!n || `${p.product} ${p.supplier} ${venueLabel(p.restaurant)}`.toLowerCase().includes(n)) && (!activeSup.size || activeSup.has(p.supplier)))
+  }, [built, q, activeSup, venueLabel])
+  const counts = useMemo(() => {
+    const c = { up: 0, down: 0, flat: 0, single: 0, stale: 0, upSum: 0, downSum: 0 }
+    for (const p of base) { const t = trendOf(p); c[t]++; if (p.impact != null && t === 'up') c.upSum += p.impact; if (p.impact != null && t === 'down') c.downSum += p.impact }
+    return c
+  }, [base])
+  const visible = useMemo(() => {
+    const list = base.filter((p) => trend === 'all' || trendOf(p) === trend)
+    const num = (v: number | null) => (v == null ? -Infinity : v)
+    const cmp: Record<typeof sort, (a: Position, b: Position) => number> = {
+      step: (a, b) => num(b.stepPct) - num(a.stepPct),
+      impact: (a, b) => num(b.impact) - num(a.impact),
+      total: (a, b) => num(b.totalPct) - num(a.totalPct),
+      rest: (a, b) => venueLabel(a.restaurant).localeCompare(venueLabel(b.restaurant), 'ru') || a.product.localeCompare(b.product, 'ru'),
+    }
+    return [...list].sort((a, b) => cmp[sort](a, b) || a.product.localeCompare(b.product, 'ru'))
+  }, [base, trend, sort, venueLabel])
+  // Подробности открываются по ТЕМ ЖЕ позициям, что в таблице (точка + поставщик + фасовка): так цены в таблице и на графике совпадают
+  // (раньше подробности склеивали разных поставщиков и фасовки одного товара в одну цену).
+  const series = useMemo<Series[]>(() => {
+    if (!product) return []
+    const lab = new Map(built.buckets.map((b) => [b.key, b.label]))
+    const ps = built.positions.filter((p) => p.product === product && (!activeSup.size || activeSup.has(p.supplier))).sort((a, b) => (a.key === selKey ? -1 : b.key === selKey ? 1 : 0) || b.lastQty - a.lastQty)
+    return ps.map((p) => ({
+      name: `${venueLabel(p.restaurant)} · ${p.supplier}${p.pack ? ' · ' + p.pack : ''}`,
+      points: p.keys.map((k) => { const c = p.cells.get(k)!; return { key: k, label: lab.get(k) ?? k, covers: c.covers, fact: c.fact, plan: c.plan, qty: c.qty } }),
+    }))
+  }, [built, product, selKey, activeSup, venueLabel])
   const multi = series.length > 1
-  const lines = multi ? series.filter((_, i) => i < series.length - 1) : series
-  const totalSeries = multi ? series[series.length - 1] : null
-  const planSeries = series.length ? series[series.length - 1] : null // для одного ресторана — его план, для нескольких — по всей выборке
+  const lines = series
+  const planSeries = selKey || series.length === 1 ? series[0] ?? null : null // план показываем у выбранной строки (или если позиция одна)
+  useEffect(() => { setLimit(100) }, [trend, sort, q, supSel, scope, gran, loaded])
+  const shownBuckets = allCols ? built.buckets : built.buckets.slice(-6)
+  const openPosition = (p: Position) => { setProduct(p.product); setSelKey(p.key); setScrollTick((n) => n + 1) }
+  useEffect(() => { if (scrollTick) detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [scrollTick])
 
   const chartData = useMemo(() => {
     const keys = new Map<string, any>()
@@ -196,9 +242,9 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
     <div className="space-y-5">
       <div className="card space-y-4 p-4">
         <div className="grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-[minmax(260px,1.6fr)_minmax(180px,1fr)_168px_168px] lg:gap-x-4">
-          <div className="col-span-2 lg:col-span-1">
-            <ProductPicker value={product} onChange={setProduct} options={products} />
-          </div>
+          <label className="col-span-2 block text-xs font-medium text-fg-400 lg:col-span-1">Поиск
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Товар, поставщик или точка" className="mt-1.5 block h-10 w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 text-sm font-normal text-fg-100 outline-none placeholder:text-fg-600 focus:border-brand-500" />
+          </label>
           <div className="col-span-2 text-xs font-medium text-fg-400 lg:col-span-1">Рестораны
             <div className="mt-1.5 [&>div]:w-full [&>div>button:first-child]:h-10 [&>div>button:first-child]:w-full [&>div>button:first-child]:rounded-lg">
               <MultiSelectFilter allLabel="Вся сеть" options={restaurantNames.map((n) => ({ key: n, label: venueLabel(n) }))} selected={scope} onChange={setScope} />
@@ -207,7 +253,12 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           <DateField label="С" value={from} max={to || undefined} onChange={userFrom} />
           <DateField label="По" value={to} min={from || undefined} onChange={userTo} />
         </div>
-        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-[auto_auto] sm:justify-start">
+        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-[auto_auto_minmax(220px,300px)] sm:justify-start">
+          <div className="min-w-0 text-xs font-medium text-fg-400">Поставщик
+            <div className="mt-1.5 [&>div]:w-full [&>div>button:first-child]:h-10 [&>div>button:first-child]:w-full [&>div>button:first-child]:rounded-lg">
+              <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supSel} onChange={setSupSel} />
+            </div>
+          </div>
           <div className="min-w-0 text-xs font-medium text-fg-400">Быстрый период
             <div className="mt-1.5 flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
               {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days)} className="h-9 flex-1 rounded-md px-3 text-sm font-normal text-fg-300 hover:bg-ink-800 hover:text-fg-50 sm:flex-none">{p.label}</button>)}
@@ -225,10 +276,80 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
       {error && <div className="rounded-lg border border-bad/30 bg-bad/10 px-4 py-2 text-xs text-bad">{error}</div>}
       {loading && <EmptyHint>Загружаю периоды…</EmptyHint>}
       {noData && <EmptyHint>За выбранные даты нет загруженных периодов. Загрузите данные в разделе «Обновление».</EmptyHint>}
-      {!loading && !noData && !product && <EmptyHint>Выберите позицию — покажу, как менялась её закупочная цена. Периодов в выборке: {chosen.length}, позиций: {products.length}.</EmptyHint>}
-      {!loading && product && !series.length && <EmptyHint>Позицию «{product}» в выбранных периодах и ресторанах не покупали.</EmptyHint>}
 
-      {!loading && product && series.length > 0 && (
+
+      {!loading && !noData && built.positions.length === 0 && <EmptyHint>В выбранных периодах и ресторанах нет закупок с ценой.</EmptyHint>}
+      {!loading && built.positions.length > 0 && (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="card p-4"><div className="text-xs text-fg-500">Позиций в выборке</div><div className="mt-1 text-2xl font-semibold tabular-nums text-fg-50">{base.length}</div><div className="mt-0.5 text-xs text-fg-500">периодов: {chosen.length}</div></div>
+            <div className="card p-4"><div className="text-xs text-fg-500">Цена выросла</div><div className="mt-1 text-2xl font-semibold tabular-nums text-bad">{counts.up}</div><div className="mt-0.5 text-xs text-fg-500">{counts.up ? `переплата из-за роста ${money(counts.upSum)}` : 'нет роста'}</div></div>
+            <div className="card p-4"><div className="text-xs text-fg-500">Цена снизилась</div><div className="mt-1 text-2xl font-semibold tabular-nums text-good">{counts.down}</div><div className="mt-0.5 text-xs text-fg-500">{counts.down ? `экономия из-за снижения ${money(-counts.downSum)}` : 'нет снижения'}</div></div>
+            <div className="card p-4"><div className="text-xs text-fg-500">Без изменений</div><div className="mt-1 text-2xl font-semibold tabular-nums text-fg-50">{counts.flat}</div><div className="mt-0.5 text-xs text-fg-500">{counts.single + counts.stale ? `не сравниваем: ${counts.single} с одной закупкой, ${counts.stale} не покупали в последнем периоде` : 'изменение меньше 0,5%'}</div></div>
+          </div>
+
+          <Section
+            title="Динамика цен по всем позициям"
+            subtitle={`Позиция = точка + поставщик + фасовка, цена за единицу, ₸ · «К пред.» — последняя цена к предыдущей закупке этой позиции · влияние = (цена − предыдущая) × последний объём · нажмите на строку, чтобы увидеть график`}
+            right={built.buckets.length > 6 ? <button onClick={() => setAllCols((v) => !v)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">{allCols ? 'Только последние 6' : `Все периоды (${built.buckets.length})`}</button> : undefined}
+          >
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {([['all', 'Все', base.length], ['up', 'Выросла', counts.up], ['down', 'Снизилась', counts.down], ['flat', 'Без изменений', counts.flat], ['single', 'Одна точка', counts.single], ['stale', 'Не в последнем периоде', counts.stale]] as const).map(([id, label, n]) => (
+                <button key={id} onClick={() => setTrend(id)} className={`h-8 rounded-full border px-3 text-xs ${trend === id ? 'border-brand-500 bg-brand-500/20 text-fg-50' : 'border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800'}`}>{label} <span className="text-fg-500">{n}</span></button>
+              ))}
+              <label className="ml-auto flex items-center gap-2 text-xs text-fg-400">Сортировка
+                <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-8 rounded-lg border border-ink-600 bg-ink-900 px-2 text-xs text-fg-100">
+                  <option value="step">Сначала самый большой рост, %</option>
+                  <option value="impact">Сначала самое большое влияние, ₸</option>
+                  <option value="total">Сначала рост за весь период, %</option>
+                  <option value="rest">По точкам</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-xs text-fg-500">
+                  <th className="py-2 pr-3">Позиция</th><th className="pr-3">Точка</th>
+                  {shownBuckets.map((b) => <th key={b.key} className="pr-3 text-right whitespace-nowrap">{b.label}</th>)}
+                  <th className="pr-3 text-right">К пред.</th><th className="pr-3 text-right">Влияние</th><th className="pr-3 text-right">План</th><th className="text-right" title="На сколько процентов цена выше (+) или ниже (−) плановой">Выше плана</th>
+                </tr></thead>
+                <tbody>{visible.slice(0, limit).map((p) => {
+                  const t = trendOf(p), tone = t === 'up' ? 'text-bad' : t === 'down' ? 'text-good' : 'text-fg-400'
+                  return (
+                    <tr key={p.key} tabIndex={0} onClick={() => openPosition(p)} onKeyDown={(e) => { if (e.key === 'Enter') openPosition(p) }} className={`cursor-pointer border-t border-ink-800 text-fg-200 hover:bg-ink-800/40 ${p.key === selKey && p.product === product ? 'bg-brand-500/10' : ''}`}>
+                      <td className="max-w-[260px] py-2 pr-3"><div className="truncate font-medium text-fg-100" title={p.product}>{p.product}</div><div className="truncate text-xs text-fg-500" title={`${p.supplier}${p.pack ? ' · ' + p.pack : ''}`}>{p.supplier}{p.pack ? ` · ${p.pack}` : ''}</div></td>
+                      <td className="pr-3 whitespace-nowrap">{venueLabel(p.restaurant)}</td>
+                      {shownBuckets.map((b) => {
+                        const c = p.cells.get(b.key)
+                        if (!c) return <td key={b.key} className="pr-3 text-right text-fg-600">—</td>
+                        const idx = p.keys.indexOf(b.key), pv = idx > 0 ? p.cells.get(p.keys[idx - 1])!.fact : null
+                        const d = pv ? (c.fact - pv) / pv : 0
+                        return <td key={b.key} title={`${c.covers}${c.plan != null ? ` · план ${money(c.plan)}` : ''}`} className={`pr-3 text-right tabular-nums whitespace-nowrap ${d > FLAT_EPS ? 'text-bad' : d < -FLAT_EPS ? 'text-good' : ''}`}>{money(c.fact)}</td>
+                      })}
+                      <td className={`pr-3 whitespace-nowrap text-right tabular-nums ${tone}`}>{p.stepPct == null ? '—' : <>{pct(p.stepPct)}<div className="text-xs opacity-80">{signedMoney(p.stepAbs ?? 0)}</div></>}</td>
+                      <td className={`pr-3 whitespace-nowrap text-right tabular-nums ${tone}`}>{p.impact == null || t === 'flat' ? '—' : signedMoney(p.impact)}</td>
+                      <td className="pr-3 whitespace-nowrap text-right tabular-nums">{p.plan == null ? <span className="text-fg-600">—</span> : money(p.plan)}</td>
+                      <td className={`text-right tabular-nums ${p.devPct == null ? 'text-fg-600' : p.devPct > FLAT_EPS ? 'text-bad' : p.devPct < -FLAT_EPS ? 'text-good' : ''}`}>{p.devPct == null ? '—' : pct(p.devPct)}</td>
+                    </tr>)
+                })}</tbody>
+              </table>
+            </div>
+
+            {visible.length === 0 && <EmptyHint>Нет позиций под выбранные фильтры.</EmptyHint>}
+            {visible.length > limit && <div className="mt-3 text-center"><button onClick={() => setLimit((n) => n + 200)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">Показать ещё (осталось {visible.length - limit})</button></div>}
+          </Section>
+        </>
+      )}
+
+      {product && (
+        <div ref={detailRef} className="space-y-5">
+          <div className="card flex flex-wrap items-end justify-between gap-3 p-4">
+            <div className="min-w-[260px] flex-1"><ProductPicker value={product} onChange={(v) => { setProduct(v); setSelKey('') }} options={products} /></div>
+            <button onClick={() => { setProduct(''); setSelKey('') }} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">Закрыть подробности</button>
+          </div>
+          {!loading && !series.length && <EmptyHint>{built.positions.some((p) => p.product === product) ? `Позицию «${product}» скрыл фильтр по поставщику.` : `Позицию «${product}» в выбранных периодах и ресторанах не покупали.`}</EmptyHint>}
+      {!loading && series.length > 0 && (
         <>
           <Section
             title={product}
@@ -236,17 +357,17 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
             right={<button onClick={() => setShowChart((v) => !v)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">{showChart ? 'Скрыть график' : 'Показать график'}</button>}
           >
             <div className="overflow-x-auto"><table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-fg-500"><th className="py-2 pr-3">Ресторан</th>{pivotCols.map(([k, label]) => <th key={k} className="pr-3 text-right whitespace-nowrap">{label}</th>)}</tr></thead>
+              <thead><tr className="text-left text-xs text-fg-500"><th className="py-2 pr-3">Точка · поставщик · фасовка</th>{pivotCols.map(([k, label]) => <th key={k} className="pr-3 text-right whitespace-nowrap">{label}</th>)}</tr></thead>
               <tbody>{series.map((srs) => (
-                <tr key={srs.name} className={`border-t border-ink-800 text-fg-200 ${srs === totalSeries ? 'font-medium' : ''}`}>
-                  <td className="py-2 pr-3">{labelOf(srs.name)}</td>
+                <tr key={srs.name} className="border-t border-ink-800 text-fg-200">
+                  <td className="py-2 pr-3">{srs.name}</td>
                   {pivotCols.map(([k], ci) => {
                     const pt = srs.points.find((x) => x.key === k)
                     if (!pt) return <td key={k} className="pr-3 text-right text-fg-600">—</td>
                     let prev: number | null = null
                     for (let j = ci - 1; j >= 0 && prev == null; j--) prev = srs.points.find((x) => x.key === pivotCols[j][0])?.fact ?? null
-                    const d = prev != null ? pt.fact - prev : 0
-                    return <td key={k} title={`${pt.covers}${pt.plan != null ? ` · план ${money(pt.plan)}` : ''}`} className={`pr-3 text-right tabular-nums ${d > 0.5 ? 'text-bad' : d < -0.5 ? 'text-good' : ''}`}>{money(pt.fact)}</td>
+                    const d = prev ? (pt.fact - prev) / prev : 0
+                    return <td key={k} title={`${pt.covers}${pt.plan != null ? ` · план ${money(pt.plan)}` : ''}`} className={`pr-3 text-right tabular-nums whitespace-nowrap ${d > FLAT_EPS ? 'text-bad' : d < -FLAT_EPS ? 'text-good' : ''}`}>{money(pt.fact)}</td>
                   })}
                 </tr>))}</tbody>
             </table></div>
@@ -261,21 +382,21 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
                   <XAxis dataKey="label" stroke={C.axis} tick={{ fontSize: 11 }} />
                   <YAxis stroke={C.axis} tick={{ fontSize: 11 }} width={64} domain={['auto', 'auto']} tickFormatter={(v) => Math.round(v).toLocaleString('ru-RU')} />
                   <Tooltip content={<ChartTip valueFormatter={(v: number) => money(v)} />} />
-                  {lines.map((s, i) => <Line key={s.name} type="monotone" dataKey={'s' + i} name={labelOf(s.name)} stroke={SERIES[i % SERIES.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />)}
-                  {hasPlan && <Line type="monotone" dataKey="__plan" name={multi ? 'План (по выборке)' : 'План'} stroke={C.warn} strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />}
+                  {lines.map((s, i) => <Line key={s.name} type="monotone" dataKey={'s' + i} name={s.name} stroke={SERIES[i % SERIES.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />)}
+                  {hasPlan && <Line type="monotone" dataKey="__plan" name={multi ? 'План (выбранной позиции)' : 'План'} stroke={C.warn} strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />}
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            {multi && <div className="mt-2 flex flex-wrap gap-3 text-xs text-fg-400">{lines.map((s, i) => <span key={s.name} className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: SERIES[i % SERIES.length] }} />{labelOf(s.name)}</span>)}</div>}
+            {multi && <div className="mt-2 flex flex-wrap gap-3 text-xs text-fg-400">{lines.map((s, i) => <span key={s.name} className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: SERIES[i % SERIES.length] }} />{s.name}</span>)}</div>}
           </Section>
           )}
 
           <Section title="Сводка за период" subtitle="Средняя — взвешенная по количеству; изменение — последняя цена к первой">
             <div className="overflow-x-auto"><table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-fg-500"><th className="py-2 pr-3">Ресторан</th><th className="pr-3 text-right">Мин.</th><th className="pr-3 text-right">Макс.</th><th className="pr-3 text-right">Средняя</th><th className="pr-3 text-right">Первая</th><th className="pr-3 text-right">Последняя</th><th className="text-right">Изменение</th></tr></thead>
+              <thead><tr className="text-left text-xs text-fg-500"><th className="py-2 pr-3">Позиция</th><th className="pr-3 text-right">Мин.</th><th className="pr-3 text-right">Макс.</th><th className="pr-3 text-right">Средняя</th><th className="pr-3 text-right">Первая</th><th className="pr-3 text-right">Последняя</th><th className="text-right">Изменение</th></tr></thead>
               <tbody>{series.map((s) => { const m = summarizeSeries(s.points)!; return (
                 <tr key={s.name} className="border-t border-ink-800 text-fg-200">
-                  <td className="py-2 pr-3">{labelOf(s.name)}</td>
+                  <td className="py-2 pr-3">{s.name}</td>
                   <td className="pr-3 text-right tabular-nums">{money(m.min)}</td><td className="pr-3 text-right tabular-nums">{money(m.max)}</td><td className="pr-3 text-right tabular-nums">{money(m.avg)}</td>
                   <td className="pr-3 text-right tabular-nums">{money(m.first)}</td><td className="pr-3 text-right tabular-nums">{money(m.last)}</td>
                   <td className={`text-right tabular-nums ${m.change > 0.5 ? 'text-bad' : m.change < -0.5 ? 'text-good' : ''}`}>{m.n < 2 ? '—' : `${signedMoney(m.change)}${m.changePct != null ? ` (${pct(m.changePct)})` : ''}`}</td>
@@ -286,7 +407,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           <details className="space-y-5">
             <summary className="cursor-pointer px-1 text-sm text-fg-300 hover:text-fg-100">Подробно по каждому ресторану (изменение к предыдущему, отклонение от плана)</summary>
           {series.map((s) => (
-            <Section key={s.name} title={labelOf(s.name)} subtitle={s === totalSeries ? 'Все выбранные рестораны вместе' : undefined}>
+            <Section key={s.name} title={s.name} >
               <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead><tr className="text-left text-xs text-fg-500"><th className="py-2 pr-3">Период</th><th className="pr-3">Данные за</th><th className="pr-3 text-right">Цена закупки</th><th className="pr-3 text-right">К пред., ₸</th><th className="pr-3 text-right">К пред., %</th><th className="pr-3 text-right">План</th><th className="pr-3 text-right">Откл. от плана, ₸</th><th className="text-right">Откл. от плана, %</th></tr></thead>
                 <tbody>{s.points.map((p, i) => {
@@ -311,6 +432,8 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           </details>
           <p className="px-1 text-[11px] text-fg-600">Рост цены выделен красным (платим больше), снижение — зелёным. Откл. от плана = факт − план. Плановая цена берётся из матрицы, действовавшей в первый день каждого периода. Периоды в выборке не пересекаются: если за один месяц загружены и месяц, и неделя внутри него, берётся более полный период.</p>
         </>
+      )}
+        </div>
       )}
     </div>
   )
