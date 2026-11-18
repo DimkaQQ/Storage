@@ -48,6 +48,11 @@ export function indexDailyRows(rows, resolveStore) {
 export function attachDays(facts, index) {
   let attached = 0, missing = 0, mismatch = 0
   for (const f of facts) {
+    if (f.days) { // уже есть (ассортименты берут дни прямо из накладных) — всё равно сверяем с итогом позиции
+      const q0 = f.days.reduce((x, d) => x + d[1], 0)
+      if (Math.abs(q0 - f.qty) > Math.max(0.001, f.qty * 0.005)) { delete f.days; mismatch++ } else attached++
+      continue
+    }
     const days = index.get(dayKey(f.restaurant, f.supplier, f.product, f.pack))
     if (!days) { missing++; continue }
     const q = days.reduce((s, d) => s + d[1], 0)

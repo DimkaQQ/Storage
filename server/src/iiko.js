@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { getSeedPeriods, getSeedPeriod } from './store.js'
-import { indexDailyRows, attachDays } from './daily.js'
+import { indexDailyRows, attachDays, dayOf } from './daily.js'
 
 const sha1 = (s) => createHash('sha1').update(s).digest('hex')
 
@@ -1013,8 +1013,13 @@ async function streamInvoiceDocuments(res, onDocument) {
 }
 
 /** Разбирает <item>...</item> внутри одного документа, оставляя только строки с товаром из assortmentIds. */
-function extractAssortmentItems(docXml, assortmentIds) {
+export function extractAssortmentItems(docXml, assortmentIds, { anyStatus = false } = {}) {
+  // Накладные со статусом NEW (не проведена) и DELETED (удалена) в закупки не входят — OLAP их тоже не считает (в выгрузке документов статус есть: NEW / PROCESSED / DELETED)
+  const status = /<status>([^<]*)<\/status>/.exec(docXml)?.[1]
+  if (!anyStatus && (status === 'NEW' || status === 'DELETED')) return []
   const supplierId = /<supplier>([^<]*)<\/supplier>/.exec(docXml)?.[1] || ''
+  // Дата накладной (учётный день): dateIncoming, а если её нет в ответе — incomingDate (см. документацию «Выгрузка приходных накладных»)
+  const day = dayOf(/<dateIncoming>([^<]*)<\/dateIncoming>/.exec(docXml)?.[1] || /<incomingDate>([^<]*)<\/incomingDate>/.exec(docXml)?.[1])
   const out = []
   const itemRe = /<item>([\s\S]*?)<\/item>/g
   let m
@@ -1026,7 +1031,7 @@ function extractAssortmentItems(docXml, assortmentIds) {
     const amount = Number(/<amount>([^<]*)<\/amount>/.exec(seg)?.[1] || 0)
     const sum = Number(/<sum>([^<]*)<\/sum>/.exec(seg)?.[1] || 0)
     const storeId = /<store>([^<]*)<\/store>/.exec(seg)?.[1] || ''
-    out.push({ supplierId, productId, containerId, amount, sum, storeId })
+    out.push({ supplierId, productId, containerId, amount, sum, storeId, day })
   }
   return out
 }
@@ -1077,12 +1082,17 @@ async function fetchAssortmentFacts(settings, period) {
         const pack = (it.containerId && info.containers.get(it.containerId)) || info.mainUnit || ''
         const key = `${norm(restaurant)}::${norm(supplierName)}::${norm(info.name)}::${norm(pack)}`
         const prev = byKey.get(key)
-        if (prev) { prev.qty += it.amount; prev.sum += it.sum; if (!prev.stores.includes(storeName)) prev.stores.push(storeName) }
-        else byKey.set(key, { restaurant, stores: [storeName], supplier: supplierName, product: info.name, pack, qty: it.amount, sum: it.sum })
+        const cur = prev ?? { restaurant, stores: [storeName], supplier: supplierName, product: info.name, pack, qty: 0, sum: 0, dayMap: new Map(), undated: false }
+        if (!prev) byKey.set(key, cur)
+        cur.qty += it.amount; cur.sum += it.sum
+        if (!cur.stores.includes(storeName)) cur.stores.push(storeName)
+        // подневная раскладка прямо из накладных (дата документа) — у товаров-ассортиментов её нет в OLAP-запросе по дням
+        if (it.day) { const d = cur.dayMap.get(it.day) ?? [0, 0]; d[0] += it.amount; d[1] += it.sum; cur.dayMap.set(it.day, d) } else cur.undated = true
         names.add(norm(info.name))
       }
     })
-    return { facts: [...byKey.values()], names, produceNames: index.produceNames }
+    const facts = [...byKey.values()].map(({ dayMap, undated, ...f }) => (undated || !dayMap.size ? f : { ...f, days: [...dayMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([day, [q, m]]) => [day, q, m]) }))
+    return { facts, names, produceNames: index.produceNames }
   } finally {
     await iikoServerLogout(base, token)
   }
@@ -1118,7 +1128,7 @@ export async function iikoServerAssortmentDebug(settings, period, productFilter)
     if (!res.ok) throw new Error(`Накладные недоступны (HTTP ${res.status}): ${(await res.text()).slice(0, 500)}`)
     const items = []
     await streamInvoiceDocuments(res, (docXml) => {
-      for (const it of extractAssortmentItems(docXml, matchedIds)) {
+      for (const it of extractAssortmentItems(docXml, matchedIds, { anyStatus: true })) {
         if (!(it.amount > 0)) continue
         const info = matchedIds.get(it.productId)
         const storeName = storeNames.get(it.storeId) || it.storeId
