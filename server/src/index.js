@@ -131,7 +131,9 @@ async function runSync(orgId, trigger, explicitPeriod) {
           `${s.period}: iikoServer вернул ${s.rawCount} строк, отсеяно без товара/кол-ва ${s.droppedNoData}, по отделу/бренду ${s.droppedDept}, осталось ${s.kept}`
           + (s.assortmentFacts != null ? `, товаров-ассортиментов по накладным: ${s.assortmentFacts}` : '')
           + (s.excludedProduce ? `, убрано (овощи/фрукты, расходники): ${s.excludedProduce}` : '')
-          + (s.assortmentError ? ` [асс.: ${s.assortmentError}]` : ''),
+          + (s.assortmentError ? ` [асс.: ${s.assortmentError}]` : '')
+          + (s.daily ? `, по дням: привязано ${s.daily.attached}, без дней ${s.daily.missing}, суммы не сошлись ${s.daily.mismatch}` : '')
+          + (s.dailyError ? ` [дни: ${s.dailyError}]` : ''),
         ).join('; ')
       : ''
     const status = {

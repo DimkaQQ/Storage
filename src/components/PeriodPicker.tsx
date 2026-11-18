@@ -74,12 +74,8 @@ export default function PeriodPicker({
           <div className="space-y-2 border-t border-ink-700/60 px-3 py-3">
             <span className="text-xs font-semibold text-fg-400">Свои даты</span>
             <div className="grid grid-cols-2 gap-2">
-              <label className="text-[11px] text-fg-500">С
-                <input type="date" value={from} min={minDate} max={to || maxDate} onChange={(e) => setFrom(e.target.value)} className="mt-1 h-9 w-full rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-xs text-fg-100 focus:border-brand-500 focus:outline-none" />
-              </label>
-              <label className="text-[11px] text-fg-500">По
-                <input type="date" value={to} min={from || minDate} max={maxDate} onChange={(e) => setTo(e.target.value)} className="mt-1 h-9 w-full rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-xs text-fg-100 focus:border-brand-500 focus:outline-none" />
-              </label>
+              <DateBox label="С" value={from} min={minDate} max={to || maxDate} onChange={setFrom} />
+              <DateBox label="По" value={to} min={from || minDate} max={maxDate} onChange={setTo} />
             </div>
             <button onClick={apply} disabled={!from || !to || from > to} className="btn h-9 w-full border border-brand-500/50 bg-brand-500/15 text-xs text-fg-50 hover:bg-brand-500/25 disabled:opacity-50">Показать за эти даты</button>
             <p className="text-[11px] leading-snug text-fg-500">Дни берутся из загруженных месяцев. Месяцы, загруженные раньше, нужно загрузить заново в «Обновлении», чтобы появилась раскладка по дням.</p>
@@ -105,4 +101,20 @@ function rangeLabel(v: string): string {
   if (!r) return v
   const a = `${+r[3]} ${MONTHS_G[+r[2] - 1]}`, b = `${+r[6]} ${MONTHS_G[+r[5] - 1]} ${r[4]}`
   return a === b.replace(` ${r[4]}`, '') ? b : `${a} – ${b}`
+}
+
+/** Поле даты: свой текст по центру, а настоящий input лежит сверху невидимым (родное поле даты в Safari/iOS рисуется криво). */
+function DateBox({ label, value, min, max, onChange }: { label: string; value: string; min?: string; max?: string; onChange: (v: string) => void }) {
+  const shown = value ? new Date(value + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).replace(' г.', '') : 'Выбрать'
+  return (
+    <div className="block min-w-0 text-[11px] text-fg-500">
+      <span className="block">{label}</span>
+      <div className="relative mt-1 h-9 rounded-lg border border-ink-600 bg-ink-900/60 focus-within:border-brand-500">
+        <div className={`pointer-events-none flex h-full items-center px-2 text-xs ${value ? 'text-fg-100' : 'text-fg-600'}`}><span className="truncate">{shown}</span></div>
+        <input type="date" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)}
+          onClick={(e) => { try { e.currentTarget.showPicker?.() } catch { /* откроется само */ } }}
+          aria-label={label} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      </div>
+    </div>
+  )
 }
