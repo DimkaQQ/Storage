@@ -241,7 +241,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
   return (
     <div className="space-y-5">
       <div className="card space-y-4 p-4">
-        <div className="grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-[minmax(260px,1.6fr)_minmax(180px,1fr)_168px_168px] lg:gap-x-4">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-[minmax(150px,1.6fr)_minmax(150px,1fr)_164px_164px] lg:gap-x-4">
           <label className="col-span-2 block text-xs font-medium text-fg-400 lg:col-span-1">Поиск
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Товар, поставщик или точка" className="mt-1.5 block h-10 w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 text-sm font-normal text-fg-100 outline-none placeholder:text-fg-600 focus:border-brand-500" />
           </label>
@@ -253,8 +253,8 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           <DateField label="С" value={from} max={to || undefined} onChange={userFrom} />
           <DateField label="По" value={to} min={from || undefined} onChange={userTo} />
         </div>
-        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-[auto_auto_minmax(220px,300px)] sm:justify-start">
-          <div className="min-w-0 text-xs font-medium text-fg-400">Поставщик
+        <div className="flex flex-wrap gap-x-6 gap-y-4">
+          <div className="w-full min-w-0 text-xs font-medium text-fg-400 sm:w-[240px]">Поставщик
             <div className="mt-1.5 [&>div]:w-full [&>div>button:first-child]:h-10 [&>div>button:first-child]:w-full [&>div>button:first-child]:rounded-lg">
               <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supSel} onChange={setSupSel} />
             </div>
@@ -310,27 +310,26 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="text-left text-xs text-fg-500">
-                  <th className="py-2 pr-3">Позиция</th><th className="pr-3">Точка</th>
-                  {shownBuckets.map((b) => <th key={b.key} className="pr-3 text-right whitespace-nowrap">{b.label}</th>)}
-                  <th className="pr-3 text-right">К пред.</th><th className="pr-3 text-right">Влияние</th><th className="pr-3 text-right">План</th><th className="text-right" title="На сколько процентов цена выше (+) или ниже (−) плановой">Выше плана</th>
+                  <th className="py-2 pr-2">Позиция</th><th className="pr-2">Точка</th>
+                  {shownBuckets.map((b) => <th key={b.key} title={b.label} className="pr-2 text-right whitespace-nowrap">{b.label.replace(/^([А-Яа-я]{3})[А-Яа-я]* (\d{4})$/, '$1 $2').replace(/^Нед\. с (\d{2}\.\d{2})\.\d{4}$/, 'нед. $1').replace(/^(\d{2}\.\d{2})\.\d{4}$/, '$1')}</th>)}
+                  <th className="pr-2 text-right">К пред.</th><th className="pr-2 text-right">Влияние</th><th className="text-right" title="Плановая цена; ниже — на сколько процентов цена выше (+) или ниже (−) плана">План</th>
                 </tr></thead>
                 <tbody>{visible.slice(0, limit).map((p) => {
                   const t = trendOf(p), tone = t === 'up' ? 'text-bad' : t === 'down' ? 'text-good' : 'text-fg-400'
                   return (
                     <tr key={p.key} tabIndex={0} onClick={() => openPosition(p)} onKeyDown={(e) => { if (e.key === 'Enter') openPosition(p) }} className={`cursor-pointer border-t border-ink-800 text-fg-200 hover:bg-ink-800/40 ${p.key === selKey && p.product === product ? 'bg-brand-500/10' : ''}`}>
-                      <td className="max-w-[260px] py-2 pr-3"><div className="truncate font-medium text-fg-100" title={p.product}>{p.product}</div><div className="truncate text-xs text-fg-500" title={`${p.supplier}${p.pack ? ' · ' + p.pack : ''}`}>{p.supplier}{p.pack ? ` · ${p.pack}` : ''}</div></td>
-                      <td className="pr-3 whitespace-nowrap">{venueLabel(p.restaurant)}</td>
+                      <td className="max-w-[170px] py-2 pr-2"><div className="truncate font-medium text-fg-100" title={p.product}>{p.product}</div><div className="truncate text-xs text-fg-500" title={`${p.supplier}${p.pack ? ' · ' + p.pack : ''}`}>{p.supplier}{p.pack ? ` · ${p.pack}` : ''}</div></td>
+                      <td className="max-w-[100px] truncate pr-2" title={venueLabel(p.restaurant)}>{venueLabel(p.restaurant)}</td>
                       {shownBuckets.map((b) => {
                         const c = p.cells.get(b.key)
-                        if (!c) return <td key={b.key} className="pr-3 text-right text-fg-600">—</td>
+                        if (!c) return <td key={b.key} className="pr-2 text-right text-fg-600">—</td>
                         const idx = p.keys.indexOf(b.key), pv = idx > 0 ? p.cells.get(p.keys[idx - 1])!.fact : null
                         const d = pv ? (c.fact - pv) / pv : 0
-                        return <td key={b.key} title={`${c.covers}${c.plan != null ? ` · план ${money(c.plan)}` : ''}`} className={`pr-3 text-right tabular-nums whitespace-nowrap ${d > FLAT_EPS ? 'text-bad' : d < -FLAT_EPS ? 'text-good' : ''}`}>{money(c.fact)}</td>
+                        return <td key={b.key} title={`${c.covers}${c.plan != null ? ` · план ${money(c.plan)}` : ''}`} className={`pr-2 text-right tabular-nums whitespace-nowrap ${d > FLAT_EPS ? 'text-bad' : d < -FLAT_EPS ? 'text-good' : ''}`}>{money(c.fact)}</td>
                       })}
-                      <td className={`pr-3 whitespace-nowrap text-right tabular-nums ${tone}`}>{p.stepPct == null ? '—' : <>{pct(p.stepPct)}<div className="text-xs opacity-80">{signedMoney(p.stepAbs ?? 0)}</div></>}</td>
-                      <td className={`pr-3 whitespace-nowrap text-right tabular-nums ${tone}`}>{p.impact == null || t === 'flat' ? '—' : signedMoney(p.impact)}</td>
-                      <td className="pr-3 whitespace-nowrap text-right tabular-nums">{p.plan == null ? <span className="text-fg-600">—</span> : money(p.plan)}</td>
-                      <td className={`text-right tabular-nums ${p.devPct == null ? 'text-fg-600' : p.devPct > FLAT_EPS ? 'text-bad' : p.devPct < -FLAT_EPS ? 'text-good' : ''}`}>{p.devPct == null ? '—' : pct(p.devPct)}</td>
+                      <td className={`pr-2 whitespace-nowrap text-right tabular-nums ${tone}`}>{p.stepPct == null ? '—' : <>{pct(p.stepPct)}<div className="text-xs opacity-80">{signedMoney(p.stepAbs ?? 0)}</div></>}</td>
+                      <td className={`pr-2 whitespace-nowrap text-right tabular-nums ${tone}`}>{p.impact == null || t === 'flat' ? '—' : signedMoney(p.impact)}</td>
+                      <td className="whitespace-nowrap text-right tabular-nums">{p.plan == null ? <span className="text-fg-600">—</span> : <>{money(p.plan)}<div className={`text-xs ${p.devPct == null ? '' : p.devPct > FLAT_EPS ? 'text-bad' : p.devPct < -FLAT_EPS ? 'text-good' : 'text-fg-400'}`}>{p.devPct == null ? '' : pct(p.devPct)}</div></>}</td>
                     </tr>)
                 })}</tbody>
               </table>
