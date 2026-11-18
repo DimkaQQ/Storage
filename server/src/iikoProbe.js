@@ -96,6 +96,12 @@ export async function runIikoProbe(settings, onProgress = () => {}) {
       P(`    из них с заполненным весом фасовки: ${weightFilled.length}`)
       P('    примеры карточек с фасовками и весом:')
       for (const d of weightFilled.slice(0, 6)) P(...cut(d, 1300).split('\n').map((l) => '    | ' + l))
+      // штучные товары с весом фасовки — главный случай для цены за кг (вес штуки = вес фасовки / количество штук в ней)
+      const unitOf = (d) => (/<mainUnit>([^<]*)<\/mainUnit>/.exec(d)?.[1] ?? '').trim().toLowerCase().replace(/\.$/, '')
+      const pcs = weightFilled.filter((d) => unitOf(d) === 'шт')
+      P(`    штучных (шт) товаров с заполненным весом фасовки: ${pcs.length}; в литрах: ${weightFilled.filter((d) => unitOf(d) === 'л').length}; в кг: ${weightFilled.filter((d) => unitOf(d) === 'кг').length}`)
+      P('    примеры штучных товаров (шт) с весом фасовки:')
+      for (const d of pcs.slice(0, 8)) P(...cut(d.replace(/<(?:id|num|code|parentId|minContainerWeight|maxContainerWeight|backwardRecalculation|useInFront)>[^<]*<\/[^>]+>/g, ''), 700).split('\n').map((l) => '    | ' + l))
       const pick = (re) => withCont.filter((d) => re.test(/<name>([^<]*)<\/name>/.exec(d)?.[1] ?? '')).slice(0, 3)
       for (const [label, re] of [['колбас', /колбас/i], ['сливки', /сливк/i], ['филе', /филе/i], ['пюре', /пюре/i]]) {
         const hit = pick(re)
