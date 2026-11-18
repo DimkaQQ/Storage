@@ -66,7 +66,7 @@ export default function App() {
   })
   // Город — только в Проверке цен: сужает и список точек, и таблицу (город точки — Справочники → Точки)
   const [cityPricecheck, setCityPricecheck] = useState<string | null>(null)
-  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, matrixPriceLabel, saveError } = useEdits()
+  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, matrixPriceLabel, saveError, datasetPartial } = useEdits()
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
@@ -173,6 +173,12 @@ export default function App() {
             {matchingIsStale && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
                 План-цены ещё не загружены: подключите Google-таблицу и синхронизируйте её (Обновление → Матрица) — тогда появится сверка с матрицей.
+              </div>
+            )}
+            {datasetPartial && (
+              <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
+                {datasetPartial.skippedItems > 0 && <>Часть позиций ({datasetPartial.skippedItems}) не вошла в выбранные даты: у месяца {datasetPartial.monthsWithoutDays.map((m) => periods.find((x) => x.period === m)?.periodLabel ?? m).join(', ')} нет раскладки по дням. Загрузите этот месяц заново в разделе «Обновление». </>}
+                {(datasetPartial.noDayItems ?? 0) > 0 && <>Ещё {datasetPartial.noDayItems} позиций (ассортименты и позиции, где iiko не дал раскладку по дням) в выбранные даты не входят.</>}
               </div>
             )}
             {saveError && (

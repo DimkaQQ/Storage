@@ -16,6 +16,7 @@ import * as editsDb from './editsDb.js'
 import { buildDataTar, readTarFiles } from './migration.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, sliceMatching, stripTabs, DEFAULT_EXCLUDED_TABS, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
+import { composeRange, monthBounds } from './range.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { isValidPeriod, MONTH_RE } from './period.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
@@ -225,6 +226,15 @@ app.get('/api/data', requireAuth, (req, res) => {
   // по умолчанию — последний МЕСЯЦ (отрезки «с … по …» не должны становиться периодом по умолчанию)
   const period = req.query.period || (periods.filter((p) => MONTH_RE.test(p.period)).at(-1) ?? periods.at(-1))?.period
   if (!period) return res.json({ restaurants: [] })
+  // Произвольный отрезок дат («с … по …»), который не загружали отдельно: собираем из месячных датасетов с подневной раскладкой (range.js)
+  const rangeM = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(String(period))
+  if (rangeM && !periods.some((p) => p.period === period)) {
+    const [, from, to] = rangeM
+    if (from > to || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) return res.status(400).json({ ok: false, message: 'Неверный отрезок дат: «с» позже «по» или дата не существует' })
+    // читаем только месяцы, пересекающиеся с отрезком (датасеты большие, читать все на каждый запрос незачем)
+    const months = periods.filter((p) => MONTH_RE.test(p.period)).filter((p) => { const b = monthBounds(p.period); return b.end >= from && b.start <= to }).map((p) => ({ period: p.period, dataset: getDataset(req.auth.orgId, p.period) }))
+    return res.json(composeRange(months, from, to))
+  }
   res.json(getDataset(req.auth.orgId, period))
 })
 

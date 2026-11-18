@@ -199,6 +199,8 @@ interface Ctx {
   periodKey: string
   periods: PeriodMeta[]
   setPeriod: (period: string) => void
+  /** Если период собран из месячных загрузок по дням: сколько позиций пропущено, потому что у месяца нет подневных данных (нужно перезагрузить месяц). */
+  datasetPartial: { skippedItems: number; noDayItems?: number; monthsWithoutDays: string[] } | null
   matching: MatchingTable
   // Матрица не привязана к периоду (план-цены сами по себе не "за такой-то
   // месяц", таблица живая) — true, только если с Google-таблицы вообще
@@ -406,8 +408,13 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     }
   }, [edits, catalogBaseline, reportOpResult, pendingProductLinks, updateEdits])
 
+  const [datasetPartial, setDatasetPartial] = useState<{ skippedItems: number; noDayItems?: number; monthsWithoutDays: string[] } | null>(null)
+  const loadSeq = useRef(0) // ответ на устаревший запрос (быстро переключили период) не должен перезаписать свежий
   const loadData = useCallback(async (period: string) => {
+    const seq = ++loadSeq.current
     const data = await fetchDataset(period)
+    if (seq !== loadSeq.current) return
+    setDatasetPartial(data?.partial && (data.partial.skippedItems || data.partial.noDayItems) ? data.partial : null)
     if (data && data.restaurants) { setParsed(parseDataset(data)); setBackendOnline(true) }
     else setParsed(parseDataset(bundledDataset(period)))
   }, [])
@@ -808,7 +815,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
-    backendOnline, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, reloadStatus,
+    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,

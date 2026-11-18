@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { getSeedPeriods, getSeedPeriod } from './store.js'
+import { indexDailyRows, attachDays } from './daily.js'
 
 const sha1 = (s) => createHash('sha1').update(s).digest('hex')
 
@@ -619,11 +620,37 @@ async function iikoServerFacts(settings, period) {
       stats.assortmentError = String(e.message || e)
     }
 
+    // Подневная раскладка отдельным запросом (см. daily.js): основной отчёт выше не трогаем, при любой ошибке просто остаёмся без дней.
+    try {
+      const daily = await fetchDailyBreakdown(base, token, from, to)
+      stats.daily = attachDays(facts, indexDailyRows(daily, resolveStoreRestaurant))
+    } catch (e) {
+      stats.dailyError = String(e.message || e).slice(0, 300)
+    }
+
     facts.fetchStats = stats
     return facts
   } finally {
     await iikoServerLogout(base, token)
   }
+}
+
+/** Тот же отчёт закупок, но с датой (учётный день) в группировке — для подневной раскладки. */
+async function fetchDailyBreakdown(base, token, from, to) {
+  const body = {
+    reportType: 'TRANSACTIONS',
+    buildSummary: false,
+    groupByRowFields: ['Store', 'Product.Name', 'Counteragent.Name', 'Product.MeasureUnit', 'DateTime.DateTyped'],
+    aggregateFields: ['Amount', 'Sum.Incoming'],
+    filters: {
+      'DateTime.DateTyped': { filterType: 'DateRange', periodType: 'CUSTOM', from, to },
+      TransactionType: { filterType: 'IncludeValues', values: ['INVOICE'] },
+    },
+  }
+  const res = await withTimeout(`${base}/resto/api/v2/reports/olap?key=${token}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 120000)
+  if (!res.ok) throw new Error(`отчёт по дням недоступен (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`)
+  const data = await res.json()
+  return data.data || []
 }
 
 /** Читает ответ ПОЛНОСТЬЮ потоково, но с жёстким лимитом — для заведомо небольших справочников (поставщики, склады, отфильтрованная номенклатура), где ответ целиком разумно держать в памяти, в отличие от огромных отчётов/накладных. */

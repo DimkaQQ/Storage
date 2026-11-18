@@ -100,6 +100,8 @@ export function buildDataset(facts, venues, periodMeta) {
         q: Math.round(f.qty * 1000) / 1000,
         m: Math.round(f.sum * 100) / 100,
         ...(f.comment ? { c: f.comment } : {}),
+        // подневная раскладка (см. daily.js): нужна, чтобы собирать любой отрезок дат из месячных загрузок
+        ...(f.days?.length ? { d: f.days.map(([day, q, m]) => [day, Math.round(q * 1000) / 1000, Math.round(m * 100) / 100]) } : {}),
       })),
     }
   })
