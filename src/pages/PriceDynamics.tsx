@@ -3,15 +3,18 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { computeRows, parseDataset, EMPTY_MATCHING, money, signedMoney, pct } from '../lib/data'
 import { fetchDataset, fetchMatching } from '../lib/api'
 import { useEdits } from '../lib/edits'
-import { Granularity, PeriodRows, Position, Series, addDays, buildPositions, pickPeriods, periodSpan, productsIn, summarizeSeries, trendOf, FLAT_EPS } from '../lib/dynamics'
+import { Granularity, PeriodRows, Position, Series, addDays, bucketOf, buildPositions, pickPeriods, periodSpan, productsIn, summarizeSeries, trendOf, FLAT_EPS } from '../lib/dynamics'
 import MultiSelectFilter from '../components/MultiSelectFilter'
 import { ChartTip, C, SERIES } from '../components/charts'
 import { Section, EmptyHint } from '../components/ui'
 
 interface Loaded { period: string; data: any; matching: any }
 
-const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'По дням' }, { id: 'week', label: 'По неделям' }, { id: 'month', label: 'По месяцам' }]
-const PRESETS: { label: string; days: number }[] = [{ label: 'Неделя', days: 6 }, { label: 'Месяц', days: 29 }, { label: 'Квартал', days: 89 }, { label: 'Год', days: 364 }]
+const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'По дням' }, { id: 'week', label: 'По неделям' }, { id: 'month', label: 'По месяцам' }, { id: 'quarter', label: 'По кварталам' }, { id: 'year', label: 'По годам' }]
+const coarser: Partial<Record<Granularity, Granularity>> = { day: 'week', week: 'month', month: 'quarter', quarter: 'year' } // следующая, более крупная детализация
+const MAX_COLS = 4 // столько периодов показываем в таблице; остальные — по кнопке «Все периоды» (иначе таблица шире экрана)
+// быстрый период сразу ставит подходящую детализацию: неделя → по дням, месяц → по неделям, квартал → по месяцам, год → по кварталам
+const PRESETS: { label: string; days: number; gran: Granularity }[] = [{ label: 'Неделя', days: 6, gran: 'day' }, { label: 'Месяц', days: 29, gran: 'week' }, { label: 'Квартал', days: 89, gran: 'month' }, { label: 'Год', days: 364, gran: 'quarter' }]
 
 /**
  * Поле даты: показываем свой текст по центру (родное поле даты в Safari/iOS рисует значение у верхнего края и разной высоты),
@@ -126,8 +129,9 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
     const starts = allPeriods.filter((p) => periodSpan(p).end >= cut).map((p) => periodSpan(p).start).sort()
     setTo(latestEnd); setFrom(starts[0] && starts[0] < cut ? starts[0] : cut)
   }, [latestEnd, allPeriods])
-  const userFrom = (v: string) => { autoWindow.current = false; setFrom(v) }
-  const userTo = (v: string) => { autoWindow.current = false; setTo(v) }
+  const [pickedDates, setPickedDates] = useState(false) // даты выбраны руками (не пресетом и не окном по умолчанию) — только тогда предупреждаем о незагруженных месяцах
+  const userFrom = (v: string) => { autoWindow.current = false; setPickedDates(true); setFrom(v) }
+  const userTo = (v: string) => { autoWindow.current = false; setPickedDates(true); setTo(v) }
 
   const chosen = useMemo(() => (from && to && from <= to ? pickPeriods(allPeriods, from, to) : []), [allPeriods, from, to])
 
@@ -212,7 +216,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
   const lines = series
   const planSeries = selKey || series.length === 1 ? series[0] ?? null : null // план показываем у выбранной строки (или если позиция одна)
   useEffect(() => { setLimit(100) }, [trend, sort, q, supSel, scope, gran, loaded])
-  const shownBuckets = allCols ? built.buckets : built.buckets.slice(-6)
+  const shownBuckets = allCols ? built.buckets : built.buckets.slice(-MAX_COLS)
   const openPosition = (p: Position) => { setProduct(p.product); setSelKey(p.key); setScrollTick((n) => n + 1) }
   useEffect(() => { if (scrollTick) detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [scrollTick])
 
@@ -233,8 +237,23 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [series])
 
-  const setPreset = (days: number) => { const end = to || latestEnd; if (end) { autoWindow.current = false; setTo(end); setFrom(addDays(end, -days)) } }
+  const setPreset = (days: number, g: Granularity) => { const end = to || latestEnd; if (end) { autoWindow.current = false; setTo(end); setFrom(addDays(end, -days)); setGran(g); setAllCols(false); setPickedDates(false) } }
   const noData = !loading && chosen.length === 0
+  // месяцы выбранных дат, за которые в системе нет ни одного загруженного периода
+  const missing = useMemo(() => {
+    if (!pickedDates || !from || !to || from > to) return [] as string[]
+    const out: string[] = []
+    let y = +from.slice(0, 4), m = +from.slice(5, 7)
+    const last = to.slice(0, 7)
+    for (let guard = 0; guard < 60; guard++) {
+      const key = `${y}-${String(m).padStart(2, '0')}`
+      if (key > last) break
+      const sp = periodSpan(key)
+      if (!chosen.some((p) => { const c = periodSpan(p); return c.start <= sp.end && c.end >= sp.start })) out.push(bucketOf(`${key}-01`, 'month').label)
+      m++; if (m > 12) { m = 1; y++ }
+    }
+    return out
+  }, [pickedDates, from, to, chosen])
   // периоды берутся целиком: если период шире выбранных дат, цена за окно считается по всему периоду — предупреждаем
   const wider = chosen.filter((p) => { const sp = periodSpan(p); return sp.start < from || sp.end > to })
 
@@ -261,7 +280,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           </div>
           <div className="min-w-0 text-xs font-medium text-fg-400">Быстрый период
             <div className="mt-1.5 flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
-              {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days)} className="h-9 flex-1 rounded-md px-3 text-sm font-normal text-fg-300 hover:bg-ink-800 hover:text-fg-50 sm:flex-none">{p.label}</button>)}
+              {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days, p.gran)} className="h-9 flex-1 rounded-md px-3 text-sm font-normal text-fg-300 hover:bg-ink-800 hover:text-fg-50 sm:flex-none">{p.label}</button>)}
             </div>
           </div>
           <div className="min-w-0 text-xs font-medium text-fg-400">Детализация
@@ -272,6 +291,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
         </div>
       </div>
 
+      {missing.length > 0 && !loading && !noData && <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">В выбранных датах нет загруженных данных за: {missing.join(', ')}. Загрузите их в разделе «Обновление», тогда они появятся в таблице.</div>}
       {wider.length > 0 && !loading && <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">Загруженные периоды шире выбранных дат ({wider.join(', ')}): цена считается по периоду целиком. Чтобы увидеть меньший отрезок, загрузите его отдельно в разделе «Обновление».</div>}
       {error && <div className="rounded-lg border border-bad/30 bg-bad/10 px-4 py-2 text-xs text-bad">{error}</div>}
       {loading && <EmptyHint>Загружаю периоды…</EmptyHint>}
@@ -291,7 +311,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           <Section
             title="Динамика цен по всем позициям"
             subtitle={`Позиция = точка + поставщик + фасовка, цена за единицу, ₸ · «К пред.» — последняя цена к предыдущей закупке этой позиции · влияние = (цена − предыдущая) × последний объём · нажмите на строку, чтобы увидеть график`}
-            right={built.buckets.length > 6 ? <button onClick={() => setAllCols((v) => !v)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">{allCols ? 'Только последние 6' : `Все периоды (${built.buckets.length})`}</button> : undefined}
+            right={built.buckets.length > MAX_COLS ? <button onClick={() => setAllCols((v) => !v)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">{allCols ? `Только последние ${MAX_COLS}` : `Все периоды (${built.buckets.length})`}</button> : undefined}
           >
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {([['all', 'Все', base.length], ['up', 'Выросла', counts.up], ['down', 'Снизилась', counts.down], ['flat', 'Без изменений', counts.flat], ['single', 'Одна точка', counts.single], ['stale', 'Не в последнем периоде', counts.stale]] as const).map(([id, label, n]) => (
@@ -307,6 +327,12 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
               </label>
             </div>
 
+            {built.buckets.length > MAX_COLS && !allCols && (
+              <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-400">
+                <span>Показаны последние {MAX_COLS} из {built.buckets.length} периодов.</span>
+                {coarser[gran] && <button onClick={() => setGran(coarser[gran]!)} className="text-brand-300 hover:underline">Показать «{GRAN.find((x) => x.id === coarser[gran])!.label}»</button>}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="text-left text-xs text-fg-500">
@@ -318,8 +344,8 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
                   const t = trendOf(p), tone = t === 'up' ? 'text-bad' : t === 'down' ? 'text-good' : 'text-fg-400'
                   return (
                     <tr key={p.key} tabIndex={0} onClick={() => openPosition(p)} onKeyDown={(e) => { if (e.key === 'Enter') openPosition(p) }} className={`cursor-pointer border-t border-ink-800 text-fg-200 hover:bg-ink-800/40 ${p.key === selKey && p.product === product ? 'bg-brand-500/10' : ''}`}>
-                      <td className="max-w-[170px] py-2 pr-2"><div className="truncate font-medium text-fg-100" title={p.product}>{p.product}</div><div className="truncate text-xs text-fg-500" title={`${p.supplier}${p.pack ? ' · ' + p.pack : ''}`}>{p.supplier}{p.pack ? ` · ${p.pack}` : ''}</div></td>
-                      <td className="max-w-[100px] truncate pr-2" title={venueLabel(p.restaurant)}>{venueLabel(p.restaurant)}</td>
+                      <td className="max-w-[150px] py-2 pr-2"><div className="truncate font-medium text-fg-100" title={p.product}>{p.product}</div><div className="truncate text-xs text-fg-500" title={`${p.supplier}${p.pack ? ' · ' + p.pack : ''}`}>{p.supplier}{p.pack ? ` · ${p.pack}` : ''}</div></td>
+                      <td className="max-w-[90px] truncate pr-2" title={venueLabel(p.restaurant)}>{venueLabel(p.restaurant)}</td>
                       {shownBuckets.map((b) => {
                         const c = p.cells.get(b.key)
                         if (!c) return <td key={b.key} className="pr-2 text-right text-fg-600">—</td>
@@ -390,7 +416,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           </Section>
           )}
 
-          <Section title="Сводка за период" subtitle="Средняя — взвешенная по количеству; изменение — последняя цена к первой">
+          <Section title="Сводка за период" subtitle="По каждой позиции за выбранные даты: самая низкая и самая высокая цена, средняя (с учётом количества), первая и последняя, и итоговое изменение — последняя цена к первой">
             <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="text-left text-xs text-fg-500"><th className="py-2 pr-3">Позиция</th><th className="pr-3 text-right">Мин.</th><th className="pr-3 text-right">Макс.</th><th className="pr-3 text-right">Средняя</th><th className="pr-3 text-right">Первая</th><th className="pr-3 text-right">Последняя</th><th className="text-right">Изменение</th></tr></thead>
               <tbody>{series.map((s) => { const m = summarizeSeries(s.points)!; return (

@@ -8,7 +8,7 @@ import { Row, unitsLookIncomparable } from './data'
  * а не простое среднее нескольких закупок по разным ценам.
  */
 
-export type Granularity = 'day' | 'week' | 'month'
+export type Granularity = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const RANGE_RE = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/
@@ -53,6 +53,8 @@ const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', '�
 export function bucketOf(start: string, g: Granularity): { key: string; label: string } {
   if (g === 'day') return { key: start, label: fmtDate(start) }
   if (g === 'week') { const mo = mondayOf(start); return { key: mo, label: `Нед. с ${fmtDate(mo)}` } }
+  if (g === 'quarter') { const q = Math.floor((+start.slice(5, 7) - 1) / 3) + 1; return { key: `${start.slice(0, 4)}-Q${q}`, label: `${q} кв. ${start.slice(0, 4)}` } }
+  if (g === 'year') return { key: start.slice(0, 4), label: start.slice(0, 4) }
   return { key: start.slice(0, 7), label: `${MONTHS[+start.slice(5, 7) - 1]} ${start.slice(0, 4)}` }
 }
 
@@ -155,8 +157,8 @@ export function buildPositions(data: PeriodRows[], restaurants: Set<string>, g: 
     const prevKey = keys.length > 1 ? keys[keys.length - 2] : null
     const prev = prevKey ? cells.get(prevKey)!.fact : null
     const first = cells.get(keys[0])!.fact
-    // «Не покупали в последнем периоде» применяем только к месяцам: при подневной/понедельной детализации поставки редкие, и почти всё стало бы «устаревшим»
-    const stale = g === 'month' && lastKey !== latest
+    // «Не покупали в последнем периоде» применяем к месяцам, кварталам и годам: при подневной/понедельной детализации поставки редкие, и почти всё стало бы «устаревшим»
+    const stale = (g === 'month' || g === 'quarter' || g === 'year') && lastKey !== latest
     positions.push({
       key, restaurant: p.restaurant, supplier: p.supplier, product: p.product, pack: p.pack, cells, keys,
       last: last.fact, lastKey, lastQty: last.qty, prev, prevKey,
