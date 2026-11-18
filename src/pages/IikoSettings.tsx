@@ -383,11 +383,20 @@ export default function IikoSettings() {
             </div>
           )
           if (status?.lastResult === 'ok') return (
-            <div className={`${base} border-good/40 bg-good/10 text-good ${justLoaded ? 'ring-2 ring-good/70 shadow-lg shadow-good/20' : ''}`}>
-              <ICheck width={16} height={16} />
-              <span className="font-semibold">Загружено</span>
-              {what && <span className="text-fg-200">· {what}</span>}
-              <span className="text-fg-400">· {ago(status.lastSync ?? null)}</span>
+            <div className="space-y-2">
+              <div className={`${base} border-good/40 bg-good/10 text-good ${justLoaded ? 'ring-2 ring-good/70 shadow-lg shadow-good/20' : ''}`}>
+                <ICheck width={16} height={16} />
+                <span className="font-semibold">Загружено</span>
+                {what && <span className="text-fg-200">· {what}</span>}
+                <span className="text-fg-400">· {ago(status.lastSync ?? null)}</span>
+              </div>
+              {/* диагностика есть только когда сервер дописал её после «Загружено N позиций — …»; по одному периоду на строку */}
+              {status.message?.includes(' — ') && (
+                <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 px-3 py-2 text-xs text-fg-400">
+                  <summary className="cursor-pointer text-fg-300">Подробности загрузки (сколько строк отдал iiko, раскладка по дням)</summary>
+                  <div className="mt-2 space-y-1.5 break-words leading-relaxed">{status.message.split(' — ').slice(1).join(' — ').split('; ').map((line, i) => <p key={i}>{line}</p>)}</div>
+                </details>
+              )}
             </div>
           )
           if (status?.lastResult === 'error') return (
