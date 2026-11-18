@@ -83,6 +83,25 @@ export async function runIikoProbe(settings, onProgress = () => {}) {
     if (firstDto) P('    первый товар целиком (видно, какие поля есть — вес, единицы, фасовки):', ...cut(firstDto, 2500).split('\n').map((l) => '    | ' + l))
     const tags = new Set([...prod.text.slice(0, 400000).matchAll(/<([A-Za-z]+)>/g)].map((m) => m[1]))
     P('    все теги в карточках товаров: ' + [...tags].join(', '))
+    // распределение единиц и примеры карточек с фасовками (для цены за кг у штучных товаров)
+    {
+      const dtos = prod.text.match(/<productDto>[\s\S]*?<\/productDto>/g) || []
+      const byUnit = {}
+      for (const d of dtos) { const u = /<mainUnit>([^<]*)<\/mainUnit>/.exec(d)?.[1] ?? '(нет)'; byUnit[u] = (byUnit[u] || 0) + 1 }
+      P('    товаров по основной единице: ' + Object.entries(byUnit).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([u, n]) => `${u}: ${n}`).join(', '))
+      const withCont = dtos.filter((d) => /<container>/.test(d) && !/<productType>(MODIFIER|DISH)<\/productType>/.test(d))
+      P(`    товаров (кроме блюд/модификаторов) с фасовками: ${withCont.length}`)
+      const hasWeight = (d) => [...d.matchAll(/<(?:containerWeight|fullContainerWeight|minContainerWeight|maxContainerWeight)>([^<]*)</g)].some((m) => parseFloat(String(m[1]).replace(',', '.')) > 0)
+      const weightFilled = withCont.filter(hasWeight)
+      P(`    из них с заполненным весом фасовки: ${weightFilled.length}`)
+      P('    примеры карточек с фасовками и весом:')
+      for (const d of weightFilled.slice(0, 6)) P(...cut(d, 1300).split('\n').map((l) => '    | ' + l))
+      const pick = (re) => withCont.filter((d) => re.test(/<name>([^<]*)<\/name>/.exec(d)?.[1] ?? '')).slice(0, 3)
+      for (const [label, re] of [['колбас', /колбас/i], ['сливки', /сливк/i], ['филе', /филе/i], ['пюре', /пюре/i]]) {
+        const hit = pick(re)
+        if (hit.length) { P(`    карточки «${label}» с фасовками:`); for (const d of hit) P(...cut(d, 1100).split('\n').map((l) => '    | ' + l)) }
+      }
+    }
     const pl = await call('Номенклатура v2 (entities/products/list, JSON)', '/resto/api/v2/entities/products/list?includeDeleted=false', { sample: false, ms: 90000 })
     if (Array.isArray(pl.json)) {
       P(`    товаров: ${pl.json.length}`)
