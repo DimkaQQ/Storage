@@ -169,6 +169,13 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
   )), [parsedList, edits, manual])
 
   const products = useMemo(() => productsIn(periodRows), [periodRows])
+  // точки сгруппированы по городам: Астана и Алматы отдельными блоками, в каждом можно выбрать город целиком или любую точку
+  const cityOf = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const r of restaurants) if (r.city) m.set(r.name, r.city)
+    for (const d of periodRows) for (const r of d.rows) if (r.city && !m.has(r.restaurant)) m.set(r.restaurant, r.city)
+    return m
+  }, [restaurants, periodRows])
   const restaurantNames = useMemo(() => {
     const seen = new Set<string>()
     for (const d of periodRows) for (const r of d.rows) seen.add(r.restaurant)
@@ -201,6 +208,13 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
     }
     return [...list].sort((a, b) => cmp[sort](a, b) || a.product.localeCompare(b.product, 'ru'))
   }, [base, trend, sort, venueLabel])
+  const restaurantOptions = useMemo(() => {
+    const hasCity = restaurantNames.some((n) => cityOf.get(n))
+    const rank = (c?: string) => (c === 'Алматы' ? 0 : c === 'Астана' ? 1 : 2)
+    return restaurantNames
+      .map((n) => ({ key: n, label: venueLabel(n), group: hasCity ? cityOf.get(n) || 'Без города' : undefined }))
+      .sort((a, b) => rank(a.group) - rank(b.group) || (a.group ?? '').localeCompare(b.group ?? '', 'ru') || a.label.localeCompare(b.label, 'ru'))
+  }, [restaurantNames, venueLabel, cityOf])
   // Подробности открываются по ТЕМ ЖЕ позициям, что в таблице (точка + поставщик + фасовка): так цены в таблице и на графике совпадают
   // (раньше подробности склеивали разных поставщиков и фасовки одного товара в одну цену).
   const series = useMemo<Series[]>(() => {
@@ -266,7 +280,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           </label>
           <div className="col-span-2 text-xs font-medium text-fg-400 lg:col-span-1">Рестораны
             <div className="mt-1.5 [&>div]:w-full [&>div>button:first-child]:h-10 [&>div>button:first-child]:w-full [&>div>button:first-child]:rounded-lg">
-              <MultiSelectFilter allLabel="Вся сеть" options={restaurantNames.map((n) => ({ key: n, label: venueLabel(n) }))} selected={scope} onChange={setScope} />
+              <MultiSelectFilter allLabel="Вся сеть" options={restaurantOptions} selected={scope} onChange={setScope} />
             </div>
           </div>
           <DateField label="С" value={from} max={to || undefined} onChange={userFrom} />

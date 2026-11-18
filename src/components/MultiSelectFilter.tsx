@@ -10,6 +10,9 @@ export interface FilterOption {
   // у какого именно поставщика она встретилась) — опционально, не у всех
   // списков есть что уточнять.
   sublabel?: string
+  // Группа (например город): если задана хотя бы у одной опции, список рисуется по группам, у каждой группы заголовок
+  // с общей галочкой — нажатие выбирает/снимает сразу все её пункты.
+  group?: string
 }
 
 /**
@@ -52,9 +55,56 @@ export default function MultiSelectFilter({
     return list.slice(0, 300)
   }, [options, needle])
 
+  const grouped = useMemo(() => filteredOptions.some((o) => o.group), [filteredOptions])
+  const groups = useMemo(() => {
+    const m = new Map<string, FilterOption[]>()
+    for (const o of filteredOptions) { const g = o.group ?? 'Прочее'; const a = m.get(g); a ? a.push(o) : m.set(g, [o]) }
+    return [...m.entries()]
+  }, [filteredOptions])
+  // Все пункты группы без учёта поиска: общая галочка группы всегда про город целиком, а не про то, что осталось после поиска
+  const fullGroups = useMemo(() => {
+    const m = new Map<string, FilterOption[]>()
+    for (const o of options) { const g = o.group ?? 'Прочее'; const a = m.get(g); a ? a.push(o) : m.set(g, [o]) }
+    return m
+  }, [options])
+  const toggleGroup = (items: FilterOption[]) => {
+    const next = new Set(selected)
+    const all = items.every((o) => next.has(o.key))
+    for (const o of items) all ? next.delete(o.key) : next.add(o.key)
+    onChange(next)
+  }
+  const optionRow = (o: FilterOption, indent = false) => {
+    const on = selected.has(o.key)
+    return (
+      <button
+        key={o.key}
+        onClick={() => toggle(o.key)}
+        className={`flex w-full items-start gap-2 py-1.5 text-left hover:bg-ink-800 ${indent ? 'pl-8 pr-3' : 'px-3'} ${on ? 'text-fg-50' : 'text-fg-300'}`}
+      >
+        <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${on ? 'border-brand-400 bg-brand-500/20' : 'border-ink-600'}`}>
+          {on && <ICheck className="text-brand-300" width={11} height={11} />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm">{o.label}</span>
+          {o.sublabel && <span className="block truncate text-[11px] text-fg-500">{o.sublabel}</span>}
+        </span>
+      </button>
+    )
+  }
+
   const singleSelected = selected.size === 1 ? options.find((o) => o.key === [...selected][0]) : undefined
+  // выбран ровно один город целиком — пишем его название, а не «Выбрано: N»
+  const wholeGroup = useMemo(() => {
+    if (!selected.size) return null
+    const m = new Map<string, string[]>()
+    for (const o of options) if (o.group) m.set(o.group, [...(m.get(o.group) ?? []), o.key])
+    if (m.size < 2) return null
+    for (const [g, keys] of m) if (keys.length > 1 && keys.length === selected.size && keys.every((k) => selected.has(k))) return `${g} (${keys.length})`
+    return null
+  }, [options, selected])
   const buttonLabel =
     selected.size === 0 ? allLabel :
+    wholeGroup ? wholeGroup :
     singleSelected ? (singleSelected.sublabel ? `${singleSelected.label} — ${singleSelected.sublabel}` : singleSelected.label) :
     `Выбрано: ${selected.size}`
 
@@ -93,24 +143,23 @@ export default function MultiSelectFilter({
           <div className="max-h-72 overflow-y-auto py-1">
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-3 text-xs text-fg-500">Ничего не найдено.</div>
-            ) : filteredOptions.map((o) => {
-              const on = selected.has(o.key)
+            ) : grouped ? groups.map(([g, items]) => {
+              const full = fullGroups.get(g) ?? items
+              const n = full.filter((o) => selected.has(o.key)).length
+              const all = n === full.length
               return (
-                <button
-                  key={o.key}
-                  onClick={() => toggle(o.key)}
-                  className={`flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-ink-800 ${on ? 'text-fg-50' : 'text-fg-300'}`}
-                >
-                  <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border ${on ? 'border-brand-400 bg-brand-500/20' : 'border-ink-600'}`}>
-                    {on && <ICheck className="text-brand-300" width={11} height={11} />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{o.label}</span>
-                    {o.sublabel && <span className="block truncate text-[11px] text-fg-500">{o.sublabel}</span>}
-                  </span>
-                </button>
+                <div key={g} className="border-t border-ink-700/60 first:border-t-0">
+                  <button onClick={() => toggleGroup(full)} className="flex w-full items-center gap-2 bg-ink-900/40 px-3 py-2 text-left hover:bg-ink-800">
+                    <span className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${n ? 'border-brand-400 bg-brand-500/20' : 'border-ink-600'}`}>
+                      {all ? <ICheck className="text-brand-300" width={11} height={11} /> : n > 0 ? <span className="h-0.5 w-2 rounded bg-brand-300" /> : null}
+                    </span>
+                    <span className="flex-1 truncate text-sm font-medium text-fg-100">{g}</span>
+                    <span className="text-[11px] text-fg-500">{n ? `${n} из ${full.length}` : `${full.length}`}</span>
+                  </button>
+                  {items.map((o) => optionRow(o, true))}
+                </div>
               )
-            })}
+            }) : filteredOptions.map((o) => optionRow(o))}
           </div>
         </div>
       )}
