@@ -19,6 +19,7 @@ import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, slic
 import { composeRange, monthBounds } from './range.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { isValidPeriod, MONTH_RE } from './period.js'
+import { runIikoProbe } from './iikoProbe.js'
 import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
 
 const app = express()
@@ -360,6 +361,30 @@ app.post('/api/test-connection', requireAuth, requireAdmin, async (req, res) => 
   if (req.body?.password === '********') merged.password = s.password
   if (req.body?.apiLogin === '********') merged.apiLogin = s.apiLogin
   res.json(await testConnection(merged))
+})
+
+// «Проверить, что можно тянуть из iiko» — длинная диагностика только на чтение, результат — текстовый отчёт (см. iikoProbe.js).
+// Идёт в фоне (занимает минуты), страница опрашивает GET.
+const probeJobs = {}
+app.post('/api/iiko/probe', requireAuth, requireAdmin, (req, res) => {
+  const orgId = req.auth.orgId
+  const old = probeJobs[orgId]
+  if (old?.running && Date.now() - old.startedAt < 20 * 60 * 1000) return res.json({ ok: true, running: true }) // старше 20 минут считаем зависшей
+  const s = getSettings(orgId)
+  if (s.provider !== 'iikoserver') return res.status(400).json({ ok: false, message: 'Проверка работает только с iikoServer (resto API). Сейчас выбран другой источник данных.' })
+  if (syncing[orgId]) return res.status(409).json({ ok: false, message: 'Сейчас идёт загрузка данных из iiko — подождите её окончания и запустите проверку снова' })
+  const job = { running: true, step: 'Подключаюсь к iiko…', startedAt: Date.now(), text: null, error: null }
+  probeJobs[orgId] = job
+  runIikoProbe(s, (step) => { job.step = step })
+    .then((text) => { job.text = text })
+    .catch((e) => { job.error = String(e.message || e) })
+    .finally(() => { job.running = false })
+  res.json({ ok: true, running: true })
+})
+app.get('/api/iiko/probe', requireAuth, requireAdmin, (req, res) => {
+  const j = probeJobs[req.auth.orgId]
+  if (!j) return res.json({ ok: true, running: false, idle: true })
+  res.json({ ok: true, running: j.running, step: j.step, seconds: Math.round((Date.now() - j.startedAt) / 1000), error: j.error, text: j.running ? null : j.text })
 })
 
 /**

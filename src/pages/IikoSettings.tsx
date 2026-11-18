@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant, plural } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, syncMatrixFromFile, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
+import { startIikoProbe, pollIikoProbe, fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, syncMatrixFromFile, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -68,6 +68,34 @@ export default function IikoSettings() {
   const historicalMonth = historicalMonthNum ? `${historicalYear}-${String(historicalMonthNum).padStart(2, '0')}` : ''
   const maxHistoricalMonth = historicalYear === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
   const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  // тестовая проверка «что можно тянуть из iiko»: работает в фоне, по готовности скачивается текстовый файл
+  const [probe, setProbe] = useState<{ running: boolean; step: string; seconds: number; error: string | null; text: string | null }>({ running: false, step: '', seconds: 0, error: null, text: null })
+  const downloadProbe = (text: string) => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/plain;charset=utf-8' }))
+    a.download = `iiko-proverka-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`
+    document.body.appendChild(a); a.click(); a.remove()
+  }
+  const probeAlive = useRef(true)
+  useEffect(() => () => { probeAlive.current = false }, [])
+  const runProbe = async () => {
+    setProbe({ running: true, step: 'Запускаю…', seconds: 0, error: null, text: null })
+    const st = await startIikoProbe()
+    if (!st.ok) { setProbe({ running: false, step: '', seconds: 0, error: st.message ?? 'Не удалось запустить', text: null }); return }
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2500))
+      if (!probeAlive.current) return // ушли со страницы — опрос прекращаем
+      const p = await pollIikoProbe()
+      if (p.ok && p.idle) { setProbe({ running: false, step: '', seconds: 0, error: 'Проверка прервалась (сервер перезапускался). Запустите её ещё раз.', text: null }); return }
+      if (!p.ok) { setProbe({ running: false, step: '', seconds: 0, error: p.message ?? 'Нет ответа сервера', text: null }); return }
+      if (p.running) { setProbe((x) => ({ ...x, step: p.step ?? x.step, seconds: p.seconds ?? x.seconds })); continue }
+      if (p.error) { setProbe({ running: false, step: '', seconds: 0, error: p.error, text: null }); return }
+      const text = p.text ?? ''
+      setProbe({ running: false, step: '', seconds: p.seconds ?? 0, error: null, text })
+      if (text) downloadProbe(text)
+      return
+    }
+  }
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
@@ -449,6 +477,23 @@ export default function IikoSettings() {
           >
             <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Загружаю…' : 'Загрузить'}
           </button>
+        </div>
+
+        <div className="space-y-2 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={runProbe} disabled={probe.running} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+              <ISync width={16} height={16} className={probe.running ? 'animate-spin' : ''} /> {probe.running ? 'Проверяю…' : 'Проверить, что можно тянуть из iiko'}
+            </button>
+            <span className="text-xs text-fg-500">Только чтение. Соберёт справочники, типы OLAP-отчётов и их поля, примеры запросов и накладных в один текстовый файл (занимает несколько минут).</span>
+          </div>
+          {probe.running && <div className="text-xs text-brand-300">{probe.seconds} с · сейчас: {probe.step}</div>}
+          {probe.error && <div className="chip border-bad/30 bg-bad/10 text-bad">{probe.error}</div>}
+          {probe.text && !probe.running && (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-good">
+              <span className="inline-flex items-center gap-1"><ICheck width={13} height={13} /> Готово, файл скачан ({Math.round(probe.text.length / 1024)} КБ, {probe.seconds} с).</span>
+              <button onClick={() => downloadProbe(probe.text!)} className="text-brand-300 hover:underline">Скачать ещё раз</button>
+            </div>
+          )}
         </div>
 
         <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">

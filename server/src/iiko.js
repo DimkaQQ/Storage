@@ -1403,3 +1403,6 @@ function periodRange(period) {
   const to = new Date(y, m, 0) // последний день месяца
   return { from: fmt(from), to: fmt(to) }
 }
+
+// для диагностики «Проверка возможностей iiko» (iikoProbe.js)
+export const iikoProbeKit = { auth: iikoServerAuth, logout: iikoServerLogout, fetchT: withTimeout }

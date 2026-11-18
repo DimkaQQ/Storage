@@ -105,6 +105,14 @@ export async function testConnection(s: Partial<IikoSettings>): Promise<{ ok: bo
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
+/** «Проверить, что можно тянуть из iiko»: запуск (фон) и опрос состояния; по готовности приходит текст отчёта. */
+export async function startIikoProbe(): Promise<{ ok: boolean; message?: string }> {
+  try { const r = await fetch('/api/iiko/probe', { method: 'POST', headers: authHeaders() }); return await r.json() } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+export async function pollIikoProbe(): Promise<{ ok: boolean; running?: boolean; idle?: boolean; step?: string; seconds?: number; error?: string | null; text?: string | null; message?: string }> {
+  try { const r = await fetch('/api/iiko/probe', { headers: authHeaders() }); return await r.json() } catch (e) { return { ok: false, message: backendErr(e) } }
+}
+
 /** «Показать доступные поля отчёта» — вместо гадания по одному полю через "Unknown OLAP field". */
 export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ ok: boolean; columns?: unknown; message?: string }> {
   try {
