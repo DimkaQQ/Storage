@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -124,8 +124,6 @@ export default function IikoSettings() {
   }
   const oneTabInfo = sheetTabs.find((t) => t.tab === oneTab)
   const tabMatchesRestaurant = !!oneRest && !!oneTab && norm(oneTab) === norm(matchRestaurant(edits, oneRest))
-  // «Листы таблицы» = точки матрицы: показаны ВСЕ листы как в таблице; ненужные (служебные) убирают списком исключений
-  const excludedTabs = form?.excludedTabs ?? DEFAULT_EXCLUDED_TABS
   const knownTabs = [
     ...(matching?.allTabsByTarget?.almaty ?? []).map((tab) => ({ tab, city: 'Алматы' })),
     ...(matching?.allTabsByTarget?.astana ?? []).map((tab) => ({ tab, city: 'Астана' })),
