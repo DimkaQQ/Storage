@@ -105,14 +105,6 @@ export async function testConnection(s: Partial<IikoSettings>): Promise<{ ok: bo
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
 
-/** «Проверить, что можно тянуть из iiko»: запуск (фон) и опрос состояния; по готовности приходит текст отчёта. */
-export async function startIikoProbe(): Promise<{ ok: boolean; message?: string }> {
-  try { const r = await fetch('/api/iiko/probe', { method: 'POST', headers: authHeaders() }); return await r.json() } catch (e) { return { ok: false, message: backendErr(e) } }
-}
-export async function pollIikoProbe(): Promise<{ ok: boolean; running?: boolean; idle?: boolean; step?: string; seconds?: number; error?: string | null; text?: string | null; message?: string }> {
-  try { const r = await fetch('/api/iiko/probe', { headers: authHeaders() }); return await r.json() } catch (e) { return { ok: false, message: backendErr(e) } }
-}
-
 /** «Показать доступные поля отчёта» — вместо гадания по одному полю через "Unknown OLAP field". */
 export async function fetchOlapColumns(reportType = 'TRANSACTIONS'): Promise<{ ok: boolean; columns?: unknown; message?: string }> {
   try {
@@ -353,33 +345,6 @@ async function pollMatrixSync(target?: 'almaty' | 'astana'): Promise<SyncResult>
     } catch { /* разовый сбой сети — пробуем дальше */ }
   }
   return { ok: false, message: 'Обновление идёт дольше обычного — подождите минуту и нажмите «Обновить» ещё раз.' }
-}
-/**
- * ВРЕМЕННО, для проверок: «загрузить таблицу из файла». xlsx читается здесь (значения листов, колонки C..L — то же, что отдаёт Google Sheets API),
- * дальше сервер ведёт ровно тот же путь, что при чтении по ссылке (разбор листов, слияние, снимок за период). period — как у syncMatrix.
- */
-export async function syncMatrixFromFile(file: File, target: 'almaty' | 'astana', period?: string): Promise<SyncResult> {
-  try {
-    const XLSX = await import('xlsx')
-    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellFormula: false, cellStyles: false })
-    const values: Record<string, unknown[][]> = {}
-    for (const name of wb.SheetNames) {
-      const ws = wb.Sheets[name]
-      if (!ws || !ws['!ref']) { values[name] = []; continue }
-      const last = XLSX.utils.decode_range(ws['!ref']).e.r
-      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, range: { s: { r: 0, c: 2 }, e: { r: last, c: 11 } }, defval: '', raw: true, blankrows: true })
-      for (const row of rows) while (row.length && (row[row.length - 1] === '' || row[row.length - 1] == null)) row.pop() // как Google: хвост из пустых ячеек не отдаётся
-      while (rows.length && rows[rows.length - 1].length === 0) rows.pop()
-      values[name] = rows
-    }
-    const q = new URLSearchParams({ target, ...(period ? { period } : {}) })
-    const r = await fetch(`/api/matrix/sync-file?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...authHeaders() }, body: JSON.stringify({ titles: wb.SheetNames, values }) })
-    if (r.status === 413) return { ok: false, message: 'Файл слишком большой для сервера (лимит веб-сервера)' }
-    const first = await r.json().catch(() => null)
-    if (!first) return { ok: false, message: `Сервер ответил не так, как ожидалось (HTTP ${r.status})` }
-    if (!first.started) return first
-    return await pollMatrixSync(target)
-  } catch (e) { return { ok: false, message: errMsg(e) } }
 }
 /** period ("YYYY-MM") — зафиксировать цены матрицы ЗА ЭТОТ месяц отдельным снимком (остальные месяцы не трогаются); без period — общая матрица, как раньше. */
 export async function syncMatrix(target?: 'almaty' | 'astana', period?: string, tab?: string): Promise<SyncResult> {

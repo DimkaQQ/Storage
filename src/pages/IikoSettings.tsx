@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { startIikoProbe, pollIikoProbe, fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, syncMatrixFromFile, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -44,9 +44,6 @@ export default function IikoSettings() {
   ] as const
   type SectionId = typeof SECTIONS[number]['id']
   const [restoring, setRestoring] = useState(false)
-  const [fileTarget, setFileTarget] = useState<'almaty' | 'astana'>('almaty')
-  const [fileBusy, setFileBusy] = useState(false)
-  const [fileResult, setFileResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [fullBusy, setFullBusy] = useState<'' | 'restore' | 'wipe'>('')
   const [fullResult, setFullResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [restoreResult, setRestoreResult] = useState<{ ok: boolean; message?: string } | null>(null)
@@ -64,34 +61,6 @@ export default function IikoSettings() {
   const [historicalResult, setHistoricalResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const historicalMonth = historicalMonthNum ? `${historicalYear}-${String(historicalMonthNum).padStart(2, '0')}` : ''
   const maxHistoricalMonth = historicalYear === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
-  // тестовая проверка «что можно тянуть из iiko»: работает в фоне, по готовности скачивается текстовый файл
-  const [probe, setProbe] = useState<{ running: boolean; step: string; seconds: number; error: string | null; text: string | null }>({ running: false, step: '', seconds: 0, error: null, text: null })
-  const downloadProbe = (text: string) => {
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob(['\ufeff' + text], { type: 'text/plain;charset=utf-8' }))
-    a.download = `iiko-proverka-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`
-    document.body.appendChild(a); a.click(); a.remove()
-  }
-  const probeAlive = useRef(true)
-  useEffect(() => () => { probeAlive.current = false }, [])
-  const runProbe = async () => {
-    setProbe({ running: true, step: 'Запускаю…', seconds: 0, error: null, text: null })
-    const st = await startIikoProbe()
-    if (!st.ok) { setProbe({ running: false, step: '', seconds: 0, error: st.message ?? 'Не удалось запустить', text: null }); return }
-    for (;;) {
-      await new Promise((r) => setTimeout(r, 2500))
-      if (!probeAlive.current) return // ушли со страницы — опрос прекращаем
-      const p = await pollIikoProbe()
-      if (p.ok && p.idle) { setProbe({ running: false, step: '', seconds: 0, error: 'Проверка прервалась (сервер перезапускался). Запустите её ещё раз.', text: null }); return }
-      if (!p.ok) { setProbe({ running: false, step: '', seconds: 0, error: p.message ?? 'Нет ответа сервера', text: null }); return }
-      if (p.running) { setProbe((x) => ({ ...x, step: p.step ?? x.step, seconds: p.seconds ?? x.seconds })); continue }
-      if (p.error) { setProbe({ running: false, step: '', seconds: 0, error: p.error, text: null }); return }
-      const text = p.text ?? ''
-      setProbe({ running: false, step: '', seconds: p.seconds ?? 0, error: null, text })
-      if (text) downloadProbe(text)
-      return
-    }
-  }
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
@@ -289,17 +258,6 @@ export default function IikoSettings() {
     setExportResult({ ok: true })
   }
 
-  // ВРЕМЕННО, для проверок: тот же синк, но таблица берётся из загруженного xlsx (без Google). withPeriod — «зафиксировать цены за выбранный период», иначе только названия
-  const syncFromFile = async (file: File | undefined, withPeriod: boolean) => {
-    if (!file) return
-    if (withPeriod && !matrixPeriod) { setFileResult({ ok: false, message: 'Сначала выберите период в блоке «Цены за период» выше' }); return }
-    const cov = withPeriod ? await coveredBy() : []; if (!askCovered(cov)) return
-    setFileBusy(true); setFileResult(null)
-    const r = await syncMatrixFromFile(file, fileTarget, withPeriod ? matrixPeriod : undefined)
-    setFileBusy(false)
-    if (r.ok) { await dropCovered(cov); await refreshMatrix(); loadSnapshots() }
-    setFileResult(r.ok ? { ok: true, message: withPeriod ? `Цены из файла (${fileTarget === 'astana' ? 'Астана' : 'Алматы'}) зафиксированы за ${matrixPeriod}${r.conflicts?.length ? ` · пропущены листы: ${r.conflicts.join(', ')}` : ''}` : `Названия из файла (${fileTarget === 'astana' ? 'Астана' : 'Алматы'}) загружены, цены не менялись` } : { ok: false, message: r.message ?? 'Не удалось загрузить файл' })
-  }
   // Обрыв связи («Load failed» в Safari, «Failed to fetch» в Chrome) при долгом действии: сервер мог успеть выполнить его — результат неизвестен
   const cutOff = (m: string | undefined) => /^(Load failed|Failed to fetch|NetworkError)/i.test(m ?? '')
     ? `Связь с сервером оборвалась (${m}) — результат неизвестен. Обновите страницу и проверьте данные. Большие файлы надёжнее загружать с компьютера.` : null
@@ -370,9 +328,9 @@ export default function IikoSettings() {
       <nav className="flex shrink-0 flex-col gap-0.5 lg:w-56" aria-label="Разделы">
         {SECTIONS.map((x) => (
           <button key={x.id} onClick={() => pickSection(x.id)}
-            className={`flex h-10 items-center justify-between rounded-xl px-3 text-left text-sm ${section === x.id ? 'bg-ink-750 text-fg-50' : 'text-fg-300 hover:bg-ink-800/70 hover:text-fg-100'}`}>
+            className={`flex h-10 items-center justify-between rounded-xl px-3 text-left text-sm ${section === x.id ? 'bg-brand-500 font-medium text-white shadow-sm' : 'text-fg-300 hover:bg-ink-800/70 hover:text-fg-100'}`}>
             <span>{x.label}</span>
-            {x.id === 'venues' ? <span className="rounded-full bg-ink-800 px-2 py-0.5 text-xs text-fg-400">{venues.enabled.length}</span> : x.id === 'backup' ? null : <i className={`h-2 w-2 rounded-full ${dot(x.id)}`} />}
+            {x.id === 'venues' ? <span className={`rounded-full px-2 py-0.5 text-xs ${section === x.id ? 'bg-white/25 text-white' : 'bg-ink-800 text-fg-400'}`}>{venues.enabled.length}</span> : x.id === 'backup' ? null : <i className={`h-2 w-2 rounded-full ${dot(x.id)} ${section === x.id ? 'ring-2 ring-white' : ''}`} />}
           </button>
         ))}
       </nav>
@@ -483,22 +441,6 @@ export default function IikoSettings() {
           </button>
         </div>
 
-        <div className="space-y-2 rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <button onClick={runProbe} disabled={probe.running} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
-              <ISync width={16} height={16} className={probe.running ? 'animate-spin' : ''} /> {probe.running ? 'Проверяю…' : 'Проверить, что можно тянуть из iiko'}
-            </button>
-            <span className="text-xs text-fg-500">Только чтение. Соберёт справочники, типы OLAP-отчётов и их поля, примеры запросов и накладных в один текстовый файл (занимает несколько минут).</span>
-          </div>
-          {probe.running && <div className="text-xs text-brand-300">{probe.seconds} с · сейчас: {probe.step}</div>}
-          {probe.error && <div className="chip border-bad/30 bg-bad/10 text-bad">{probe.error}</div>}
-          {probe.text && !probe.running && (
-            <div className="flex flex-wrap items-center gap-3 text-xs text-good">
-              <span className="inline-flex items-center gap-1"><ICheck width={13} height={13} /> Готово, файл скачан ({Math.round(probe.text.length / 1024)} КБ, {probe.seconds} с).</span>
-              <button onClick={() => downloadProbe(probe.text!)} className="text-brand-300 hover:underline">Скачать ещё раз</button>
-            </div>
-          )}
-        </div>
 
         <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
           <summary className={summary}>Доступ к iiko</summary>
@@ -632,31 +574,6 @@ export default function IikoSettings() {
             )}
         </div>
         </div>
-          </SettingsRow>
-          <SettingsRow title="Таблица из файла (временно)" desc="Только для проверок. Вместо ссылки на Google-таблицу берётся загруженный xlsx; дальше всё работает так же, как при чтении по ссылке.">
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
-                Какая таблица:
-                <button onClick={() => setFileTarget('almaty')} className={`chip ${fileTarget === 'almaty' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Алматы</button>
-                <button onClick={() => setFileTarget('astana')} className={`chip ${fileTarget === 'astana' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Астана</button>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className={`btn cursor-pointer border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 ${fileBusy ? 'pointer-events-none opacity-60' : ''}`}>
-                  <ISync width={16} height={16} className={fileBusy ? 'animate-spin' : ''} /> {fileBusy ? 'Читаю файл…' : 'Синхронизировать из файла'}
-                  <input type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { syncFromFile(e.target.files?.[0], false); e.target.value = '' }} />
-                </label>
-                <label className={`btn cursor-pointer bg-brand-500 text-white hover:bg-brand-600 ${fileBusy ? 'pointer-events-none opacity-60' : ''}`}>
-                  <ISync width={16} height={16} className={fileBusy ? 'animate-spin' : ''} /> Зафиксировать цены из файла
-                  <input type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { syncFromFile(e.target.files?.[0], true); e.target.value = '' }} />
-                </label>
-              </div>
-              <div className="text-[12px] text-fg-500">Первая кнопка — только названия (как «Обновить» в Справочниках). Вторая — как «Зафиксировать цены» за период, выбранный в блоке «Цены за период» выше{matrixPeriod ? ` (сейчас: ${matrixPeriod})` : ''}.</div>
-              {fileResult && (
-                <span className={`chip ${fileResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
-                  {fileResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{fileResult.message}
-                </span>
-              )}
-            </div>
           </SettingsRow>
           <SettingsRow title="Доступ к таблицам" desc="ID таблиц и ключ сервисного аккаунта.">
         <details>
@@ -854,7 +771,7 @@ function SettingsRow({ title, desc, children }: { title: string; desc?: string; 
         <h3 className="text-[15px] font-semibold text-fg-50">{title}</h3>
         {desc && <p className="mt-1 text-[13px] leading-snug text-fg-500">{desc}</p>}
       </div>
-      <div className="min-w-0 space-y-3 rounded-2xl border border-ink-700/60 bg-ink-900/40 p-4">{children}</div>
+      <div className="min-w-0 space-y-3 rounded-2xl border border-ink-600/70 bg-ink-850 p-4">{children}</div>
     </div>
   )
 }

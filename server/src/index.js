@@ -635,7 +635,7 @@ async function matrixSyncHandler(req, res) {
   const settings = getSettings(orgId)
   const astana = req.body?.target === 'astana'
   const googleSheetId = astana ? settings.astanaSheetId : settings.googleSheetId
-  if (!googleSheetId && !req.fileSource) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
+  if (!googleSheetId) return res.status(400).json({ ok: false, message: `Не указан ID таблицы (${astana ? 'Астана' : 'Алматы'})` })
   try {
     const sheetMap = astana ? SHEET_TO_RESTAURANT_ASTANA : SHEET_TO_RESTAURANT
     const rawPeriod = MATRIX_SNAPSHOTS ? req.body?.period : undefined
@@ -665,7 +665,7 @@ async function matrixSyncHandler(req, res) {
       { googleSheetId, googleServiceAccountKey: settings.googleServiceAccountKey },
       sheetMap,
       reserved,
-      { keysV2, excludeTabs, source: req.fileSource ?? null },
+      { keysV2, excludeTabs },
     )
     if (summary.headerWarnings?.length) console.warn(`[matrix] ${target}: на листах не найдены колонки цены/названия (правее L или переименованы): ${summary.headerWarnings.join(', ')}`)
     console.log(`[matrix] ${target}${period ? ' ' + period : ''}: таблица прочитана за ${Math.round((Date.now() - t0) / 1000)} с (листов: ${summary.sheets}, строк матрицы: ${summary.rows}, ячеек получено: ${summary.cells ?? '?'})`)
@@ -761,18 +761,6 @@ function startMatrixJob(req, res) {
 }
 app.post('/api/matrix/sync', requireAuth, requireAdmin, startMatrixJob)
 
-// ВРЕМЕННО, для проверок: «загрузить таблицу из файла». Браузер читает xlsx и присылает значения листов (то же, что вернул бы Google Sheets API:
-// листы и строки C1:L); дальше — ровно тот же путь, что при чтении по ссылке (matrixSyncHandler: разбор, слияние, снимок за период).
-// Тело — JSON {titles, values}, отправленный как octet-stream (общий JSON-парсер ограничен 2 МБ). target/period — в адресной строке.
-app.post('/api/matrix/sync-file', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '200mb' }), (req, res) => {
-  if (process.env.MATRIX_FILE_SYNC === '0') return res.status(403).json({ ok: false, message: 'Загрузка таблицы из файла отключена (MATRIX_FILE_SYNC=0)' })
-  let src
-  try { src = JSON.parse(req.body.toString('utf8')) } catch { return res.status(400).json({ ok: false, message: 'Файл не разобран' }) }
-  if (!src || !Array.isArray(src.titles) || !src.titles.length || !src.values || typeof src.values !== 'object' || Array.isArray(src.values) || Object.values(src.values).some((v) => !Array.isArray(v))) return res.status(400).json({ ok: false, message: 'В файле нет листов' })
-  req.fileSource = { titles: src.titles.map(String), values: src.values }
-  req.body = { target: req.query.target === 'astana' ? 'astana' : 'almaty', ...(typeof req.query.period === 'string' && req.query.period ? { period: req.query.period } : {}) }
-  startMatrixJob(req, res)
-})
 app.get('/api/matrix/sync-status', requireAuth, (req, res) => {
   const j = matrixJobs[`${req.auth.orgId}:${req.query.target === 'astana' ? 'astana' : 'almaty'}`]
   res.json(j ? { running: !!j.running, result: j.result ?? null } : { running: false, result: null })
