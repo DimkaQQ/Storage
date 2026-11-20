@@ -1267,7 +1267,7 @@ export default function DataEditor() {
                                 setVenue(r.name, { matrix: !v || norm(v) === norm(r.name) ? '' : v })
                               }}
                               className={`h-9 w-full rounded-md border bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none disabled:opacity-50 ${value || noTabsYet ? 'border-ink-600' : 'border-warn/60'}`}
-                              title={noTabsYet ? 'Таблица ещё не подключена — вкладки появятся после синхронизации (Обновление → Матрица)' : value ? undefined : 'Эта точка пока не привязана ни к одной вкладке матрицы — закупки будут «Нет в матрице»'}
+                              title={noTabsYet ? 'Таблица ещё не подключена — вкладки появятся после синхронизации (Обновление → Записать матрицу)' : value ? undefined : 'Эта точка пока не привязана ни к одной вкладке матрицы — закупки будут «Нет в матрице»'}
                             >
                               {noTabsYet ? <option value="">Таблица не подключена</option> : !value && <option value="">— выберите вкладку —</option>}
                               {tabOptions(r.city, value).map((n) => <option key={n} value={n}>{realMatching.tabTitles?.[norm(n)] ?? n}</option>)}

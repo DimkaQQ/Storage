@@ -37,7 +37,7 @@ export default function IikoSettings() {
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const SECTIONS = [
     { id: 'iiko', label: 'Данные из iiko' },
-    { id: 'matrix', label: 'Матрица' },
+    { id: 'matrix', label: 'Записать матрицу' },
     { id: 'venues', label: 'Точки сети' },
     { id: 'auto', label: 'Автообновление' },
     { id: 'backup', label: 'Резервная копия' },
@@ -126,13 +126,6 @@ export default function IikoSettings() {
   const tabMatchesRestaurant = !!oneRest && !!oneTab && norm(oneTab) === norm(matchRestaurant(edits, oneRest))
   // «Листы таблицы» = точки матрицы: показаны ВСЕ листы как в таблице; ненужные (служебные) убирают списком исключений
   const excludedTabs = form?.excludedTabs ?? DEFAULT_EXCLUDED_TABS
-  const isTabExcluded = (tab: string) => excludedTabs.some((x) => norm(x) === norm(tab))
-  const toggleTab = async (tab: string) => {
-    if (!form) return
-    const next = isTabExcluded(tab) ? excludedTabs.filter((x) => norm(x) !== norm(tab)) : [...excludedTabs, tab]
-    const r = await saveSettings({ ...form, excludedTabs: next })
-    if (r) { setForm(r); setSaved(true); await refreshMatrix() }
-  }
   const knownTabs = [
     ...(matching?.allTabsByTarget?.almaty ?? []).map((tab) => ({ tab, city: 'Алматы' })),
     ...(matching?.allTabsByTarget?.astana ?? []).map((tab) => ({ tab, city: 'Астана' })),
@@ -141,7 +134,6 @@ export default function IikoSettings() {
   const tabList = (knownTabs.length ? knownTabs : [
     ...(matching?.tabsByTarget?.almaty ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Алматы' })),
     ...(matching?.tabsByTarget?.astana ?? []).map((tab) => ({ tab: realTitle(tab), city: 'Астана' })),
-    ...excludedTabs.map((tab) => ({ tab, city: '' })), // убранные тоже видны — чтобы вернуть
   ]).filter((x, i, arr) => arr.findIndex((y) => norm(y.tab) === norm(x.tab)) === i)
   const doSyncOne = async () => {
     if (!form || !oneTabInfo || !matrixPeriod) return
@@ -469,9 +461,9 @@ export default function IikoSettings() {
       {section === 'matrix' && (<>
       <div>
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-xl font-semibold text-fg-50">Матрица</h2>
+          <h2 className="text-xl font-semibold text-fg-50">Записать матрицу</h2>
         </div>
-        <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: какие листы берём и за какой период фиксируем цены. Названия листов, поставщиков и товаров подтягиваются кнопкой «Обновить» в Справочниках (перед этим сохраните доступы ниже).</p>
+        <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: за какой период фиксируем цены. Названия листов, поставщиков и товаров подтягиваются кнопкой «Обновить» в Справочниках (перед этим сохраните доступы ниже).</p>
         <div className="mt-5">
           <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период: день, неделя, отрезок или один ресторан. Другие периоды не меняются. Новые строки и листы подхватывает «Обновить» в Справочниках.">
         <div className="space-y-4">
@@ -605,27 +597,6 @@ export default function IikoSettings() {
       </>)}
       {section === 'venues' && (<>
       {/* venues */}
-      <Section title="Листы таблицы — точки матрицы" subtitle="Каждый лист таблицы — одна точка, под тем названием, что в таблице. Служебные листы уберите из списка: убранный лист пропадает из программы.">
-        {tabList.length === 0 ? (
-          <div className="text-xs text-fg-500">Листы появятся после «Обновить» в Справочниках.</div>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {tabList.map((x) => {
-                const off = isTabExcluded(x.tab)
-                return (
-                  <button key={x.tab} onClick={() => toggleTab(x.tab)} title={off ? 'Убран. Нажмите, чтобы вернуть (потом «Обновить» в Справочниках)' : 'Берётся. Нажмите, чтобы убрать'}
-                    className={`chip ${off ? 'border-ink-700 bg-ink-900/40 text-fg-600 line-through' : 'border-brand-500/40 bg-brand-500/10 text-fg-100'}`}>
-                    {off ? '✕' : '✓'} {x.tab}{x.city ? ` · ${x.city}` : ''}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="text-[11px] text-fg-500">Вернули лист — нажмите «Обновить» в Справочниках, чтобы он загрузился.</div>
-          </div>
-        )}
-      </Section>
-
       <Section title="Точки сети" subtitle="Точки приходят из iiko вместе с закупками: найдите нужную в списке «Обнаружены в закупках» и нажмите «Добавить». Дальше в Справочниках → Точки выберите для неё вкладку матрицы (матрица читает все вкладки таблицы сама) и, при желании, своё название — после этого закупки и план тянутся по этой вкладке, без правки кода.">
         <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
         <div className="mt-3 flex flex-wrap gap-2">
