@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
-import { norm, matchRestaurant, plural } from '../lib/data'
+import { norm, matchRestaurant } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { startIikoProbe, pollIikoProbe, fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, syncMatrixFromFile, DEFAULT_EXCLUDED_TABS, IikoSettings as Settings } from '../lib/api'
@@ -43,9 +43,6 @@ export default function IikoSettings() {
     { id: 'backup', label: 'Резервная копия' },
   ] as const
   type SectionId = typeof SECTIONS[number]['id']
-  const [namesSyncing, setNamesSyncing] = useState(false)
-  const [namesStep, setNamesStep] = useState('')
-  const [namesResult, setNamesResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [restoring, setRestoring] = useState(false)
   const [fileTarget, setFileTarget] = useState<'almaty' | 'astana'>('almaty')
   const [fileBusy, setFileBusy] = useState(false)
@@ -106,8 +103,8 @@ export default function IikoSettings() {
   const [matrixTo, setMatrixTo] = useState('')
   const [matrixPeriodTouched, setMatrixPeriodTouched] = useState(false)
   useEffect(() => { if (!matrixPeriodTouched && /^\d{4}-\d{2}$/.test(periodKey ?? '')) setMatrixMonth(periodKey) }, [periodKey, matrixPeriodTouched])
-  const matrixPeriod = matrixMode === 'month' ? matrixMonth : (matrixFrom && matrixTo && matrixFrom <= matrixTo ? `${matrixFrom}..${matrixTo}` : '')
   const nextMonth = (() => { const n = new Date(); const d = new Date(n.getFullYear(), n.getMonth() + 1, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
+  const matrixPeriod = matrixMode === 'month' ? (matrixMonth <= nextMonth ? matrixMonth : '') : (matrixFrom && matrixTo && matrixFrom <= matrixTo ? `${matrixFrom}..${matrixTo}` : '')
   const [snapshots, setSnapshots] = useState<{ period: string; periodLabel: string }[]>([])
   const [tabSnapshots, setTabSnapshots] = useState<{ tab: string; period: string; periodLabel: string }[]>([])
   const loadSnapshots = () => { if (!MATRIX_SNAPSHOTS) return; fetchMatrixSnapshots().then((r) => { if (r) { setSnapshots(r.periods); setTabSnapshots(r.tabs ?? []) } }) }
@@ -231,31 +228,6 @@ export default function IikoSettings() {
     setMatrixSyncResult(r)
     if (r.ok) { await refreshMatrix(); loadSnapshots() }
     setMatrixSyncing(false)
-  }
-  // «Синхронизировать матрицу»: прочитать из таблицы листы, поставщиков и товары (новые строки подхватываются) и, если выбран месяц,
-  // зафиксировать цены за него. Другие периоды не меняются; день/неделя/отрезок и один ресторан — ниже («Цены за период»)
-  const doSyncNames = async () => {
-    if (!form) return
-    setNamesSyncing(true); setNamesResult(null)
-    type R = Awaited<ReturnType<typeof syncMatrix>>
-    let a: R = { ok: false }, b: R | null = null
-    try {
-      const r0 = await saveSettings(form)
-      if (r0) { setForm(r0); setSaved(true); reloadStatus() }
-      // только названия (листы, поставщики, товары); цены не трогаются — за них отвечает «Цены за период»
-      setNamesStep('Алматы — читаю листы…')
-      a = await syncMatrix(undefined)
-      setNamesStep('Астана — читаю листы…')
-      b = form.astanaSheetId ? await syncMatrix('astana') : null
-      await refreshMatrix()
-    } catch (e) {
-      setNamesResult({ ok: false, message: String((e as Error)?.message || e) }); setNamesSyncing(false); setNamesStep(''); return
-    }
-    setNamesSyncing(false); setNamesStep('')
-    const failed = [!a.ok && a.message && `Алматы: ${a.message}`, b && !b.ok && b.message && `Астана: ${b.message}`].filter(Boolean)
-    loadSnapshots()
-    const skipped = [...(a.conflicts ?? []), ...(b?.conflicts ?? [])]
-    setNamesResult(failed.length ? { ok: false, message: failed.join('; ') } : { ok: true, message: 'Матрица синхронизирована (названия; цены не менялись)' + (skipped.length ? ` · пропущены листы с занятым названием: ${skipped.join(', ')} — переименуйте в таблице` : '') })
   }
   const doSyncAstana = async () => {
     if (!form) return
@@ -525,72 +497,31 @@ export default function IikoSettings() {
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-xl font-semibold text-fg-50">Матрица</h2>
         </div>
-        <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: какие листы берём и за какой период фиксируем цены.</p>
+        <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: какие листы берём и за какой период фиксируем цены. Названия листов, поставщиков и товаров подтягиваются кнопкой «Обновить» в Справочниках (перед этим сохраните доступы ниже).</p>
         <div className="mt-5">
-          <SettingsRow title="Состояние" desc="Сохранены ли доступы и загружены ли данные из таблицы. Это два разных шага.">
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <i className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${hasSheetAccess ? 'bg-good' : 'bg-fg-600'}`} />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-fg-100">Подключение</div>
-                  <div className="text-[13px] text-fg-500">
-                    {hasSheetAccess
-                      ? `Доступы заданы: таблица Алматы${form?.astanaSheetId ? ', таблица Астаны' : ''}. «Сохранить и проверить» (ниже) проверяет, что таблица открывается.`
-                      : 'Доступы не заданы — заполните «Доступ к таблицам» ниже.'}
-                  </div>
-                  {(matrixTestResult || astanaTestResult) && (
-                    <div className="mt-1.5 flex flex-wrap gap-2">
-                      {checkChip(matrixTestResult && { ...matrixTestResult, message: 'Алматы: ' + matrixTestResult.message })}
-                      {checkChip(astanaTestResult && { ...astanaTestResult, message: 'Астана: ' + astanaTestResult.message })}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <i className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${tabList.length > 0 ? 'bg-good' : hasSheetAccess ? 'bg-warn' : 'bg-fg-600'}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-fg-100">Данные из таблицы</div>
-                  <div className="text-[13px] text-fg-500">
-                    {tabList.length > 0
-                      ? `Загружено: ${tabList.length} ${plural(tabList.length, 'лист', 'листа', 'листов')} · Алматы ${(matching?.allTabsByTarget?.almaty ?? matching?.tabsByTarget?.almaty ?? []).length} · Астана ${(matching?.allTabsByTarget?.astana ?? matching?.tabsByTarget?.astana ?? []).length}`
-                      : hasSheetAccess ? 'Ещё не загружены — доступы есть, осталось нажать «Синхронизировать матрицу».' : 'Появятся после подключения и первой загрузки.'}
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <button
-                  onClick={doSyncNames}
-                  disabled={namesSyncing || matrixSyncing || astanaSyncing || !hasSheetAccess}
-                  title={!hasSheetAccess ? 'Сначала заполните доступы к таблицам' : 'Прочитать из таблицы листы, поставщиков и товары. Цены не меняются.'}
-                  className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-                  <ISync width={16} height={16} className={namesSyncing ? 'animate-spin' : ''} /> {namesSyncing ? (namesStep || 'Читаю таблицу…') : 'Синхронизировать матрицу'}
-                </button>
-              </div>
-              {namesResult && (
-                <div>
-                {namesResult && (
-                  <span className={`chip ${namesResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
-                    {namesResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{namesResult.message}
-                  </span>
-                )}
-                </div>
-              )}
-              <div className="text-[12px] text-fg-500">Подхватывает новые листы, поставщиков и товары. Цены не меняются — их фиксируют ниже, в «Цены за период».</div>
-            </div>
-          </SettingsRow>
-          <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период: день, неделя, отрезок или один ресторан. Другие периоды не меняются. Новые строки и листы подхватывает «Синхронизировать матрицу» выше.">
+          <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период: день, неделя, отрезок или один ресторан. Другие периоды не меняются. Новые строки и листы подхватывает «Обновить» в Справочниках.">
         <div className="space-y-4">
         {MATRIX_SNAPSHOTS && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
-              <button onClick={() => setMatrixMode('month')} className={`chip ${matrixMode === 'month' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Месяц</button>
-              <button onClick={() => setMatrixMode('range')} className={`chip ${matrixMode === 'range' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Период</button>
+              <button onClick={() => setMatrixMode('month')} className={`chip ${matrixMode === 'month' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Месяц</button>
+              <button onClick={() => setMatrixMode('range')} className={`chip ${matrixMode === 'range' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Период</button>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
               {matrixMode === 'month' ? (
-                <input type="month" value={matrixMonth} max={nextMonth}
-                  onChange={(e) => { setMatrixMonth(e.target.value); setMatrixPeriodTouched(true) }}
-                  className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+                <>
+                  <select aria-label="Месяц" value={matrixMonth.slice(5, 7)}
+                    onChange={(e) => { setMatrixMonth(`${matrixMonth.slice(0, 4)}-${e.target.value}`); setMatrixPeriodTouched(true) }}
+                    className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
+                    {['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'].map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
+                  </select>
+                  <select aria-label="Год" value={matrixMonth.slice(0, 4)}
+                    onChange={(e) => { setMatrixMonth(`${e.target.value}-${matrixMonth.slice(5, 7)}`); setMatrixPeriodTouched(true) }}
+                    className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
+                    {Array.from({ length: 6 }, (_, i) => Number(nextMonth.slice(0, 4)) - i).concat(Number(matrixMonth.slice(0, 4))).filter((y, i, a) => a.indexOf(y) === i).sort((x, y) => y - x).map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  {matrixMonth > nextMonth && <span className="chip border-bad/30 bg-bad/10 text-bad">Этот месяц ещё не наступил</span>}
+                </>
               ) : (
                 <>
                   с <input type="date" value={matrixFrom} onChange={(e) => setMatrixFrom(e.target.value)}
@@ -603,8 +534,8 @@ export default function IikoSettings() {
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
               Что фиксируем:
-              <button onClick={() => setMatrixScope('all')} className={`chip ${matrixScope === 'all' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Все рестораны</button>
-              <button onClick={() => setMatrixScope('one')} className={`chip ${matrixScope === 'one' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Один ресторан</button>
+              <button onClick={() => setMatrixScope('all')} className={`chip ${matrixScope === 'all' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Все рестораны</button>
+              <button onClick={() => setMatrixScope('one')} className={`chip ${matrixScope === 'one' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Один ресторан</button>
             </div>
             {matrixScope === 'one' && (
               <div className="space-y-2">
@@ -624,7 +555,7 @@ export default function IikoSettings() {
                     </select>
                   </label>
                 </div>
-                {sheetTabs.length === 0 && <div className="text-[11px] text-warn">Список вкладок таблицы пока пуст — один раз нажмите «Синхронизировать матрицу», чтобы он загрузился.</div>}
+                {sheetTabs.length === 0 && <div className="text-[11px] text-warn">Список вкладок таблицы пока пуст — один раз нажмите «Обновить» в Справочниках, чтобы он загрузился.</div>}
                 {oneRest && !oneTab && sheetTabs.length > 0 && <div className="text-[11px] text-warn">У этого ресторана не настроена вкладка таблицы — выберите её в Справочники → Точки → «Вкладка матрицы».</div>}
                 {oneRest && oneTab && !tabMatchesRestaurant && <div className="text-[11px] text-bad">Ресторан «{oneRest}» сверяется с другой вкладкой: «{realTitle(matchRestaurant(edits, oneRest))}». Чтобы цены не попали не туда, выберите её тут или измените вкладку в Справочники → Точки.</div>}
                 <div className="flex flex-wrap items-center gap-3">
@@ -667,7 +598,7 @@ export default function IikoSettings() {
         )}
         <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="w-16 text-sm text-fg-300">Алматы</span>
-          <button onClick={doSyncMatrix} disabled={matrixSyncing || namesSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+          <button onClick={doSyncMatrix} disabled={matrixSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
             <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены'}
           </button>
           {matrixSyncResult && (
@@ -679,7 +610,7 @@ export default function IikoSettings() {
         </div>
         <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="w-16 text-sm text-fg-300">Астана</span>
-          <button onClick={doSyncAstana} disabled={astanaSyncing || namesSyncing || !form?.astanaSheetId || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+          <button onClick={doSyncAstana} disabled={astanaSyncing || !form?.astanaSheetId || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
             <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены'}
           </button>
           {astanaSyncResult && (
@@ -695,8 +626,8 @@ export default function IikoSettings() {
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
                 Какая таблица:
-                <button onClick={() => setFileTarget('almaty')} className={`chip ${fileTarget === 'almaty' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Алматы</button>
-                <button onClick={() => setFileTarget('astana')} className={`chip ${fileTarget === 'astana' ? 'border-brand-500/50 bg-brand-500/10 text-fg-100' : 'border-ink-600 text-fg-400'}`}>Астана</button>
+                <button onClick={() => setFileTarget('almaty')} className={`chip ${fileTarget === 'almaty' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Алматы</button>
+                <button onClick={() => setFileTarget('astana')} className={`chip ${fileTarget === 'astana' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Астана</button>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <label className={`btn cursor-pointer border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 ${fileBusy ? 'pointer-events-none opacity-60' : ''}`}>
@@ -708,7 +639,7 @@ export default function IikoSettings() {
                   <input type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { syncFromFile(e.target.files?.[0], true); e.target.value = '' }} />
                 </label>
               </div>
-              <div className="text-[12px] text-fg-500">Первая кнопка — как «Синхронизировать матрицу» (только названия). Вторая — как «Зафиксировать цены» за период, выбранный в блоке «Цены за период» выше{matrixPeriod ? ` (сейчас: ${matrixPeriod})` : ''}.</div>
+              <div className="text-[12px] text-fg-500">Первая кнопка — только названия (как «Обновить» в Справочниках). Вторая — как «Зафиксировать цены» за период, выбранный в блоке «Цены за период» выше{matrixPeriod ? ` (сейчас: ${matrixPeriod})` : ''}.</div>
               {fileResult && (
                 <span className={`chip ${fileResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
                   {fileResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{fileResult.message}
@@ -748,21 +679,21 @@ export default function IikoSettings() {
       {/* venues */}
       <Section title="Листы таблицы — точки матрицы" subtitle="Каждый лист таблицы — одна точка, под тем названием, что в таблице. Служебные листы уберите из списка: убранный лист пропадает из программы.">
         {tabList.length === 0 ? (
-          <div className="text-xs text-fg-500">Листы появятся после «Синхронизировать матрицу» (Матрица → Состояние).</div>
+          <div className="text-xs text-fg-500">Листы появятся после «Обновить» в Справочниках.</div>
         ) : (
           <div className="space-y-2">
             <div className="flex flex-wrap gap-1.5">
               {tabList.map((x) => {
                 const off = isTabExcluded(x.tab)
                 return (
-                  <button key={x.tab} onClick={() => toggleTab(x.tab)} title={off ? 'Убран. Нажмите, чтобы вернуть (потом «Синхронизировать матрицу»)' : 'Берётся. Нажмите, чтобы убрать'}
+                  <button key={x.tab} onClick={() => toggleTab(x.tab)} title={off ? 'Убран. Нажмите, чтобы вернуть (потом «Обновить» в Справочниках)' : 'Берётся. Нажмите, чтобы убрать'}
                     className={`chip ${off ? 'border-ink-700 bg-ink-900/40 text-fg-600 line-through' : 'border-brand-500/40 bg-brand-500/10 text-fg-100'}`}>
                     {off ? '✕' : '✓'} {x.tab}{x.city ? ` · ${x.city}` : ''}
                   </button>
                 )
               })}
             </div>
-            <div className="text-[11px] text-fg-500">Вернули лист — нажмите «Синхронизировать матрицу», чтобы он загрузился.</div>
+            <div className="text-[11px] text-fg-500">Вернули лист — нажмите «Обновить» в Справочниках, чтобы он загрузился.</div>
           </div>
         )}
       </Section>

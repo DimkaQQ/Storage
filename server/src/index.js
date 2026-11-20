@@ -709,7 +709,7 @@ async function matrixSyncHandler(req, res) {
       saveMatrixTabSnapshot(orgId, hit, period, slice)
       return res.json({ ok: true, target, period, tab: hit, rows: Object.keys(slice.planPairs).length, conflicts: summary.conflicts ?? [] })
     }
-    // Без периода («Синхронизировать матрицу») — только названия: цены уже известных строк остаются прежними, новые строки приходят без цены.
+    // Без периода («Обновить» в Справочниках) — только названия: цены уже известных строк остаются прежними, новые строки приходят без цены.
     // Цены меняет только фиксация за период.
     if (!period && prev) matching = keepExistingPrices(matching, prev) // первая синхронизация (матрицы ещё нет) — цены берутся как есть
     const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...ownTabs])
