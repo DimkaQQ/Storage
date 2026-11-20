@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { norm, matchRestaurant } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreConnectionFromBackup, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
 
@@ -43,10 +43,8 @@ export default function IikoSettings() {
     { id: 'backup', label: 'Резервная копия' },
   ] as const
   type SectionId = typeof SECTIONS[number]['id']
-  const [restoring, setRestoring] = useState(false)
   const [fullBusy, setFullBusy] = useState<'' | 'restore' | 'wipe'>('')
   const [fullResult, setFullResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [restoreResult, setRestoreResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [section, setSection] = useState<SectionId>(() => { try { const v = localStorage.getItem('settingsSection'); return SECTIONS.some((x) => x.id === v) ? (v as SectionId) : 'iiko' } catch { return 'iiko' } })
   const pickSection = (id: SectionId) => { setSection(id); try { localStorage.setItem('settingsSection', id) } catch { /* без запоминания */ } }
   const [form, setForm] = useState<Settings | null>(null)
@@ -254,12 +252,12 @@ export default function IikoSettings() {
   // «Восстановить всё из копии»: данные, матрицы, снимки, точки, настройки, правки и привязки из restore.tar
   const restoreEverything = async (file: File | undefined) => {
     if (!file) return
-    if (!window.confirm('Восстановить все данные из этой копии? Текущие данные, точки и привязки будут заменены теми, что в файле. Доступы к iiko и Google, если они уже введены, останутся.')) return
+    if (!window.confirm('Восстановить ВСЁ из этой копии? Закупки, матрицы и цены, точки, настройки, связи и заметки будут заменены теми, что в файле. Доступы к iiko и Google-таблице тоже вернутся из копии (если они в ней есть). Пользователи из копии добавятся, нынешние пользователи и пароли останутся.')) return
     setFullBusy('restore'); setFullResult(null)
     const r = await restoreAllFromBackup(file)
     setFullBusy('')
     if (!r.ok) { setFullResult({ ok: false, message: cutOff(r.message) ?? `Восстановление из копии не удалось: ${r.message ?? 'неизвестная ошибка'}` }); return }
-    setFullResult({ ok: true, message: `Восстановлено: файлов ${r.files ?? 0}, периодов ${r.periods ?? 0}${r.edits ? ', привязки и правки' : ''}. Страница перезагрузится.` })
+    setFullResult({ ok: true, message: `Восстановлено: файлов ${r.files ?? 0}, периодов ${r.periods ?? 0}${r.edits ? ', привязки и правки' : ''}${r.connection ? ', доступы' : ''}${r.users ? `, пользователей добавлено: ${r.users}` : ''}. Страница перезагрузится.` })
     setTimeout(() => window.location.reload(), 1500)
   }
   // «Стереть всё, кроме подключения»: сервер сам сохраняет копию данных у себя (папка _backup-wipe-<время>) и стирает; скачивание файла в браузере
@@ -290,18 +288,6 @@ export default function IikoSettings() {
     )
   }
 
-  const restoreConnection = async (file: File | undefined) => {
-    if (!file) return
-    setRestoring(true); setRestoreResult(null)
-    let r = await restoreConnectionFromBackup(file)
-    if (r.conflict) r = window.confirm(`${r.message} Продолжить?`) ? await restoreConnectionFromBackup(file, true) : { ok: false, message: 'Отменено — доступы не менялись' }
-    setRestoring(false)
-    if (r.ok) {
-      setRestoreResult({ ok: !r.missing?.length, message: `Восстановлено: ${(r.restored ?? []).join(', ')}${r.missing?.length ? ` · не хватает: ${r.missing.join(', ')} — введите вручную` : ''}` })
-      const fresh = await fetchSettings(); if (fresh) setForm(fresh)
-      await reloadStatus()
-    } else setRestoreResult({ ok: false, message: r.message })
-  }
   const hasSheetAccess = !!(form?.googleSheetId && form?.googleServiceAccountKey)
   const dot = (id: string) => (id === 'iiko' ? (status?.lastSync ? 'bg-good' : 'bg-fg-600') : id === 'matrix' ? (tabList.length > 0 ? 'bg-good' : hasSheetAccess ? 'bg-warn' : 'bg-fg-600') : form?.autoEnabled ? 'bg-good' : 'bg-fg-600')
 
@@ -668,7 +654,7 @@ export default function IikoSettings() {
       <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
         <div>
           <div className="text-sm font-semibold text-fg-50">Резервная копия</div>
-          <div className="text-xs text-fg-500">Всё, что есть в программе, одним файлом restore.tar: закупки, матрицы, связи, пользователи и доступы. В файле пароли и ключи — не отправляйте его посторонним.</div>
+          <div className="text-xs text-fg-500">Всё, что есть в программе, одним файлом restore.tar: закупки, матрицы и цены по периодам, точки, настройки, связи и заметки, доступы к iiko и Google, пользователи. Одной кнопкой ниже («Восстановить всё из копии») всё возвращается разом. В файле пароли и ключи — не отправляйте его посторонним.</div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button onClick={() => downloadBackup(true)} disabled={exporting} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
@@ -686,26 +672,9 @@ export default function IikoSettings() {
         </div>
       </div>
       <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
-        <div>
-          <div className="text-sm font-semibold text-fg-50">Вернуть доступы из копии</div>
-          <div className="text-xs text-fg-500">Если доступы к iiko или Google-таблице пропали: выберите ранее скачанный файл restore.tar. Из него возьмутся только доступы (iiko, ID таблиц, ключ); данные и остальные настройки не изменятся.</div>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className={`btn cursor-pointer border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 ${restoring ? 'pointer-events-none opacity-60' : ''}`}>
-            <ISync width={16} height={16} className={restoring ? 'animate-spin' : ''} /> {restoring ? 'Читаю файл…' : 'Выбрать restore.tar'}
-            <input type="file" accept=".tar,.tgz,.gz,application/x-tar" className="hidden" onChange={(e) => { restoreConnection(e.target.files?.[0]); e.target.value = '' }} />
-          </label>
-          {restoreResult && (
-            <span className={`chip ${restoreResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
-              {restoreResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{restoreResult.message}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
         <div className="max-w-xl">
           <div className="text-sm font-semibold text-fg-50">Восстановить всё из копии</div>
-          <div className="text-xs text-fg-500">Выберите ранее скачанный restore.tar: вернутся закупки, матрицы и цены по периодам, точки, настройки, связи и заметки. Уже введённые доступы к iiko и Google останутся. Пользователи и пароли входа не меняются.</div>
+          <div className="text-xs text-fg-500">Выберите ранее скачанный restore.tar — вернётся всё разом: закупки, матрицы и цены по периодам, точки, настройки, связи и заметки, доступы к iiko и Google-таблице, пользователи. Нынешние пользователи и пароли входа не меняются, из копии добавляются только недостающие. Если копия «без паролей», нынешние доступы остаются.</div>
         </div>
         <label className={`btn cursor-pointer border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 ${fullBusy ? 'pointer-events-none opacity-60' : ''}`}>
           <ISync width={16} height={16} className={fullBusy === 'restore' ? 'animate-spin' : ''} /> {fullBusy === 'restore' ? 'Восстанавливаю…' : 'Восстановить всё из копии'}

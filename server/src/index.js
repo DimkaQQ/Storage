@@ -11,6 +11,7 @@ import {
   orgDataDir, wipeOrgKeepConnection, clearOrgFiles, CONNECTION_KEYS,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
   getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData, freezePastMonthsOnce,
+  restoreUsersFromBackup,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { buildDataTar, readTarFiles } from './migration.js'
@@ -306,53 +307,6 @@ app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
   const next = saveSettings(req.auth.orgId, incoming)
   armSchedule(req.auth.orgId)
   res.json(maskSecrets(next))
-})
-
-// Вернуть доступы (iiko, Google-таблицы) из ранее скачанной копии restore.tar: из неё читаются ТОЛЬКО поля подключения из settings.json.
-// Значения никуда не возвращаются (ответ — только названия восстановленных групп), остальные настройки и данные не трогаются.
-const CONNECTION_FIELDS = {
-  iiko: ['provider', 'serverUrl', 'login', 'password', 'apiLogin', 'organizationId'],
-  'Google-таблица': ['googleServiceAccountKey', 'googleSheetId'],
-  'таблица Астаны': ['astanaSheetId'],
-}
-app.post('/api/settings/restore-connection', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '200mb' }), (req, res) => {
-  try {
-    // два способа: браузер сам достал settings.json из tar и прислал маленький JSON ({ candidates: [{ orgId, settings }] }),
-    // либо прислал весь tar (так работает и без разбора в браузере, но упирается в лимит размера запроса веб-сервера)
-    const candidates = new Map()
-    if (req.body && !Buffer.isBuffer(req.body) && Array.isArray(req.body.candidates)) {
-      for (const c of req.body.candidates) if (c && typeof c.orgId === 'string' && c.settings && typeof c.settings === 'object') candidates.set(c.orgId, c.settings)
-    } else {
-      if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ ok: false, message: 'Файл не получен' })
-      const files = readTarFiles(req.body, (n) => /^orgs\/[^/]+\/settings\.json$/.test(n))
-      for (const [name, data] of files) candidates.set(name.split('/')[1], JSON.parse(data.toString('utf8')))
-    }
-    if (!candidates.size) return res.status(400).json({ ok: false, message: 'В файле нет настроек организации — выберите restore.tar, скачанный из этой программы' })
-    // своя организация (по id), иначе единственная в файле
-    const src = candidates.get(req.auth.orgId) ?? (candidates.size === 1 ? [...candidates.values()][0] : null)
-    if (!src) return res.status(400).json({ ok: false, message: 'В копии несколько организаций, и вашей среди них нет' })
-    const ok = (v) => typeof v === 'string' && v.trim() && v !== '********'
-    // группа восстанавливается ЦЕЛИКОМ и только если в копии она полная — иначе получилась бы смесь старого и нового (чужой адрес с прежним паролем)
-    const groups = [
-      { name: 'iiko', fields: CONNECTION_FIELDS.iiko, complete: (ok(src.serverUrl) && ok(src.login) && ok(src.password)) || (ok(src.apiLogin) && ok(src.organizationId)), need: 'пароль iiko', present: ok(src.serverUrl) || ok(src.login) || ok(src.apiLogin) },
-      { name: 'Google-таблица', fields: CONNECTION_FIELDS['Google-таблица'], complete: ok(src.googleServiceAccountKey) && ok(src.googleSheetId), need: 'ключ сервисного аккаунта', present: ok(src.googleSheetId) || ok(src.googleServiceAccountKey) },
-      { name: 'таблица Астаны', fields: CONNECTION_FIELDS['таблица Астаны'], complete: ok(src.astanaSheetId), need: '', present: false },
-    ]
-    const patch = {}, restored = [], missing = []
-    for (const g of groups) {
-      if (g.complete) { for (const f of g.fields) if (ok(src[f])) patch[f] = src[f]; restored.push(g.name) }
-      else if (g.present && g.need) missing.push(g.need)
-    }
-    if (!restored.length) return res.status(400).json({ ok: false, message: 'В этой копии нет полных доступов (скорее всего, это копия «без паролей»). Нужен полный restore.tar' })
-    // уже заданные другие доступы не затираем молча
-    const cur = getSettings(req.auth.orgId)
-    const differs = Object.keys(patch).some((f) => ok(cur[f]) && cur[f] !== patch[f])
-    if (differs && req.query.force !== '1') return res.status(409).json({ ok: false, conflict: true, message: 'У вас уже заданы другие доступы — они будут заменены данными из копии.' })
-    saveSettings(req.auth.orgId, patch)
-    res.json({ ok: true, restored, missing })
-  } catch (e) {
-    res.status(400).json({ ok: false, message: 'Не удалось прочитать файл: ' + String(e.message || e).slice(0, 120) })
-  }
 })
 
 app.post('/api/test-connection', requireAuth, requireAdmin, async (req, res) => {
@@ -872,15 +826,15 @@ app.post('/api/org-data/wipe', requireAuth, requireAdmin, (req, res) => {
   }
 })
 
-// «Восстановить всё из копии»: из restore.tar (полная копия папки данных) возвращаются данные ЭТОЙ организации — закупки, матрицы и снимки,
-// каталог, точки, настройки, правки и привязки. Доступы к iiko/Google берутся из копии, только если в текущих настройках они пусты
-// (то, что вы ввели сейчас, не затирается). Пользователи и пароли входа не трогаются.
+// «Восстановить всё из копии»: из restore.tar (полная копия папки данных) разом возвращается всё для ЭТОЙ организации — закупки, матрицы и
+// снимки, каталог, точки, настройки, правки/привязки, доступы к iiko/Google (группой — только если группа в копии полная, иначе остаётся
+// нынешняя) и пользователи (недостающие добавляются; существующие и их пароли не меняются).
 app.post('/api/org-data/restore', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '600mb' }), (req, res) => {
   const tmp = joinPath(tmpdir(), `pricecheck-restore-${Date.now()}.db`)
   try {
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ ok: false, message: 'Файл не получен' })
     const orgId = req.auth.orgId
-    const files = readTarFiles(req.body, (n) => /^orgs\/[^/]+\/[^/]+$/.test(n) || n === 'edits.db')
+    const files = readTarFiles(req.body, (n) => /^orgs\/[^/]+\/[^/]+$/.test(n) || n === 'edits.db' || n === 'users.json')
     const srcOrgs = new Set([...files.keys()].filter((n) => n.startsWith('orgs/')).map((n) => n.split('/')[1]))
     // копия этой организации (по id), иначе единственная в файле
     const srcOrg = srcOrgs.has(orgId) ? orgId : (srcOrgs.size === 1 ? [...srcOrgs][0] : null)
@@ -900,6 +854,9 @@ app.post('/api/org-data/restore', requireAuth, requireAdmin, express.raw({ type:
       else plan.push({ target: resolvePath(dir, rel), data })
     }
     if (!plan.length && !savedSettings) return res.status(400).json({ ok: false, message: 'В копии нет данных этой организации.' })
+    let backupUsers = null
+    const usersFile = files.get('users.json')
+    if (usersFile) { try { backupUsers = JSON.parse(usersFile.toString('utf8')) } catch { return res.status(400).json({ ok: false, message: 'Список пользователей в копии повреждён — ничего не восстановлено.' }) } }
     let edits = null
     const db = files.get('edits.db')
     if (db) {
@@ -909,21 +866,36 @@ app.post('/api/org-data/restore', requireAuth, requireAdmin, express.raw({ type:
     // 2) заменяем: сначала убираем текущие файлы данных, чтобы не осталось лишнего, потом пишем из копии
     clearOrgFiles(orgId)
     const current = getSettings(orgId)
+    let connection = false
     for (const { target, data } of plan) {
       if (!target.startsWith(dir + sep)) continue
       mkdirSync(dirname(target), { recursive: true })
       writeFileSync(target, data)
     }
     if (savedSettings) {
+      // доступы берутся из копии ГРУППАМИ и только если в копии группа полная (иначе вышла бы смесь чужого адреса с нынешним паролем);
+      // неполная группа (копия «без паролей») — остаётся нынешней целиком
+      const okVal = (x) => typeof x === 'string' && x.trim() && x !== '********'
+      const sv = savedSettings
+      const groups = [
+        { keys: ['provider', 'serverUrl', 'login', 'password', 'apiLogin', 'organizationId'], complete: (okVal(sv.serverUrl) && okVal(sv.login) && okVal(sv.password)) || (okVal(sv.apiLogin) && okVal(sv.organizationId)) },
+        { keys: ['googleServiceAccountKey', 'googleSheetId'], complete: okVal(sv.googleServiceAccountKey) && okVal(sv.googleSheetId) },
+        { keys: ['astanaSheetId'], complete: okVal(sv.astanaSheetId) },
+      ]
       const next = { ...savedSettings }
-      for (const k of CONNECTION_KEYS) if (current[k]) next[k] = current[k] // уже введённые доступы не затираем
+      for (const g of groups) {
+        if (g.complete) connection = true
+        else for (const k of g.keys) { if (current[k] !== undefined) next[k] = current[k]; else delete next[k] }
+      }
       saveSettings(orgId, next)
     }
     if (edits) editsDb.replaceAllEdits(orgId, edits)
+    // пользователи из копии: добавляются недостающие, существующие и пароли входа не трогаются
+    const usersAdded = backupUsers ? restoreUsersFromBackup(orgId, srcOrg, backupUsers) : 0
     const written = plan.length + (savedSettings ? 1 : 0)
     armSchedule(orgId)
     console.log(`[restore] организация ${orgId}: получено ${Math.round(req.body.length / 1048576)} МБ, восстановлено файлов ${written}${edits ? ' и привязки' : ''}`)
-    res.json({ ok: true, files: written, edits: !!edits, periods: listDatasetPeriods(orgId).length })
+    res.json({ ok: true, files: written, edits: !!edits, connection, users: usersAdded, periods: listDatasetPeriods(orgId).length })
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.message || e) })
   } finally {

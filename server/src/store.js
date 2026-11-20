@@ -79,6 +79,24 @@ export function deleteUser(id, requestingOrgId) {
   return true
 }
 
+/**
+ * Из копии (users.json) в организацию добавляются пользователи, которых здесь ещё нет (по id и по почте). Существующие не меняются и не
+ * удаляются — так полное восстановление не может закрыть вход текущему админу. Возвращает, сколько добавлено.
+ */
+export function restoreUsersFromBackup(orgId, srcOrgId, srcUsers) {
+  if (!Array.isArray(srcUsers)) return 0
+  const users = listUsers()
+  let added = 0
+  for (const u of srcUsers) {
+    if (!u || u.orgId !== srcOrgId || typeof u.email !== 'string' || typeof u.passwordHash !== 'string' || !u.passwordHash) continue
+    if (users.some((x) => x.id === u.id || norm(x.email) === norm(u.email))) continue
+    users.push({ id: typeof u.id === 'string' && u.id ? u.id : randomUUID(), email: norm(u.email), passwordHash: u.passwordHash, orgId, role: u.role === 'admin' ? 'admin' : 'employee', createdAt: u.createdAt || new Date().toISOString() })
+    added++
+  }
+  if (added) saveUsers(users)
+  return added
+}
+
 /** Updates a user's password hash in place — keeps the same id, so existing session tokens stay valid. */
 export function updateUserPassword(id, passwordHash) {
   const users = listUsers()
