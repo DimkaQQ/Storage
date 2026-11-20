@@ -64,7 +64,6 @@ export default function IikoSettings() {
   const [historicalResult, setHistoricalResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const historicalMonth = historicalMonthNum ? `${historicalYear}-${String(historicalMonthNum).padStart(2, '0')}` : ''
   const maxHistoricalMonth = historicalYear === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
-  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   // тестовая проверка «что можно тянуть из iiko»: работает в фоне, по готовности скачивается текстовый файл
   const [probe, setProbe] = useState<{ running: boolean; step: string; seconds: number; error: string | null; text: string | null }>({ running: false, step: '', seconds: 0, error: null, text: null })
   const downloadProbe = (text: string) => {
@@ -97,17 +96,46 @@ export default function IikoSettings() {
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
   // Период, ЗА КОТОРЫЙ фиксируем цены матрицы (снимок): месяц или отрезок «с … по …» (день, неделя, любой отрезок)
-  const [matrixMode, setMatrixMode] = useState<'month' | 'range'>('month')
-  const [matrixMonth, setMatrixMonth] = useState(iso(nowDate).slice(0, 7))
   const [matrixFrom, setMatrixFrom] = useState('')
   const [matrixTo, setMatrixTo] = useState('')
   const [matrixPeriodTouched, setMatrixPeriodTouched] = useState(false)
-  useEffect(() => { if (!matrixPeriodTouched && /^\d{4}-\d{2}$/.test(periodKey ?? '')) setMatrixMonth(periodKey) }, [periodKey, matrixPeriodTouched])
-  const nextMonth = (() => { const n = new Date(); const d = new Date(n.getFullYear(), n.getMonth() + 1, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
-  const matrixPeriod = matrixMode === 'month' ? (matrixMonth <= nextMonth ? matrixMonth : '') : (matrixFrom && matrixTo && matrixFrom <= matrixTo ? `${matrixFrom}..${matrixTo}` : '')
+  // пока даты не трогали — подставляем весь выбранный в шапке месяц (первое и последнее число)
+  useEffect(() => {
+    if (matrixPeriodTouched) return
+    const r = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(periodKey ?? '')
+    if (r) { setMatrixFrom(r[1]); setMatrixTo(r[2]); return }
+    const m = /^\d{4}-\d{2}$/.test(periodKey ?? '') ? periodKey : new Date().toISOString().slice(0, 7)
+    const last = new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate()
+    setMatrixFrom(`${m}-01`); setMatrixTo(`${m}-${String(last).padStart(2, '0')}`)
+  }, [periodKey, matrixPeriodTouched])
+  const spanDays = matrixFrom && matrixTo ? Math.round((Date.parse(matrixTo) - Date.parse(matrixFrom)) / 86400000) : 0
+  const matrixPeriod = matrixFrom && matrixTo && matrixFrom <= matrixTo && spanDays <= 92 ? `${matrixFrom}..${matrixTo}` : ''
   const [snapshots, setSnapshots] = useState<{ period: string; periodLabel: string }[]>([])
   const [tabSnapshots, setTabSnapshots] = useState<{ tab: string; period: string; periodLabel: string }[]>([])
   const loadSnapshots = () => { if (!MATRIX_SNAPSHOTS) return; fetchMatrixSnapshots().then((r) => { if (r) { setSnapshots(r.periods); setTabSnapshots(r.tabs ?? []) } }) }
+  // Границы периода-ключа («ГГГГ-ММ» — старые месячные снимки, или «с..по»)
+  const boundsOf = (p: string) => {
+    if (/^\d{4}-\d{2}$/.test(p)) { const last = new Date(Number(p.slice(0, 4)), Number(p.slice(5, 7)), 0).getDate(); return { a: `${p}-01`, b: `${p}-${String(last).padStart(2, '0')}` } }
+    const [a, b] = p.split('..'); return { a, b }
+  }
+  // Ранее зафиксированные периоды, которые целиком входят в новый (кроме точно такого же — он просто обновится)
+  const coveredBy = async (tab?: string) => {
+    if (!matrixPeriod) return []
+    const fresh = await fetchMatrixSnapshots() // свежий список: его мог изменить другой админ
+    const snapshots = fresh?.periods ?? [], tabSnapshots = fresh?.tabs ?? []
+    const n = boundsOf(matrixPeriod)
+    const inside = (p: string) => { if (p === matrixPeriod) return false; const x = boundsOf(p); return x.a >= n.a && x.b <= n.b }
+    const out: { period: string; label: string; tab?: string }[] = []
+    if (!tab) for (const x of snapshots) if (inside(x.period)) out.push({ period: x.period, label: x.periodLabel })
+    for (const x of tabSnapshots) if (inside(x.period) && (!tab || norm(x.tab) === norm(tab))) out.push({ period: x.period, label: `${x.periodLabel} (${x.tab})`, tab: x.tab })
+    return out
+  }
+  // Предупреждение ДО сохранения: «да» — прежние внутренние периоды удалятся после успешного сохранения, «нет» — ничего не делаем
+  const askCovered = (list: { label: string }[]) =>
+    !list.length || window.confirm(`Уже зафиксированы цены за периоды, которые входят в выбранный (${matrixPeriod.replace('..', ' – ')}):\n\n${list.map((x) => '• ' + x.label).join('\n')}\n\nУдалить их и сохранить новый период? Цены этих периодов пропадут (и для Алматы, и для Астаны). «Отмена» — ничего не сохраняется.`)
+  const dropCovered = async (list: { period: string; tab?: string }[]) => {
+    for (const x of list) if (!(await deleteMatrixSnapshot(x.period, x.tab))) window.alert(`Новые цены сохранены, но прежний период «${x.period}» удалить не удалось — удалите его вручную (×) в списке «Уже зафиксированные даты», иначе он может перекрывать новый.`)
+  }
   // «Один ресторан»: наш ресторан + вкладка таблицы, по которой он сверяется (Справочники → Точки → «Вкладка матрицы»)
   const [matrixScope, setMatrixScope] = useState<'all' | 'one'>('all')
   const [oneRest, setOneRest] = useState('')
@@ -148,12 +176,13 @@ export default function IikoSettings() {
   ]).filter((x, i, arr) => arr.findIndex((y) => norm(y.tab) === norm(x.tab)) === i)
   const doSyncOne = async () => {
     if (!form || !oneTabInfo || !matrixPeriod) return
+    const cov = await coveredBy(oneTab); if (!askCovered(cov)) return
     setOneSyncing(true); setOneResult(null)
     const r0 = await saveSettings(form)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix(oneTabInfo.target, matrixPeriod, oneTab)
     setOneResult(r.ok ? { ok: true, message: `Цены «${oneRest}» зафиксированы за выбранный период (${r.rows ?? 0} позиций)` } : r)
-    if (r.ok) { await refreshMatrix(); loadSnapshots() }
+    if (r.ok) { await dropCovered(cov); await refreshMatrix(); loadSnapshots() }
     setOneSyncing(false)
   }
   useEffect(() => { if (MATRIX_SNAPSHOTS) loadSnapshots() }, [])
@@ -220,23 +249,25 @@ export default function IikoSettings() {
   }
   const doSyncMatrix = async () => {
     if (!form) return
+    const cov = MATRIX_SNAPSHOTS ? await coveredBy() : []; if (!askCovered(cov)) return
     setMatrixSyncing(true); setMatrixSyncResult(null)
     // Сохраняем перед синком: иначе синк ушёл бы со старым ID/ключом, а не с только что вписанным
     const r0 = await saveSettings(form)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix(undefined, MATRIX_SNAPSHOTS ? matrixPeriod || undefined : undefined)
     setMatrixSyncResult(r)
-    if (r.ok) { await refreshMatrix(); loadSnapshots() }
+    if (r.ok) { await dropCovered(cov); await refreshMatrix(); loadSnapshots() }
     setMatrixSyncing(false)
   }
   const doSyncAstana = async () => {
     if (!form) return
+    const cov = MATRIX_SNAPSHOTS ? await coveredBy() : []; if (!askCovered(cov)) return
     setAstanaSyncing(true); setAstanaSyncResult(null)
     const r0 = await saveSettings(form)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix('astana', MATRIX_SNAPSHOTS ? matrixPeriod || undefined : undefined)
     setAstanaSyncResult(r)
-    if (r.ok) { await refreshMatrix(); loadSnapshots() }
+    if (r.ok) { await dropCovered(cov); await refreshMatrix(); loadSnapshots() }
     setAstanaSyncing(false)
   }
 
@@ -262,10 +293,11 @@ export default function IikoSettings() {
   const syncFromFile = async (file: File | undefined, withPeriod: boolean) => {
     if (!file) return
     if (withPeriod && !matrixPeriod) { setFileResult({ ok: false, message: 'Сначала выберите период в блоке «Цены за период» выше' }); return }
+    const cov = withPeriod ? await coveredBy() : []; if (!askCovered(cov)) return
     setFileBusy(true); setFileResult(null)
     const r = await syncMatrixFromFile(file, fileTarget, withPeriod ? matrixPeriod : undefined)
     setFileBusy(false)
-    if (r.ok) { await refreshMatrix(); loadSnapshots() }
+    if (r.ok) { await dropCovered(cov); await refreshMatrix(); loadSnapshots() }
     setFileResult(r.ok ? { ok: true, message: withPeriod ? `Цены из файла (${fileTarget === 'astana' ? 'Астана' : 'Алматы'}) зафиксированы за ${matrixPeriod}${r.conflicts?.length ? ` · пропущены листы: ${r.conflicts.join(', ')}` : ''}` : `Названия из файла (${fileTarget === 'astana' ? 'Астана' : 'Алматы'}) загружены, цены не менялись` } : { ok: false, message: r.message ?? 'Не удалось загрузить файл' })
   }
   // Обрыв связи («Load failed» в Safari, «Failed to fetch» в Chrome) при долгом действии: сервер мог успеть выполнить его — результат неизвестен
@@ -504,33 +536,12 @@ export default function IikoSettings() {
         {MATRIX_SNAPSHOTS && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
-              <button onClick={() => setMatrixMode('month')} className={`chip ${matrixMode === 'month' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Месяц</button>
-              <button onClick={() => setMatrixMode('range')} className={`chip ${matrixMode === 'range' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Период</button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
-              {matrixMode === 'month' ? (
-                <>
-                  <select aria-label="Месяц" value={matrixMonth.slice(5, 7)}
-                    onChange={(e) => { setMatrixMonth(`${matrixMonth.slice(0, 4)}-${e.target.value}`); setMatrixPeriodTouched(true) }}
-                    className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
-                    {['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'].map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
-                  </select>
-                  <select aria-label="Год" value={matrixMonth.slice(0, 4)}
-                    onChange={(e) => { setMatrixMonth(`${e.target.value}-${matrixMonth.slice(5, 7)}`); setMatrixPeriodTouched(true) }}
-                    className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none">
-                    {Array.from({ length: 6 }, (_, i) => Number(nextMonth.slice(0, 4)) - i).concat(Number(matrixMonth.slice(0, 4))).filter((y, i, a) => a.indexOf(y) === i).sort((x, y) => y - x).map((y) => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                  {matrixMonth > nextMonth && <span className="chip border-bad/30 bg-bad/10 text-bad">Этот месяц ещё не наступил</span>}
-                </>
-              ) : (
-                <>
-                  с <input type="date" value={matrixFrom} onChange={(e) => setMatrixFrom(e.target.value)}
-                    className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-                  по <input type="date" value={matrixTo} onChange={(e) => setMatrixTo(e.target.value)}
-                    className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-                  {matrixFrom && matrixTo && matrixFrom > matrixTo && <span className="chip border-bad/30 bg-bad/10 text-bad">Дата «с» позже даты «по»</span>}
-                </>
-              )}
+              с <input type="date" value={matrixFrom} onChange={(e) => { setMatrixFrom(e.target.value); setMatrixPeriodTouched(true) }}
+                className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+              по <input type="date" value={matrixTo} onChange={(e) => { setMatrixTo(e.target.value); setMatrixPeriodTouched(true) }}
+                className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
+              {matrixFrom && matrixTo && matrixFrom > matrixTo && <span className="chip border-bad/30 bg-bad/10 text-bad">Дата «с» позже даты «по»</span>}
+              {spanDays > 92 && <span className="chip border-bad/30 bg-bad/10 text-bad">Не больше 3 месяцев (92 дня)</span>}
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
               Что фиксируем:
