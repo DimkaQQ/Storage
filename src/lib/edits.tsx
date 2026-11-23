@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { MATRIX_SNAPSHOTS } from './features'
 import { BUNDLED, BUNDLED_PERIODS, bundledDataset, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, EMPTY_MATCHING, computeRows, parseDataset, applyVenueOverrides, setRestaurantScope } from './data'
-import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
+import { syncMatrix, fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 
@@ -218,6 +218,9 @@ interface Ctx {
   syncing: boolean
   refresh: () => Promise<void>
   syncHistoricalPeriod: (period: string) => Promise<{ ok: boolean; message?: string }>
+  // «Обновить» в Проверке цен: закупки из iiko за открытый период + матрица (листы, поставщики, товары; цены не меняются) + пересчёт
+  updateAll: () => Promise<{ ok: boolean; message: string }>
+  updateStep: string
   reloadStatus: () => Promise<void>
   // точки сети — какие сейчас включены/показаны, и какие видны в закупках,
   // но пока не включены (Настройки iiko → «Точки сети»)
@@ -581,6 +584,55 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     } finally { setSyncing(false) }
   }, [loadPeriods, loadVenues, pollUntilSyncDone, reloadStatus, setPeriod])
 
+  // «Обновить» одной кнопкой: закупки из iiko за месяц(ы) открытого периода → матрица (только названия, цены не трогаются) → пересчёт экрана.
+  // Ошибка одного шага не останавливает остальные — в итоге перечисляется, что не получилось.
+  const [updateStep, setUpdateStep] = useState('')
+  const updateAll = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+    setSyncing(true)
+    const key = periodKeyRef.current
+    const problems: string[] = []
+    let matrixRead = false
+    try {
+      let months: string[] = []
+      const range = /^(\d{4})-(\d{2})-\d{2}\.\.(\d{4})-(\d{2})-\d{2}$/.exec(key)
+      if (/^\d{4}-\d{2}$/.test(key)) months = [key]
+      else if (range) {
+        let y = Number(range[1]), m = Number(range[2])
+        while ((y < Number(range[3]) || (y === Number(range[3]) && m <= Number(range[4]))) && months.length < 4) {
+          months.push(`${y}-${String(m).padStart(2, '0')}`)
+          if (++m > 12) { m = 1; y++ }
+        }
+      }
+      if (!months.length) problems.push('закупки: этот период нельзя загрузить из iiko (выберите месяц или даты)')
+      if (range && months.length >= 4 && (Number(range[3]) * 12 + Number(range[4])) - (Number(range[1]) * 12 + Number(range[2])) >= 4) problems.push('обновлены только первые 4 месяца периода')
+      let stopped = false
+      for (const m of months) {
+        if (stopped) break
+        setUpdateStep(`Закупки из iiko за ${m}…`)
+        const started = await triggerSync(m)
+        if (!started.ok) { problems.push(`закупки ${m}: ${started.message ?? 'не удалось запустить'}`); continue }
+        const final = await pollUntilSyncDone()
+        if (final === null) { problems.push(`закупки ${m}: загрузка идёт дольше обычного — она продолжается на сервере, обновите страницу позже`); stopped = true }
+        else if (final.lastResult !== 'ok') problems.push(`закупки ${m}: ${final.message ?? 'ошибка загрузки'}`)
+      }
+      // города по очереди (защита от одинаковых названий вкладок сверяет города по уже сохранённой матрице)
+      if (stopped) throw new Error('остановлено: загрузка закупок ещё идёт')
+      setUpdateStep('Читаю матрицу…')
+      const almaty = await syncMatrix('almaty')
+      const astana = await syncMatrix('astana')
+      const noSheet = (r: { ok: boolean; message?: string }) => !r.ok && /ID таблицы/.test(r.message ?? '')
+      matrixRead = (almaty.ok) || (astana.ok)
+      if (!almaty.ok && !noSheet(almaty)) problems.push(`матрица Алматы: ${almaty.message ?? 'ошибка'}`)
+      if (!astana.ok && !noSheet(astana)) problems.push(`матрица Астана: ${astana.message ?? 'ошибка'}`)
+      setUpdateStep('Пересчитываю…')
+      await loadVenues(); await loadPeriods(); await loadData(periodKeyRef.current)
+      await loadMatching(periodKeyRef.current)
+    } catch (e) {
+      problems.push(String((e as Error)?.message || e))
+    } finally { setSyncing(false); setUpdateStep('') }
+    return problems.length ? { ok: false, message: 'Обновлено не полностью: ' + problems.join('; ') } : { ok: true, message: matrixRead ? 'Обновлено: закупки и матрица' : 'Обновлено: закупки (таблица с матрицей не подключена)' }
+  }, [loadData, loadMatching, loadPeriods, loadVenues, pollUntilSyncDone])
+
   // Матрица версионирована по периодам так же, как факты — цены реально
   // отличаются месяц к месяцу, так что план всегда должен браться из
   // матрицы ТОГО ЖЕ периода, что и просматриваемые факты. backendMatching
@@ -815,7 +867,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
-    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, reloadStatus,
+    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, updateAll, updateStep, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,

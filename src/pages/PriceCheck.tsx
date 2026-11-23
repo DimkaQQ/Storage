@@ -2,11 +2,12 @@ import { Fragment, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo,
 import { createPortal } from 'react-dom'
 import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, signedMoney, pct, fmt, summarize, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
+import { useAuth } from '../lib/auth'
 import { useClickOutside } from '../lib/hooks'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
 import MultiSelectFilter, { FilterOption } from '../components/MultiSelectFilter'
-import { ISearch, ISort, IDownload, IArrowUp, IArrowDown, IEdit, IClose, ICheck, IChevron } from '../components/icons'
+import { ISearch, ISort, ISync, IDownload, IArrowUp, IArrowDown, IEdit, IClose, ICheck, IChevron } from '../components/icons'
 
 type SortKey = 'product' | 'restaurant' | 'supplier' | 'plan' | 'sum' | 'diff'
 
@@ -59,7 +60,12 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows }: { rows: Row[] }) {
-  const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel } = useEdits()
+  const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel, updateAll, updateStep, syncing } = useEdits()
+  const isAdmin = useAuth().user?.role === 'admin'
+  const [updMsg, setUpdMsg] = useState<{ ok: boolean; message: string } | null>(null)
+  const updBusy = useRef(false)
+  const runUpdate = async () => { if (updBusy.current) return; updBusy.current = true; setUpdMsg(null); try { setUpdMsg(await updateAll()) } finally { updBusy.current = false } }
+  useEffect(() => { setUpdMsg(null) }, [period])
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   // «С заметкой» — строки, где уже есть свой комментарий или цветовая
@@ -411,10 +417,21 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
             {moneyMode ? 'Общ. сумма закупки' : 'тенге за 1кг'}
           </button>
+          {isAdmin && (
+            <button onClick={runUpdate} disabled={syncing} title="Загрузить закупки из iiko за этот период и прочитать матрицу (листы, поставщики, товары). Цены матрицы не меняются."
+              className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+              <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? (updateStep || 'Обновляю…') : 'Обновить'}
+            </button>
+          )}
           <button onClick={exportExcel} title="Скачать в Excel" className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
             <IDownload width={16} height={16} /> Excel
           </button>
         </div>
+        {updMsg && !syncing && (
+          <div className={`mt-3 chip ${updMsg.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+            {updMsg.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}{updMsg.message}
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap gap-2">
           {(active.size > 0 || onlyNoted || onlyDiff || hideEmpty || supplierFilter.size > 0 || productFilter.size > 0) && (
             <button
