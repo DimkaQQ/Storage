@@ -86,7 +86,7 @@ let syncing = {}
  * ("YYYY-MM") is given, letting an admin backfill an older month on demand —
  * leaving whatever other periods are already stored untouched either way.
  */
-async function runSync(orgId, trigger, explicitPeriod) {
+async function runSync(orgId, trigger, explicitPeriod, city) {
   if (syncing[orgId]) return { ok: false, message: 'Обновление уже выполняется' }
   syncing[orgId] = true
   try {
@@ -119,9 +119,20 @@ async function runSync(orgId, trigger, explicitPeriod) {
         const meta = venues.find((v) => v.name === name) || {}
         built.restaurants.push({ name, entity: meta.entity || '', brand: meta.brand || name, city: cityForRestaurant(name), category: meta.category || 'Кухня', items: [] })
       }
+      // «Обновить» по выбранному городу: из свежей загрузки берём только точки этого города, остальные города остаются как были
+      // (если месяца ещё не было — сохраняем целиком)
+      let cityFacts = null
+      if (city) {
+        const cityOf = (r) => r.city || cityForRestaurant(r.name)
+        cityFacts = facts.filter((f) => cityForRestaurant(f.restaurant) === city)
+        // в загрузке нет закупок выбранного города — не затираем его прежние данные «успехом»
+        if (!built.restaurants.some((r) => cityOf(r) === city && r.items.length)) throw new Error(`iiko не вернул закупок по городу «${city}» за ${periodMeta.periodLabel} — данные не менялись`)
+        const prevDs = getDataset(orgId, periodMeta.period)
+        if (prevDs?.restaurants?.length) built.restaurants = [...prevDs.restaurants.filter((r) => cityOf(r) !== city), ...built.restaurants.filter((r) => cityOf(r) === city)]
+      }
       saveDataset(orgId, periodMeta.period, built)
-      positions += facts.length
-      loaded.push({ period: periodMeta.period, periodLabel: periodMeta.periodLabel, rows: facts.length })
+      positions += (cityFacts ?? facts).length
+      loaded.push({ period: periodMeta.period, periodLabel: periodMeta.periodLabel, rows: (cityFacts ?? facts).length, ...(city ? { city } : {}) })
     }
     if (!positions) throw new Error('Провайдер вернул пустой список закупок')
     // Диагностика по сырому ответу iikoServer прямо в сообщении статуса —
@@ -257,6 +268,8 @@ app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
   if (period !== undefined && !isValidPeriod(period)) {
     return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM или ГГГГ-ММ-ДД..ГГГГ-ММ-ДД' })
   }
+  const city = req.body?.city
+  if (city !== undefined && city !== 'Алматы' && city !== 'Астана') return res.status(400).json({ ok: false, message: 'city: Алматы или Астана' })
   const orgId = req.auth.orgId
   if (syncing[orgId]) return res.status(409).json({ ok: false, message: 'Обновление уже выполняется' })
   // Не ждём runSync здесь — у реального iikoServer запрос за полный месяц
@@ -275,7 +288,7 @@ app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
   // страховка на случай будущих правок, чтобы случайный синхронный throw
   // внутри неё не ушёл необработанным отказом промиса (ответ клиенту уже
   // отправлен выше, здесь ничего ждать не нужно).
-  runSync(orgId, 'manual', period || undefined).catch((e) => {
+  runSync(orgId, 'manual', period || undefined, city).catch((e) => {
     console.error('runSync: необработанная ошибка', e)
   })
 })

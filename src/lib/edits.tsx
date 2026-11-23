@@ -219,7 +219,7 @@ interface Ctx {
   refresh: () => Promise<void>
   syncHistoricalPeriod: (period: string) => Promise<{ ok: boolean; message?: string }>
   // «Обновить» в Проверке цен: закупки из iiko за открытый период + матрица (листы, поставщики, товары; цены не меняются) + пересчёт
-  updateAll: () => Promise<{ ok: boolean; message: string }>
+  updateAll: (city?: string | null) => Promise<{ ok: boolean; message: string }>
   updateStep: string
   reloadStatus: () => Promise<void>
   // точки сети — какие сейчас включены/показаны, и какие видны в закупках,
@@ -587,11 +587,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // «Обновить» одной кнопкой: закупки из iiko за месяц(ы) открытого периода → матрица (только названия, цены не трогаются) → пересчёт экрана.
   // Ошибка одного шага не останавливает остальные — в итоге перечисляется, что не получилось.
   const [updateStep, setUpdateStep] = useState('')
-  const updateAll = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+  const updateAll = useCallback(async (city?: string | null): Promise<{ ok: boolean; message: string }> => {
     setSyncing(true)
     const key = periodKeyRef.current
     const problems: string[] = []
     let matrixRead = false
+    let matrixNames = ''
     try {
       let months: string[] = []
       const range = /^(\d{4})-(\d{2})-\d{2}\.\.(\d{4})-(\d{2})-\d{2}$/.exec(key)
@@ -609,7 +610,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       for (const m of months) {
         if (stopped) break
         setUpdateStep(`Закупки из iiko за ${m}…`)
-        const started = await triggerSync(m)
+        const started = await triggerSync(m, city || undefined)
         if (!started.ok) { problems.push(`закупки ${m}: ${started.message ?? 'не удалось запустить'}`); continue }
         const final = await pollUntilSyncDone()
         if (final === null) { problems.push(`закупки ${m}: загрузка идёт дольше обычного — она продолжается на сервере, обновите страницу позже`); stopped = true }
@@ -618,19 +619,24 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       // города по очереди (защита от одинаковых названий вкладок сверяет города по уже сохранённой матрице)
       if (stopped) throw new Error('остановлено: загрузка закупок ещё идёт')
       setUpdateStep('Читаю матрицу…')
-      const almaty = await syncMatrix('almaty')
-      const astana = await syncMatrix('astana')
+      // выбран город — читаем матрицу только его таблицы; не выбран — обе
       const noSheet = (r: { ok: boolean; message?: string }) => !r.ok && /ID таблицы/.test(r.message ?? '')
-      matrixRead = (almaty.ok) || (astana.ok)
-      if (!almaty.ok && !noSheet(almaty)) problems.push(`матрица Алматы: ${almaty.message ?? 'ошибка'}`)
-      if (!astana.ok && !noSheet(astana)) problems.push(`матрица Астана: ${astana.message ?? 'ошибка'}`)
+      const read: string[] = []
+      for (const [name, target] of [['Алматы', 'almaty'], ['Астана', 'astana']] as const) {
+        if (city && city !== name) continue
+        const r = await syncMatrix(target)
+        if (r.ok) read.push(name)
+        else if (!noSheet(r)) problems.push(`матрица ${name}: ${r.message ?? 'ошибка'}`)
+      }
+      matrixRead = read.length > 0
+      matrixNames = read.join(' и ')
       setUpdateStep('Пересчитываю…')
       await loadVenues(); await loadPeriods(); await loadData(periodKeyRef.current)
       await loadMatching(periodKeyRef.current)
     } catch (e) {
       problems.push(String((e as Error)?.message || e))
     } finally { setSyncing(false); setUpdateStep('') }
-    return problems.length ? { ok: false, message: 'Обновлено не полностью: ' + problems.join('; ') } : { ok: true, message: matrixRead ? 'Обновлено: закупки и матрица' : 'Обновлено: закупки (таблица с матрицей не подключена)' }
+    return problems.length ? { ok: false, message: 'Обновлено не полностью: ' + problems.join('; ') } : { ok: true, message: (city ? `${city}: ` : '') + (matrixRead ? `обновлено — закупки и матрица (${matrixNames})` : 'обновлено — закупки (таблица с матрицей не подключена)') }
   }, [loadData, loadMatching, loadPeriods, loadVenues, pollUntilSyncDone])
 
   // Матрица версионирована по периодам так же, как факты — цены реально

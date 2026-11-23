@@ -59,13 +59,13 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'notPurchased', label: 'Не закупали' },
 ]
 
-export default function PriceCheck({ rows }: { rows: Row[] }) {
+export default function PriceCheck({ rows, city }: { rows: Row[]; city?: string | null }) {
   const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel, updateAll, updateStep, syncing } = useEdits()
   const isAdmin = useAuth().user?.role === 'admin'
   const [updMsg, setUpdMsg] = useState<{ ok: boolean; message: string } | null>(null)
   const updBusy = useRef(false)
-  const runUpdate = async () => { if (updBusy.current) return; updBusy.current = true; setUpdMsg(null); try { setUpdMsg(await updateAll()) } finally { updBusy.current = false } }
-  useEffect(() => { setUpdMsg(null) }, [period])
+  const runUpdate = async () => { if (updBusy.current) return; updBusy.current = true; setUpdMsg(null); try { setUpdMsg(await updateAll(city)) } finally { updBusy.current = false } }
+  useEffect(() => { setUpdMsg(null) }, [period, city])
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   // «С заметкой» — строки, где уже есть свой комментарий или цветовая
@@ -418,7 +418,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
             {moneyMode ? 'Общ. сумма закупки' : 'тенге за 1кг'}
           </button>
           {isAdmin && (
-            <button onClick={runUpdate} disabled={syncing} title="Загрузить закупки из iiko за этот период и прочитать матрицу (листы, поставщики, товары). Цены матрицы не меняются."
+            <button onClick={runUpdate} disabled={syncing} title={`Обновить: ${city || 'все города'}, ${period || 'выбранный период'}. Закупки из iiko и матрица (листы, поставщики, товары); цены матрицы не меняются. Выбор города и месяца в шапке.`}
               className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
               <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? (updateStep || 'Обновляю…') : 'Обновить'}
             </button>

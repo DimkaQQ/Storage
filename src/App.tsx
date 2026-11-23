@@ -231,7 +231,7 @@ export default function App() {
               <div key={id} style={{ display: page === id ? 'block' : 'none' }} className={page === id ? 'animate-fade-in' : undefined}>
                 <Suspense fallback={<PageLoading />}>
                   {id === 'dashboard' && <Dashboard rows={dashboardRows} onNav={(p) => goTo(p as PageId)} />}
-                  {id === 'pricecheck' && <PriceCheck rows={priceCheckRows} />}
+                  {id === 'pricecheck' && <PriceCheck rows={priceCheckRows} city={cityPricecheck} />}
                   {DYNAMICS && id === 'dynamics' && <PriceDynamics active={page === 'dynamics'} />}
                   {id === 'data' && <DataEditor />}
                   {id === 'iiko' && <IikoSettings />}

@@ -320,9 +320,9 @@ export async function deleteMatrixSnapshot(period: string, tab?: string): Promis
 export const fetchMatrixSnapshots = () => get<{ periods: { period: string; periodLabel: string }[]; tabs?: { tab: string; period: string; periodLabel: string }[] }>('/api/matrix/snapshots')
 
 /** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */
-export async function triggerSync(period?: string): Promise<{ ok: boolean; message?: string }> {
+export async function triggerSync(period?: string, city?: string): Promise<{ ok: boolean; message?: string }> {
   try {
-    const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(period ? { period } : {}) })
+    const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(period ? { period } : {}), ...(city ? { city } : {}) }) })
     return await r.json()
   } catch (e) { return { ok: false, message: backendErr(e) } }
 }
