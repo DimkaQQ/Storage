@@ -7,6 +7,14 @@ services:
     environment:
       - TZ=Asia/Almaty
       - PORT=8090
+      # доступ к iiko «заморожен» в файле .env рядом с этим файлом (см. .env.example); пусто — настраивается в программе
+      - IIKO_PROVIDER=${IIKO_PROVIDER:-}
+      - IIKO_SERVER_URL=${IIKO_SERVER_URL:-}
+      - IIKO_LOGIN=${IIKO_LOGIN:-}
+      - IIKO_PASSWORD=${IIKO_PASSWORD:-}
+      - IIKO_API_LOGIN=${IIKO_API_LOGIN:-}
+      - IIKO_ORGANIZATION_ID=${IIKO_ORGANIZATION_ID:-}
+      - IIKO_LOCK_ORG=${IIKO_LOCK_ORG:-}
     volumes:
       # данные, настройки iiko и плановые цены переживают пересборку
       - pricecheck-data:/app/data

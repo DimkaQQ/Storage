@@ -7,3 +7,5 @@ dist-ssr
 server/data
 server/node_modules
 local-build
+
+.env

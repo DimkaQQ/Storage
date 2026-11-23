@@ -24,6 +24,7 @@ export interface IikoSettings {
   password: string
   apiLogin: string
   organizationId: string
+  iikoLocked?: boolean // доступ к iiko задан на сервере (.env) — в программе не меняется
   autoEnabled: boolean
   interval: 'hourly' | 'daily' | 'weekly' | 'monthly'
   period: 'current-month' | 'prev-month'

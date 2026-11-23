@@ -11,7 +11,7 @@ import {
   orgDataDir, wipeOrgKeepConnection, clearOrgFiles, CONNECTION_KEYS,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
   getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData, freezePastMonthsOnce,
-  restoreUsersFromBackup,
+  restoreUsersFromBackup, iikoLocked, iikoLockValues,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { buildDataTar, readTarFiles } from './migration.js'
@@ -283,9 +283,10 @@ app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
 // Секретные поля настроек — не отдаём их наружу как есть, только маской, и
 // не даём случайно затереть маской при сохранении (см. mergeSecrets ниже).
 const SECRET_FIELDS = ['password', 'apiLogin', 'googleServiceAccountKey']
-const maskSecrets = (s) => {
+const maskSecrets = (s, orgId) => {
   const out = { ...s }
   for (const f of SECRET_FIELDS) out[f] = s[f] ? '********' : ''
+  out.iikoLocked = iikoLocked(orgId) // доступ к iiko задан на сервере (.env) — в программе не меняется
   return out
 }
 
@@ -296,7 +297,7 @@ const maskSecrets = (s) => {
 // теперь тоже adminOnly — это не расходится с ней, а закрывает то же самое
 // с двух сторон.
 app.get('/api/settings', requireAuth, requireAdmin, (req, res) => {
-  res.json(maskSecrets(getSettings(req.auth.orgId)))
+  res.json(maskSecrets(getSettings(req.auth.orgId), req.auth.orgId))
 })
 
 app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
@@ -306,12 +307,12 @@ app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
   for (const f of ['enabledRestaurants', 'manualLinks', 'manualFreeze', 'matrixKeysV2', 'matrixHistoryFrozen']) delete incoming[f]
   const next = saveSettings(req.auth.orgId, incoming)
   armSchedule(req.auth.orgId)
-  res.json(maskSecrets(next))
+  res.json(maskSecrets(next, req.auth.orgId))
 })
 
 app.post('/api/test-connection', requireAuth, requireAdmin, async (req, res) => {
   const s = getSettings(req.auth.orgId)
-  const merged = { ...s, ...req.body }
+  const merged = { ...s, ...req.body, ...iikoLockValues(req.auth.orgId) }
   if (req.body?.password === '********') merged.password = s.password
   if (req.body?.apiLogin === '********') merged.apiLogin = s.apiLogin
   res.json(await testConnection(merged))
@@ -878,7 +879,7 @@ app.post('/api/org-data/restore', requireAuth, requireAdmin, express.raw({ type:
       const okVal = (x) => typeof x === 'string' && x.trim() && x !== '********'
       const sv = savedSettings
       const groups = [
-        { keys: ['provider', 'serverUrl', 'login', 'password', 'apiLogin', 'organizationId'], complete: (okVal(sv.serverUrl) && okVal(sv.login) && okVal(sv.password)) || (okVal(sv.apiLogin) && okVal(sv.organizationId)) },
+        { keys: ['provider', 'serverUrl', 'login', 'password', 'apiLogin', 'organizationId'], complete: !iikoLocked(orgId) && ((okVal(sv.serverUrl) && okVal(sv.login) && okVal(sv.password)) || (okVal(sv.apiLogin) && okVal(sv.organizationId))) },
         { keys: ['googleServiceAccountKey', 'googleSheetId'], complete: okVal(sv.googleServiceAccountKey) && okVal(sv.googleSheetId) },
         { keys: ['astanaSheetId'], complete: okVal(sv.astanaSheetId) },
       ]

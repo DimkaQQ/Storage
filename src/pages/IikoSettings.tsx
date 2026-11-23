@@ -420,11 +420,17 @@ export default function IikoSettings() {
 
         <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
           <summary className={summary}>Доступ к iiko</summary>
+          {form.iikoLocked ? (
+            <div className="mt-3 rounded-lg border border-ink-600 bg-ink-850 p-3 text-sm text-fg-300">
+              Доступ к iiko задан на сервере и зафиксирован: в программе его не изменить. Чтобы сменить пользователя, нужно поменять файл .env на сервере и запустить ./deploy.sh.
+            </div>
+          ) : (
           <div className="mt-3 grid grid-cols-2 gap-3">
             <Field label="Адрес сервера iiko" hint="URL и порт resto API, напр. https://ваш-сервер:443" value={form.serverUrl} onChange={(v) => set({ serverUrl: v })} placeholder="https://host:443" full />
             <Field label="Логин" value={form.login} onChange={(v) => set({ login: v })} />
             <Field label="Пароль" type="password" value={form.password} onChange={(v) => set({ password: v })} placeholder="•••••••• (не менять — оставьте пустым)" />
           </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button onClick={test} disabled={testing} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
               <IPlug width={16} height={16} /> {testing ? 'Сохраняю и проверяю…' : 'Сохранить и проверить'}

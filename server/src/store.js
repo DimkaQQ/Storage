@@ -230,8 +230,44 @@ export function bootstrapOrgData(orgId, { withSeed }) {
   }
 }
 
-export const getSettings = (orgId) => ({ ...DEFAULT_SETTINGS, ...read(orgPaths(orgId).settings, {}) })
-export const saveSettings = (orgId, s) => { const next = { ...getSettings(orgId), ...s }; write(orgPaths(orgId).settings, next); return next }
+/**
+ * «Заморозка» доступа к iiko: если на сервере заданы переменные окружения (файл .env рядом с docker-compose.yml), доступ к iiko берётся
+ * ТОЛЬКО из них — в программе он не меняется и в файл настроек не пишется (прежние значения из файла при сохранении очищаются).
+ * Секретов в репозитории нет. Менять — правкой .env на сервере и пересборкой. Заморозка включается только при ПОЛНОМ наборе:
+ * iikoserver — IIKO_SERVER_URL + IIKO_LOGIN + IIKO_PASSWORD, iikocloud — IIKO_API_LOGIN + IIKO_ORGANIZATION_ID (иначе предупреждение
+ * в логе и всё как раньше). IIKO_LOCK_ORG (необязательно) — id организации, к которой относится заморозка; без него — ко всем
+ * (обычная установка с одной сетью).
+ */
+const IIKO_ENV = { serverUrl: 'IIKO_SERVER_URL', login: 'IIKO_LOGIN', password: 'IIKO_PASSWORD', apiLogin: 'IIKO_API_LOGIN', organizationId: 'IIKO_ORGANIZATION_ID' }
+export const IIKO_LOCK_KEYS = ['provider', ...Object.keys(IIKO_ENV)]
+const envv = (k) => (process.env[k] ?? '').trim()
+const lockProvider = () => envv('IIKO_PROVIDER') || (envv('IIKO_API_LOGIN') ? 'iikocloud' : 'iikoserver')
+const lockComplete = () => lockProvider() === 'iikocloud'
+  ? !!(envv('IIKO_API_LOGIN') && envv('IIKO_ORGANIZATION_ID'))
+  : !!(envv('IIKO_SERVER_URL') && envv('IIKO_LOGIN') && envv('IIKO_PASSWORD'))
+if ((envv('IIKO_SERVER_URL') || envv('IIKO_API_LOGIN') || envv('IIKO_LOGIN') || envv('IIKO_PASSWORD')) && !lockComplete()) {
+  console.warn('[iiko] В .env заданы не все переменные доступа к iiko (iikoserver: IIKO_SERVER_URL, IIKO_LOGIN, IIKO_PASSWORD; iikocloud: IIKO_API_LOGIN, IIKO_ORGANIZATION_ID) — заморозка НЕ включена, доступ настраивается в программе.')
+}
+export const iikoLocked = (orgId) => lockComplete() && (!envv('IIKO_LOCK_ORG') || envv('IIKO_LOCK_ORG') === orgId)
+/** Значения доступа из .env (пустой объект, если заморозки нет). */
+export function iikoLockValues(orgId) {
+  if (!iikoLocked(orgId)) return {}
+  const out = { provider: lockProvider() }
+  for (const [k, env] of Object.entries(IIKO_ENV)) out[k] = envv(env)
+  return out
+}
+const readSettings = (orgId) => ({ ...DEFAULT_SETTINGS, ...read(orgPaths(orgId).settings, {}) })
+export const getSettings = (orgId) => ({ ...readSettings(orgId), ...iikoLockValues(orgId) })
+export const saveSettings = (orgId, s) => {
+  const incoming = { ...s }
+  delete incoming.iikoLocked // служебное поле ответа, не настройка
+  const locked = iikoLocked(orgId)
+  if (locked) for (const k of IIKO_LOCK_KEYS) delete incoming[k] // доступ к iiko заморожен в .env — в программе не меняется
+  const next = { ...readSettings(orgId), ...incoming }
+  if (locked) for (const k of IIKO_LOCK_KEYS) next[k] = DEFAULT_SETTINGS[k] ?? '' // и в файле не хранится
+  write(orgPaths(orgId).settings, next)
+  return { ...next, ...iikoLockValues(orgId) }
+}
 export const getStatus = (orgId) => read(orgPaths(orgId).status, { lastSync: null, lastResult: null, source: null })
 export const saveStatus = (orgId, s) => { write(orgPaths(orgId).status, s); return s }
 export const getDataset = (orgId, period) => read(orgDatasetPath(orgId, period), { restaurants: [] })
@@ -593,7 +629,7 @@ export function wipeOrgKeepConnection(orgId, backupEdits = null) {
   resetOrgData(orgId)
   const catalog = orgPaths(orgId).catalog
   if (existsSync(catalog)) unlinkSync(catalog)
-  const keep = Object.fromEntries(CONNECTION_KEYS.map((k) => [k, getSettings(orgId)[k]]))
+  const keep = Object.fromEntries(CONNECTION_KEYS.map((k) => [k, readSettings(orgId)[k]]))
   write(orgPaths(orgId).settings, { ...DEFAULT_SETTINGS, ...keep, matrixHistoryFrozen: true }) // новые данные не «замораживать» при следующем запуске сервера
   return `_backup-wipe-${stamp}`
 }
