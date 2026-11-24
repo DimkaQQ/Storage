@@ -26,7 +26,7 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
   ...(DYNAMICS ? [{ id: 'dynamics' as const, label: 'Динамика цен', icon: IChart, hint: 'История цены по позициям' }] : []),
   { id: 'data', label: 'Справочники', icon: IDatabase, hint: 'Компании, товары, точки' },
-  { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Загрузка из iiko', adminOnly: true },
+  { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Цены, точки, копия', adminOnly: true },
   { id: 'users', label: 'Команда', icon: IUser, hint: 'Пользователи вашей сети', adminOnly: true },
 ]
 
@@ -231,7 +231,7 @@ export default function App() {
               <div key={id} style={{ display: page === id ? 'block' : 'none' }} className={page === id ? 'animate-fade-in' : undefined}>
                 <Suspense fallback={<PageLoading />}>
                   {id === 'dashboard' && <Dashboard rows={dashboardRows} onNav={(p) => goTo(p as PageId)} />}
-                  {id === 'pricecheck' && <PriceCheck rows={priceCheckRows} city={cityPricecheck} />}
+                  {id === 'pricecheck' && <PriceCheck rows={priceCheckRows} city={cityPricecheck} noData={allRows.length === 0} />}
                   {DYNAMICS && id === 'dynamics' && <PriceDynamics active={page === 'dynamics'} />}
                   {id === 'data' && <DataEditor />}
                   {id === 'iiko' && <IikoSettings />}

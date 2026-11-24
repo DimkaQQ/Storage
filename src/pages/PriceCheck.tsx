@@ -58,7 +58,7 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'notPurchased', label: 'Не закупали' },
 ]
 
-export default function PriceCheck({ rows, city }: { rows: Row[]; city?: string | null }) {
+export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?: string | null; noData?: boolean }) {
   const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel, updateAll, updateStep, syncing, status, reloadStatus, reloadData } = useEdits()
   const [updMsg, setUpdMsg] = useState<{ ok: boolean; message: string } | null>(null)
   const updBusy = useRef(false)
@@ -673,7 +673,7 @@ export default function PriceCheck({ rows, city }: { rows: Row[]; city?: string 
               )})}
             </tbody>
           </table>
-          {shown.length === 0 && <div className="py-12 text-center text-sm text-fg-500">Ничего не найдено по заданным фильтрам.</div>}
+          {shown.length === 0 && <div className="py-12 text-center text-sm text-fg-500">{noData ? 'За этот период данных ещё нет — нажмите «Обновить», чтобы загрузить закупки из iiko.' : 'Ничего не найдено по заданным фильтрам.'}</div>}
           {/* Невидимый сентинел для автоподгрузки по скроллу — рендерится, только
               пока есть что ещё подгружать, иначе IntersectionObserver продолжал
               бы наблюдать несуществующий "низ списка" без всякой нужды. */}

@@ -216,8 +216,6 @@ interface Ctx {
   backendOnline: boolean
   status: SyncStatus | null
   syncing: boolean
-  refresh: () => Promise<void>
-  syncHistoricalPeriod: (period: string) => Promise<{ ok: boolean; message?: string }>
   // «Обновить» в Проверке цен: закупки из iiko за открытый период + матрица (листы, поставщики, товары; цены не меняются) + пересчёт
   updateAll: (city?: string | null) => Promise<{ ok: boolean; message: string }>
   updateStep: string
@@ -547,45 +545,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     if (MATRIX_SNAPSHOTS) loadMatching(period)
   }, [loadData, loadMatching])
 
-  // «Обновление» держит текущий выбранный период — просто пересобирает то,
-  // на что уже смотрит пользователь, плюс подтягивает список периодов
-  // заново (вдруг появился новый), и список точек (вдруг синк принёс
-  // закупки из точки, которой раньше не было).
-  const refresh = useCallback(async () => {
-    setSyncing(true)
-    try {
-      const started = await triggerSync()
-      // started.ok === false здесь значит запрос даже не принят (не тот
-      // формат периода, или синк уже идёт) — реального синка не было, ждать
-      // нечего. started.ok === true — сервер только ПРИНЯЛ запуск (см.
-      // комментарий у /api/sync в index.js), реальный результат добираем
-      // опросом статуса.
-      if (started.ok) await pollUntilSyncDone()
-      else await reloadStatus()
-      await loadVenues(); await loadPeriods(); await loadData(periodKey)
-    } finally { setSyncing(false) }
-  }, [loadData, loadPeriods, loadVenues, pollUntilSyncDone, reloadStatus, periodKey])
-
-  // Догрузить конкретный прошлый месяц ("YYYY-MM"), а не current/prev-month
-  // из настроек — Настройки iiko → «Загрузить другой период». Сразу
-  // переключаемся на него, иначе непонятно, что синк вообще что-то принёс.
-  const syncHistoricalPeriod = useCallback(async (period: string): Promise<{ ok: boolean; message?: string }> => {
-    setSyncing(true)
-    try {
-      const started = await triggerSync(period)
-      if (!started.ok) { await reloadStatus(); return started }
-      const final = await pollUntilSyncDone()
-      await loadVenues(); await loadPeriods()
-      // final === null — не "провалился", а "не дождались за ~3 минуты": сам
-      // синк мог остаться в работе. Не выдаём это за успех и не выдаём за
-      // явную ошибку — честно говорим, что результат пока не известен,
-      // вместо того чтобы молча показать чей-то более ранний lastResult.
-      if (final === null) return { ok: false, message: 'Загрузка идёт дольше обычного — результат появится в «Обновление» чуть позже, попробуйте проверить там.' }
-      if (final.lastResult === 'ok') { setPeriod(period); return { ok: true, message: final.message } }
-      return { ok: false, message: final.message ?? 'Не удалось загрузить период' }
-    } finally { setSyncing(false) }
-  }, [loadPeriods, loadVenues, pollUntilSyncDone, reloadStatus, setPeriod])
-
   // «Обновить» одной кнопкой: закупки из iiko за месяц(ы) открытого периода → матрица (только названия, цены не трогаются) → пересчёт экрана.
   // Ошибка одного шага не останавливает остальные — в итоге перечисляется, что не получилось.
   const [updateStep, setUpdateStep] = useState('')
@@ -645,7 +604,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       problems.push(String((e as Error)?.message || e))
     } finally { setSyncing(false); setUpdateStep('') }
-    return problems.length ? { ok: false, message: 'Обновлено не полностью: ' + problems.join('; ') } : { ok: true, message: (city ? `${city}: ` : '') + (matrixRead ? `обновлено — закупки и матрица (${matrixNames})` : 'обновлено — закупки (таблица с матрицей не подключена)') }
+    return problems.length ? { ok: false, message: 'Обновлено не полностью: ' + problems.join('; ') } : { ok: true, message: (city ? `${city}: обновлено` : 'Обновлено') + (matrixRead ? ` — закупки и матрица (${matrixNames})` : ' — закупки (матрицу не читали: таблица Google не подключена)') }
   }, [loadData, loadMatching, loadPeriods, loadVenues, pollUntilSyncDone])
 
   const reloadData = useCallback(async () => {
@@ -886,7 +845,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
-    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, updateAll, updateStep, reloadData, reloadStatus,
+    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, updateAll, updateStep, reloadData, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,

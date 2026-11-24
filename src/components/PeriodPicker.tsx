@@ -30,10 +30,9 @@ export default function PeriodPicker({
   const ordered = [...periods].reverse() // свежие сверху
   const current = periods.find((p) => p.period === value)
   const label = current?.periodLabel ?? rangeLabel(value)
-  // границы календаря — от начала самого раннего до конца самого позднего загруженного периода
-  const spans = periods.map((p) => spanOf(p.period))
-  const minDate = spans.length ? spans.reduce((m, x) => (x.start < m ? x.start : m), spans[0].start) : undefined
-  const maxDate = spans.length ? spans.reduce((m, x) => (x.end > m ? x.end : m), spans[0].end) : undefined
+  // Календарь не ограничен загруженными месяцами: можно выбрать любые даты до сегодняшних, а недостающий месяц подтягивает кнопка «Обновить»
+  const minDate = `${new Date().getFullYear() - 3}-01-01` // не раньше трёх лет назад
+  const maxDate = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}` })()
   const apply = () => { if (from && to && from <= to) { onChange(`${from}..${to}`); setOpen(false) } }
 
   return (
@@ -78,7 +77,7 @@ export default function PeriodPicker({
               <DateBox label="По" value={to} min={from || minDate} max={maxDate} onChange={setTo} />
             </div>
             <button onClick={apply} disabled={!from || !to || from > to} className="btn h-9 w-full border border-brand-500/50 bg-brand-500/15 text-xs text-fg-50 hover:bg-brand-500/25 disabled:opacity-50">Показать за эти даты</button>
-            <p className="text-[11px] leading-snug text-fg-500">Дни берутся из загруженных месяцев. Месяцы, загруженные раньше, нужно загрузить заново в «Обновлении», чтобы появилась раскладка по дням.</p>
+            <p className="text-[11px] leading-snug text-fg-500">Дни берутся из загруженных месяцев. Если месяца ещё нет или он загружен давно, нажмите «Обновить» в Проверке цен — он загрузится из iiko вместе с раскладкой по дням.</p>
           </div>
         </div>
       )}
@@ -87,14 +86,6 @@ export default function PeriodPicker({
 }
 
 const MONTHS_G = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
-function spanOf(period: string): { start: string; end: string } {
-  const r = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(period)
-  if (r) return { start: r[1], end: r[2] }
-  const y = +period.slice(0, 4), m = +period.slice(5, 7)
-  const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return { start: `${y}-${pad(m)}-01`, end: `${y}-${pad(m)}-${pad(last)}` }
-}
 /** «5 ноя – 12 ноя 2026» для отрезка, который не лежит в списке загруженных периодов. */
 function rangeLabel(v: string): string {
   const r = /^(\d{4})-(\d{2})-(\d{2})\.\.(\d{4})-(\d{2})-(\d{2})$/.exec(v)

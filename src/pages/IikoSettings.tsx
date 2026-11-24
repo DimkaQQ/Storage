@@ -1,10 +1,10 @@
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { norm, matchRestaurant } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
-import { ISync, IPlug, ICheck, IClose, IStore, IPlus, IChevron, ITrash } from '../components/icons'
+import { ISync, IPlug, ICheck, IClose, IStore, IPlus, ITrash } from '../components/icons'
 
 function extractSheetId(input: string): string {
   const m = input.match(/\/d\/([a-zA-Z0-9_-]+)/)
@@ -21,22 +21,11 @@ const INTERVALS: { id: Settings['interval']; label: string }[] = [
 // всегда на языке браузера/ОС (не странице), игнорирует lang на инпуте, и
 // на тёмном фоне иконка календаря практически не видна — проще и надёжнее
 // не зависеть от нативного виджета совсем.
-const RU_MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
-
-function ago(iso: string | null): string {
-  if (!iso) return 'ещё не обновлялось'
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60) return 'только что'
-  if (s < 3600) return `${Math.floor(s / 60)} мин назад`
-  if (s < 86400) return `${Math.floor(s / 3600)} ч назад`
-  return `${Math.floor(s / 86400)} дн назад`
-}
 
 export default function IikoSettings() {
-  const { backendOnline, status, syncing, refresh, syncHistoricalPeriod, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
+  const { backendOnline, status, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const SECTIONS = [
-    { id: 'iiko', label: 'Данные из iiko' },
     { id: 'matrix', label: 'Зафиксировать цены' },
     { id: 'venues', label: 'Точки сети' },
     { id: 'auto', label: 'Автообновление' },
@@ -45,7 +34,7 @@ export default function IikoSettings() {
   type SectionId = typeof SECTIONS[number]['id']
   const [fullBusy, setFullBusy] = useState<'' | 'restore' | 'wipe'>('')
   const [fullResult, setFullResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [section, setSection] = useState<SectionId>(() => { try { const v = localStorage.getItem('settingsSection'); return SECTIONS.some((x) => x.id === v) ? (v as SectionId) : 'iiko' } catch { return 'iiko' } })
+  const [section, setSection] = useState<SectionId>(() => { try { const v = localStorage.getItem('settingsSection'); return SECTIONS.some((x) => x.id === v) ? (v as SectionId) : 'matrix' } catch { return 'matrix' } })
   const pickSection = (id: SectionId) => { setSection(id); try { localStorage.setItem('settingsSection', id) } catch { /* без запоминания */ } }
   const [form, setForm] = useState<Settings | null>(null)
   const [saved, setSaved] = useState(false)
@@ -53,12 +42,6 @@ export default function IikoSettings() {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [addingVenue, setAddingVenue] = useState<string | null>(null)
   const [removingVenue, setRemovingVenue] = useState<string | null>(null)
-  const nowDate = new Date()
-  const [historicalYear, setHistoricalYear] = useState(nowDate.getFullYear())
-  const [historicalMonthNum, setHistoricalMonthNum] = useState<number | null>(null) // 1-12
-  const [historicalResult, setHistoricalResult] = useState<{ ok: boolean; message?: string } | null>(null)
-  const historicalMonth = historicalMonthNum ? `${historicalYear}-${String(historicalMonthNum).padStart(2, '0')}` : ''
-  const maxHistoricalMonth = historicalYear === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
@@ -149,17 +132,6 @@ export default function IikoSettings() {
   // Название склада так, как его прислал iiko (из загруженных закупок); пока для точки нет — показываем её название
   // подсказка к точке: какие склады iiko в ней в выбранном периоде (САМА точка называется так, как сохранена — подпись не должна зависеть от периода)
   const storesHint = (name: string) => restaurants.find((r) => r.name === name)?.stores?.join('; ') || ''
-  // после завершения загрузки индикатор на несколько секунд «вспыхивает» зелёным
-  const [justLoaded, setJustLoaded] = useState(false)
-  const wasSyncing = useRef(false)
-  useEffect(() => {
-    const was = wasSyncing.current
-    wasSyncing.current = syncing
-    if (was && !syncing && status?.lastResult === 'ok') {
-      setJustLoaded(true)
-      setTimeout(() => setJustLoaded(false), 5000)
-    }
-  }, [syncing, status?.lastResult])
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<{ ok: boolean; message?: string } | null>(null)
   const [astanaTesting, setAstanaTesting] = useState(false)
@@ -289,7 +261,7 @@ export default function IikoSettings() {
   }
 
   const hasSheetAccess = !!(form?.googleSheetId && form?.googleServiceAccountKey)
-  const dot = (id: string) => (id === 'iiko' ? (status?.lastSync ? 'bg-good' : 'bg-fg-600') : id === 'matrix' ? (tabList.length > 0 ? 'bg-good' : hasSheetAccess ? 'bg-warn' : 'bg-fg-600') : form?.autoEnabled ? 'bg-good' : 'bg-fg-600')
+  const dot = (id: string) => (id === 'matrix' ? (tabList.length > 0 ? 'bg-good' : hasSheetAccess ? 'bg-warn' : 'bg-fg-600') : form?.autoEnabled ? 'bg-good' : 'bg-fg-600')
 
   const summary = 'cursor-pointer select-none text-sm font-medium text-fg-300 hover:text-fg-100'
   const checkChip = (r: { ok: boolean; message: string } | null) => r && (
@@ -311,143 +283,6 @@ export default function IikoSettings() {
         ))}
       </nav>
       <div className="min-w-0 flex-1 space-y-5">
-      {section === 'iiko' && (<>
-      {/* iiko: загрузка закупок — одна зона */}
-      <div className="card space-y-5 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand-500/10 text-brand-300"><ISync width={20} height={20} /></span>
-            <div>
-              <div className="text-sm font-semibold text-fg-50">Данные из iiko</div>
-              <div className="text-xs text-fg-500">Закупки по накладным за выбранный месяц</div>
-            </div>
-          </div>
-          <button
-            onClick={async () => {
-              // Сохраняем форму перед загрузкой: иначе уйдёт со старыми, уже сохранёнными настройками
-              if (form) { const r = await saveSettings(form); if (r) { setForm(r); setSaved(true) } }
-              await refresh()
-            }}
-            disabled={syncing}
-            className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60"
-          >
-            <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Загружаю…' : 'Загрузить текущий месяц'}
-          </button>
-        </div>
-
-        {/* индикатор: что и когда загружено */}
-        {(() => {
-          const loaded = status?.loaded?.length ? status.loaded : null
-          const what = loaded
-            ? loaded.map((l) => `${l.periodLabel} — ${l.rows.toLocaleString('ru-RU')} строк`).join(' · ')
-            : status?.positions ? `${status.positions.toLocaleString('ru-RU')} строк` : ''
-          const base = 'flex flex-wrap items-center gap-2 rounded-xl border px-4 py-3 text-sm transition-shadow duration-500'
-          if (syncing) return (
-            <div className={`${base} border-brand-500/40 bg-brand-500/10 text-brand-300`}>
-              <ISync width={16} height={16} className="animate-spin" /> Загружаю данные из iiko… подождите, это может занять до минуты
-            </div>
-          )
-          if (status?.lastResult === 'ok') return (
-            <div className="space-y-2">
-              <div className={`${base} border-good/40 bg-good/10 text-good ${justLoaded ? 'ring-2 ring-good/70 shadow-lg shadow-good/20' : ''}`}>
-                <ICheck width={16} height={16} />
-                <span className="font-semibold">Загружено</span>
-                {what && <span className="text-fg-200">· {what}</span>}
-                <span className="text-fg-400">· {ago(status.lastSync ?? null)}</span>
-              </div>
-              {/* диагностика есть только когда сервер дописал её после «Загружено N позиций — …»; по одному периоду на строку */}
-              {status.message?.includes(' — ') && (
-                <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 px-3 py-2 text-xs text-fg-400">
-                  <summary className="cursor-pointer text-fg-300">Подробности загрузки (сколько строк отдал iiko, раскладка по дням)</summary>
-                  <div className="mt-2 space-y-1.5 break-words leading-relaxed">{status.message.split(' — ').slice(1).join(' — ').split('; ').map((line, i) => <p key={i}>{line}</p>)}</div>
-                </details>
-              )}
-            </div>
-          )
-          if (status?.lastResult === 'error') return (
-            <div className={`${base} border-bad/40 bg-bad/10 text-bad`}>
-              <IClose width={16} height={16} />
-              <span className="font-semibold">Не загрузилось</span>
-              <span className="text-fg-300">· {status.message}</span>
-            </div>
-          )
-          return <div className={`${base} border-ink-600 bg-ink-800/40 text-fg-400`}>Ещё не загружали — нажмите «Загрузить текущий месяц»</div>
-        })()}
-
-        <div className="flex flex-wrap items-center gap-3 border-t border-ink-700/60 pt-4">
-          <div className="text-sm text-fg-300">Загрузить за другой месяц</div>
-          <div className="relative">
-            <select
-              value={historicalMonthNum ?? ''}
-              onChange={(e) => { setHistoricalMonthNum(e.target.value ? Number(e.target.value) : null); setHistoricalResult(null) }}
-              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
-            >
-              <option value="">Месяц…</option>
-              {RU_MONTHS.map((label, i) => (
-                <option key={label} value={i + 1} disabled={i + 1 > maxHistoricalMonth}>{label}</option>
-              ))}
-            </select>
-            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
-          </div>
-          <div className="relative">
-            <select
-              value={historicalYear}
-              onChange={(e) => {
-                const y = Number(e.target.value)
-                setHistoricalYear(y)
-                const max = y === nowDate.getFullYear() ? nowDate.getMonth() + 1 : 12
-                if (historicalMonthNum && historicalMonthNum > max) setHistoricalMonthNum(null)
-                setHistoricalResult(null)
-              }}
-              className="appearance-none rounded-lg border border-ink-600 bg-ink-900/60 px-3 py-2 pr-8 text-sm text-fg-100 focus:border-brand-500 focus:outline-none"
-            >
-              {[nowDate.getFullYear(), nowDate.getFullYear() - 1, nowDate.getFullYear() - 2].map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-            <IChevron width={13} height={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rotate-90 text-fg-500" />
-          </div>
-          <button
-            onClick={async () => { if (!historicalMonth) return; setHistoricalResult(null); setHistoricalResult(await syncHistoricalPeriod(historicalMonth)) }}
-            disabled={syncing || !historicalMonth}
-            className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60"
-          >
-            <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Загружаю…' : 'Загрузить'}
-          </button>
-        </div>
-
-
-        <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
-          <summary className={summary}>Доступ к iiko</summary>
-          {form.iikoLocked ? (
-            <div className="mt-3 rounded-lg border border-ink-600 bg-ink-850 p-3 text-sm text-fg-300">
-              Доступ к iiko задан на сервере и зафиксирован: в программе его не изменить. Чтобы сменить пользователя, нужно поменять файл .env на сервере и запустить ./deploy.sh.
-            </div>
-          ) : (
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <Field label="Адрес сервера iiko" hint="URL и порт resto API, напр. https://ваш-сервер:443" value={form.serverUrl} onChange={(v) => set({ serverUrl: v })} placeholder="https://host:443" full />
-            <Field label="Логин" value={form.login} onChange={(v) => set({ login: v })} />
-            <Field label="Пароль" type="password" value={form.password} onChange={(v) => set({ password: v })} placeholder="•••••••• (не менять — оставьте пустым)" />
-          </div>
-          )}
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button onClick={test} disabled={testing} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
-              <IPlug width={16} height={16} /> {testing ? 'Сохраняю и проверяю…' : 'Сохранить и проверить'}
-            </button>
-            {checkChip(testResult)}
-          </div>
-        </details>
-
-        {historicalResult && (
-            <span className={`chip ${historicalResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
-              {historicalResult.ok ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-              {historicalResult.ok ? 'Загружено — переключил на этот период' : historicalResult.message}
-            </span>
-          )}
-      </div>
-
-      </>)}
       {section === 'matrix' && (<>
       <div>
         <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -557,7 +392,34 @@ export default function IikoSettings() {
         </div>
         </div>
           </SettingsRow>
-          <SettingsRow title="Доступ к таблицам" desc="ID таблиц и ключ сервисного аккаунта.">
+          <SettingsRow title="Доступы" desc="Доступ к iiko, ID таблиц и ключ сервисного аккаунта.">
+        <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
+          <summary className={summary}>Доступ к iiko</summary>
+          {status?.lastResult && (
+            <div className={`mt-3 text-xs ${status.lastResult === 'ok' ? 'text-good' : 'text-bad'}`}>
+              Последняя загрузка закупок: {status.lastResult === 'ok' ? 'успешно' : 'не удалась'}
+              {status.lastSync ? `, ${new Date(status.lastSync).toLocaleString('ru-RU')}` : ''}
+              {status.message ? <span className="mt-1 block break-words text-fg-400">{status.message.split(' — ').join('\n')}</span> : null}
+            </div>
+          )}
+          {form.iikoLocked ? (
+            <div className="mt-3 rounded-lg border border-ink-600 bg-ink-850 p-3 text-sm text-fg-300">
+              Доступ к iiko задан на сервере и зафиксирован: в программе его не изменить. Чтобы сменить пользователя, нужно поменять файл .env на сервере и запустить ./deploy.sh.
+            </div>
+          ) : (
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Field label="Адрес сервера iiko" hint="URL и порт resto API, напр. https://ваш-сервер:443" value={form.serverUrl} onChange={(v) => set({ serverUrl: v })} placeholder="https://host:443" full />
+            <Field label="Логин" value={form.login} onChange={(v) => set({ login: v })} />
+            <Field label="Пароль" type="password" value={form.password} onChange={(v) => set({ password: v })} placeholder="•••••••• (не менять — оставьте пустым)" />
+          </div>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button onClick={test} disabled={testing} className="btn border border-ink-600 bg-ink-800/70 text-fg-200 hover:bg-ink-750 disabled:opacity-60">
+              <IPlug width={16} height={16} /> {testing ? 'Сохраняю и проверяю…' : 'Сохранить и проверить'}
+            </button>
+            {checkChip(testResult)}
+          </div>
+        </details>
         <details>
           <summary className={summary}>Доступ к таблицам</summary>
           <div className="mt-3 grid grid-cols-2 gap-3">
