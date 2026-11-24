@@ -5,6 +5,7 @@ import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
+import DeveloperUnlock from '../components/DeveloperUnlock'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, ITrash } from '../components/icons'
 
 function extractSheetId(input: string): string {
@@ -28,6 +29,7 @@ export default function IikoSettings() {
   // Режим разработчика: доступы, точки сети, автообновление и резервные копии видит только разработчик (ключ DEVELOPER_KEY, «секретная кнопка»)
   const { user, lockDeveloper } = useAuth()
   const isDev = !!user?.developer
+  const [devOpen, setDevOpen] = useState(false)
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const ALL_SECTIONS = [
     { id: 'matrix', label: 'Зафиксировать цены' },
@@ -288,6 +290,14 @@ export default function IikoSettings() {
         ))}
       </nav>}
       <div className="min-w-0 flex-1 space-y-5">
+      {!isDev && user?.role === 'admin' && (
+        <div className="flex justify-end">
+          <button onClick={() => setDevOpen(true)} title="Доступы, точки сети, автообновление, резервные копии — по ключу"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-fg-500 hover:bg-ink-800/60 hover:text-fg-200">
+            <IPlug width={12} height={12} /> Для разработчика
+          </button>
+        </div>
+      )}
       {isDev && hasDeveloperToken() && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">
           <span>Режим разработчика включён (действует 12 часов)</span>
@@ -578,6 +588,7 @@ export default function IikoSettings() {
       )}
       </>)}
       </div>
+      {devOpen && <DeveloperUnlock onClose={() => setDevOpen(false)} />}
     </div>
   )
 }
