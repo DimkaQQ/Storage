@@ -263,7 +263,10 @@ app.post('/api/manual-links', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: true, manualLinks: req.body?.enabled === true })
 })
 
-app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
+// «Обновить» (закупки из iiko) доступно любому вошедшему пользователю; занято — отвечаем busy, клиент дождётся и повторит
+// не чаще раза в минуту для не-админов (чужие кнопки нельзя нажимать в цикле: каждый запуск — тяжёлая загрузка из iiko)
+const lastManualSync = {}
+app.post('/api/sync', requireAuth, (req, res) => {
   const period = req.body?.period
   if (period !== undefined && !isValidPeriod(period)) {
     return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM или ГГГГ-ММ-ДД..ГГГГ-ММ-ДД' })
@@ -271,7 +274,9 @@ app.post('/api/sync', requireAuth, requireAdmin, (req, res) => {
   const city = req.body?.city
   if (city !== undefined && city !== 'Алматы' && city !== 'Астана') return res.status(400).json({ ok: false, message: 'city: Алматы или Астана' })
   const orgId = req.auth.orgId
-  if (syncing[orgId]) return res.status(409).json({ ok: false, message: 'Обновление уже выполняется' })
+  if (syncing[orgId]) return res.status(409).json({ ok: false, busy: true, message: 'Обновление уже выполняется' })
+  if (req.auth?.role !== 'admin' && Date.now() - (lastManualSync[orgId] ?? 0) < 60_000) return res.status(429).json({ ok: false, message: 'Данные только что обновляли — подождите минуту и нажмите снова' })
+  lastManualSync[orgId] = Date.now()
   // Не ждём runSync здесь — у реального iikoServer запрос за полный месяц
   // может идти десятками секунд (см. таймаут 60с в iikoServerFacts), а между
   // браузером и этим сервером обычно есть ещё reverse-proxy/CDN со своим
@@ -718,7 +723,7 @@ function keepExistingPrices(fresh, prev) {
 const matrixJobs = {}
 function startMatrixJob(req, res) {
   const key = `${req.auth.orgId}:${req.body?.target === 'astana' ? 'astana' : 'almaty'}`
-  if (matrixJobs[key]?.running) return res.status(409).json({ ok: false, message: 'Обновление матрицы уже выполняется' })
+  if (matrixJobs[key]?.running) return res.status(409).json({ ok: false, busy: true, message: 'Обновление матрицы уже выполняется' })
   matrixJobs[key] = { running: true }
   res.json({ ok: true, started: true })
   inMatrixQueue(async () => {
@@ -727,7 +732,11 @@ function startMatrixJob(req, res) {
     matrixJobs[key] = { running: false, result: out.body ?? { ok: false, message: 'Нет ответа' } }
   })
 }
-app.post('/api/matrix/sync', requireAuth, requireAdmin, startMatrixJob)
+// Чтение матрицы (листы, поставщики, товары; цены не меняются) — любому пользователю. ФИКСАЦИЯ ЦЕН за период (period/tab) — только админ.
+app.post('/api/matrix/sync', requireAuth, (req, res, next) => {
+  if ((req.body?.period || req.body?.tab) && req.auth?.role !== 'admin') return res.status(403).json({ ok: false, message: 'Фиксировать цены может только администратор' })
+  next()
+}, startMatrixJob)
 
 app.get('/api/matrix/sync-status', requireAuth, (req, res) => {
   const j = matrixJobs[`${req.auth.orgId}:${req.query.target === 'astana' ? 'astana' : 'almaty'}`]

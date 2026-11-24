@@ -298,13 +298,20 @@ async function pollMatrixSync(target?: 'almaty' | 'astana'): Promise<SyncResult>
   return { ok: false, message: 'Обновление идёт дольше обычного — подождите минуту и нажмите «Обновить» ещё раз.' }
 }
 /** period ("YYYY-MM") — зафиксировать цены матрицы ЗА ЭТОТ месяц отдельным снимком (остальные месяцы не трогаются); без period — общая матрица, как раньше. */
-export async function syncMatrix(target?: 'almaty' | 'astana', period?: string, tab?: string): Promise<SyncResult> {
+export async function syncMatrix(target?: 'almaty' | 'astana', period?: string, tab?: string, retried = false): Promise<SyncResult> {
   try {
     const r = await fetch('/api/matrix/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(target ? { target } : {}), ...(period ? { period } : {}), ...(tab ? { tab } : {}) }) })
     const text = await r.text()
     let first: any = null
     try { first = JSON.parse(text) } catch { /* не JSON — ниже сообщим код ответа */ }
     if (!first) return { ok: false, message: `Сервер ответил не так, как ожидалось (HTTP ${r.status}) — возможно, он перезапускается или прокси оборвал запрос. Попробуйте ещё раз.` }
+    if (first.busy) {
+      // чтение матрицы уже идёт (кто-то нажал раньше): ждём его. Чужой результат годится только для простого чтения; фиксация цен за период
+      // (period/tab) после ожидания запускается заново один раз — иначе чужой «успех» выдался бы за свою фиксацию
+      const other = await pollMatrixSync(target)
+      if (!period && !tab) return other
+      return retried ? { ok: false, message: 'Идёт чтение матрицы другим пользователем — повторите через минуту' } : await syncMatrix(target, period, tab, true)
+    }
     if (!first.started) return first // старый сервер отвечал результатом сразу / ошибка запуска
     return await pollMatrixSync(target) // синк идёт в фоне — результат берём опросом (до ~5 минут)
   } catch (e) { return { ok: false, message: backendErr(e) } }
@@ -320,7 +327,7 @@ export async function deleteMatrixSnapshot(period: string, tab?: string): Promis
 export const fetchMatrixSnapshots = () => get<{ periods: { period: string; periodLabel: string }[]; tabs?: { tab: string; period: string; periodLabel: string }[] }>('/api/matrix/snapshots')
 
 /** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */
-export async function triggerSync(period?: string, city?: string): Promise<{ ok: boolean; message?: string }> {
+export async function triggerSync(period?: string, city?: string): Promise<{ ok: boolean; message?: string; busy?: boolean }> {
   try {
     const r = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ ...(period ? { period } : {}), ...(city ? { city } : {}) }) })
     return await r.json()

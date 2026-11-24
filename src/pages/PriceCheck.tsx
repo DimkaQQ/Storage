@@ -2,7 +2,6 @@ import { Fragment, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo,
 import { createPortal } from 'react-dom'
 import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, signedMoney, pct, fmt, summarize, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
-import { useAuth } from '../lib/auth'
 import { useClickOutside } from '../lib/hooks'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -60,12 +59,24 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
 ]
 
 export default function PriceCheck({ rows, city }: { rows: Row[]; city?: string | null }) {
-  const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel, updateAll, updateStep, syncing } = useEdits()
-  const isAdmin = useAuth().user?.role === 'admin'
+  const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel, updateAll, updateStep, syncing, status, reloadStatus, reloadData } = useEdits()
   const [updMsg, setUpdMsg] = useState<{ ok: boolean; message: string } | null>(null)
   const updBusy = useRef(false)
-  const runUpdate = async () => { if (updBusy.current) return; updBusy.current = true; setUpdMsg(null); try { setUpdMsg(await updateAll(city)) } finally { updBusy.current = false } }
+  const [updRunning, setUpdRunning] = useState(false)
+  const runUpdate = async () => { if (updBusy.current) return; updBusy.current = true; setUpdRunning(true); setUpdMsg(null); try { setUpdMsg(await updateAll(city)) } finally { updBusy.current = false; setUpdRunning(false) } }
   useEffect(() => { setUpdMsg(null) }, [period, city])
+  // Обновление может запустить другой пользователь: пока страница открыта, раз в 6 секунд смотрим статус (кнопка тогда показывает «идёт
+  // обновление»), а когда чужое обновление закончилось — сами перечитываем данные
+  const serverBusy = !!status?.syncing
+  const wasBusy = useRef(false)
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === 'visible' && !updBusy.current) void reloadStatus() }, 6000)
+    return () => clearInterval(t)
+  }, [reloadStatus])
+  useEffect(() => {
+    if (wasBusy.current && !serverBusy && !updBusy.current) void reloadData()
+    wasBusy.current = serverBusy
+  }, [serverBusy, reloadData])
   const [q, setQ] = useState('')
   const [active, setActive] = useState<Set<Status>>(new Set())
   // «С заметкой» — строки, где уже есть свой комментарий или цветовая
@@ -417,12 +428,10 @@ export default function PriceCheck({ rows, city }: { rows: Row[]; city?: string 
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
             {moneyMode ? 'Общ. сумма закупки' : 'тенге за 1кг'}
           </button>
-          {isAdmin && (
             <button onClick={runUpdate} disabled={syncing} title={`Обновить: ${city || 'все города'}, ${period || 'выбранный период'}. Закупки из iiko и матрица (листы, поставщики, товары); цены матрицы не меняются. Выбор города и месяца в шапке.`}
               className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-              <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? (updateStep || 'Обновляю…') : 'Обновить'}
+              <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? (updateStep || (updRunning ? 'Обновляю…' : 'Идёт обновление…')) : 'Обновить'}
             </button>
-          )}
           <button onClick={exportExcel} title="Скачать в Excel" className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
             <IDownload width={16} height={16} /> Excel
           </button>

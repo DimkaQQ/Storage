@@ -221,6 +221,8 @@ interface Ctx {
   // «Обновить» в Проверке цен: закупки из iiko за открытый период + матрица (листы, поставщики, товары; цены не меняются) + пересчёт
   updateAll: (city?: string | null) => Promise<{ ok: boolean; message: string }>
   updateStep: string
+  // перечитать закупки/матрицу с сервера без запуска синка (когда обновление сделал другой пользователь)
+  reloadData: () => Promise<void>
   reloadStatus: () => Promise<void>
   // точки сети — какие сейчас включены/показаны, и какие видны в закупках,
   // но пока не включены (Настройки iiko → «Точки сети»)
@@ -610,7 +612,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       for (const m of months) {
         if (stopped) break
         setUpdateStep(`Закупки из iiko за ${m}…`)
-        const started = await triggerSync(m, city || undefined)
+        let started = await triggerSync(m, city || undefined)
+        // кто-то другой уже обновляет — дожидаемся его и запускаем своё (у него мог быть другой город или месяц)
+        for (let tries = 0; started.busy && tries < 2; tries++) {
+          setUpdateStep('Уже идёт обновление другого пользователя — жду…')
+          if ((await pollUntilSyncDone()) === null) { stopped = true; break }
+          started = await triggerSync(m, city || undefined)
+        }
+        if (stopped) { problems.push('закупки: чужое обновление идёт дольше обычного — подождите и нажмите снова'); break }
         if (!started.ok) { problems.push(`закупки ${m}: ${started.message ?? 'не удалось запустить'}`); continue }
         const final = await pollUntilSyncDone()
         if (final === null) { problems.push(`закупки ${m}: загрузка идёт дольше обычного — она продолжается на сервере, обновите страницу позже`); stopped = true }
@@ -638,6 +647,10 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     } finally { setSyncing(false); setUpdateStep('') }
     return problems.length ? { ok: false, message: 'Обновлено не полностью: ' + problems.join('; ') } : { ok: true, message: (city ? `${city}: ` : '') + (matrixRead ? `обновлено — закупки и матрица (${matrixNames})` : 'обновлено — закупки (таблица с матрицей не подключена)') }
   }, [loadData, loadMatching, loadPeriods, loadVenues, pollUntilSyncDone])
+
+  const reloadData = useCallback(async () => {
+    try { await loadVenues(); await loadPeriods(); await loadData(periodKeyRef.current); await loadMatching(periodKeyRef.current) } catch { /* сеть моргнула — данные обновятся при следующем действии */ }
+  }, [loadData, loadMatching, loadPeriods, loadVenues])
 
   // Матрица версионирована по периодам так же, как факты — цены реально
   // отличаются месяц к месяцу, так что план всегда должен браться из
@@ -873,7 +886,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
-    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, updateAll, updateStep, reloadStatus,
+    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, updateAll, updateStep, reloadData, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,
