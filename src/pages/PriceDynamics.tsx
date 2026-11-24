@@ -312,7 +312,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
         <>
           <Section
             title="Динамика цен по всем позициям"
-            subtitle={`Позиция = точка + поставщик + фасовка, цена за единицу, ₸ · «К пред.» — последняя цена к предыдущей закупке этой позиции · «Переплата» = (цена − предыдущая) × последний объём: плюс — потратили больше, минус — сэкономили · нажмите на строку, чтобы увидеть график`}
+            subtitle={`Позиция = точка + поставщик + фасовка, цена за единицу, ₸ · «Изменение цены» — последняя цена по сравнению с предыдущей закупкой этой позиции · «Переплата» = (цена − предыдущая) × последний объём: плюс — потратили больше, минус — сэкономили · нажмите на строку, чтобы увидеть график`}
             right={built.buckets.length > MAX_COLS ? <button onClick={() => setAllCols((v) => !v)} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">{allCols ? `Только последние ${MAX_COLS}` : `Все периоды (${built.buckets.length})`}</button> : undefined}
           >
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -321,7 +321,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
               ))}
               <label className="ml-auto flex items-center gap-2 text-xs text-fg-400">Сортировать
                 <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-8 rounded-lg border border-ink-600 bg-ink-900 px-2 text-xs text-fg-100">
-                  <option value="step">Рост к пред., %</option>
+                  <option value="step">Рост цены, %</option>
                   <option value="impact">Переплата, ₸</option>
                   <option value="total">Рост за период, %</option>
                   <option value="rest">Точка А–Я</option>
@@ -340,7 +340,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
                 <thead><tr className="text-left text-xs text-fg-500">
                   <th className="py-2 pr-2">Позиция</th><th className="pr-2">Точка</th>
                   {shownBuckets.map((b) => <th key={b.key} title={b.label} className="pr-2 text-right whitespace-nowrap">{b.label.replace(/^([А-Яа-я]{3})[А-Яа-я]* (\d{4})$/, '$1 $2').replace(/^Нед\. с (\d{2}\.\d{2})\.\d{4}$/, 'нед. $1').replace(/^(\d{2}\.\d{2})\.\d{4}$/, '$1')}</th>)}
-                  <th className="pr-2 text-right">К пред.</th><th className="pr-2 text-right" title="Сколько потратили сверх (плюс) или сэкономили (минус) из-за смены цены, на последнем объёме">Переплата</th><th className="text-right" title="Плановая цена; ниже — на сколько процентов цена выше (+) или ниже (−) плана">План</th>
+                  <th className="pr-2 text-right" title="Как изменилась цена последней закупки по сравнению с предыдущей закупкой этой позиции">Изменение цены</th><th className="pr-2 text-right" title="Сколько потратили сверх (плюс) или сэкономили (минус) из-за смены цены, на последнем объёме">Переплата</th><th className="text-right" title="Плановая цена; ниже — на сколько процентов цена выше (+) или ниже (−) плана">План</th>
                 </tr></thead>
                 <tbody>{visible.slice(0, limit).map((p) => {
                   const t = trendOf(p), tone = t === 'up' ? 'text-bad' : t === 'down' ? 'text-good' : 'text-fg-400'
