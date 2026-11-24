@@ -219,6 +219,8 @@ interface Ctx {
   // «Обновить» в Проверке цен: закупки из iiko за открытый период + матрица (листы, поставщики, товары; цены не меняются) + пересчёт
   updateAll: (city?: string | null) => Promise<{ ok: boolean; message: string }>
   updateStep: string
+  // растёт, когда данные или матрица на сервере изменились (обновление, фиксация цен): по нему страницы сбрасывают свои кэши
+  dataVersion: number
   // перечитать закупки/матрицу с сервера без запуска синка (когда обновление сделал другой пользователь)
   reloadData: () => Promise<void>
   reloadStatus: () => Promise<void>
@@ -514,7 +516,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // Пересинхронизировать матрицу вручную (кнопка в Настройки iiko, после
   // «Обновить сейчас» самой Google-таблицы) — просто перечитывает уже
   // сохранённую бэкендом (единую, без периода) матрицу.
-  const refreshMatrix = useCallback(() => loadMatching(periodKeyRef.current), [loadMatching])
+  const refreshMatrix = useCallback(async () => { await loadMatching(periodKeyRef.current); setDataVersion((n) => n + 1) }, [loadMatching])
 
   // Кнопка «Добавить» у обнаруженной, но пока не включённой точки
   // (Настройки iiko → «Точки сети»). Точка уже есть в данных (iiko прислал
@@ -548,6 +550,8 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // «Обновить» одной кнопкой: закупки из iiko за месяц(ы) открытого периода → матрица (только названия, цены не трогаются) → пересчёт экрана.
   // Ошибка одного шага не останавливает остальные — в итоге перечисляется, что не получилось.
   const [updateStep, setUpdateStep] = useState('')
+  const [dataVersion, setDataVersion] = useState(0)
+  const bumpData = useCallback(() => setDataVersion((n) => n + 1), [])
   const updateAll = useCallback(async (city?: string | null): Promise<{ ok: boolean; message: string }> => {
     setSyncing(true)
     const key = periodKeyRef.current
@@ -603,13 +607,14 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       await loadMatching(periodKeyRef.current)
     } catch (e) {
       problems.push(String((e as Error)?.message || e))
-    } finally { setSyncing(false); setUpdateStep('') }
+    } finally { setSyncing(false); setUpdateStep(''); bumpData() }
     return problems.length ? { ok: false, message: 'Обновлено не полностью: ' + problems.join('; ') } : { ok: true, message: (city ? `${city}: обновлено` : 'Обновлено') + (matrixRead ? ` — закупки и матрица (${matrixNames})` : ' — закупки (матрицу не читали: таблица Google не подключена)') }
-  }, [loadData, loadMatching, loadPeriods, loadVenues, pollUntilSyncDone])
+  }, [loadData, loadMatching, loadPeriods, loadVenues, pollUntilSyncDone, bumpData])
 
   const reloadData = useCallback(async () => {
     try { await loadVenues(); await loadPeriods(); await loadData(periodKeyRef.current); await loadMatching(periodKeyRef.current) } catch { /* сеть моргнула — данные обновятся при следующем действии */ }
-  }, [loadData, loadMatching, loadPeriods, loadVenues])
+    bumpData()
+  }, [loadData, loadMatching, loadPeriods, loadVenues, bumpData])
 
   // Матрица версионирована по периодам так же, как факты — цены реально
   // отличаются месяц к месяцу, так что план всегда должен браться из
@@ -845,7 +850,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, products: parsed.products,
-    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, updateAll, updateStep, reloadData, reloadStatus,
+    backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, updateAll, updateStep, dataVersion, reloadData, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,

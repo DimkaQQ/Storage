@@ -7,32 +7,29 @@ import { Granularity, PeriodRows, Position, Series, addDays, bucketOf, buildPosi
 import MultiSelectFilter from '../components/MultiSelectFilter'
 import { ChartTip, C, SERIES } from '../components/charts'
 import { Section, EmptyHint } from '../components/ui'
+import { ISearch } from '../components/icons'
 
 interface Loaded { period: string; data: any; matching: any }
 
-const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'По дням' }, { id: 'week', label: 'По неделям' }, { id: 'month', label: 'По месяцам' }, { id: 'quarter', label: 'По кварталам' }, { id: 'year', label: 'По годам' }]
+const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'Дни' }, { id: 'week', label: 'Недели' }, { id: 'month', label: 'Месяцы' }, { id: 'quarter', label: 'Кварталы' }, { id: 'year', label: 'Годы' }]
 const coarser: Partial<Record<Granularity, Granularity>> = { day: 'week', week: 'month', month: 'quarter', quarter: 'year' } // следующая, более крупная детализация
 const MAX_COLS = 4 // столько периодов показываем в таблице; остальные — по кнопке «Все периоды» (иначе таблица шире экрана)
-// быстрый период сразу ставит подходящую детализацию: неделя → по дням, месяц → по неделям, квартал → по месяцам, год → по кварталам
-const PRESETS: { label: string; days: number; gran: Granularity }[] = [{ label: 'Неделя', days: 6, gran: 'day' }, { label: 'Месяц', days: 29, gran: 'week' }, { label: 'Квартал', days: 89, gran: 'month' }, { label: 'Год', days: 364, gran: 'quarter' }]
 
 /**
  * Поле даты: показываем свой текст по центру (родное поле даты в Safari/iOS рисует значение у верхнего края и разной высоты),
  * а настоящий input лежит сверху невидимым — нажатие открывает родной выбор даты.
  */
 function DateField({ label, value, min, max, onChange }: { label: string; value: string; min?: string; max?: string; onChange: (v: string) => void }) {
-  const shown = value ? new Date(value + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Выберите дату'
+  const shown = value ? new Date(value + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }) : 'Дата'
   return (
-    <div className="block min-w-0 text-xs font-medium text-fg-400">{label}
-      <div className="relative mt-1.5 h-10 rounded-lg border border-ink-600 bg-ink-900/60 focus-within:border-brand-500">
-        <div className={`pointer-events-none flex h-full items-center justify-between gap-2 px-3 text-sm ${value ? 'text-fg-100' : 'text-fg-600'}`}>
-          <span className="truncate">{shown}</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-fg-500"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
-        </div>
-        <input type="date" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)}
-          onClick={(e) => { try { e.currentTarget.showPicker?.() } catch { /* нет поддержки — откроется само */ } }}
-          aria-label={label} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+    <div className="relative h-10 w-[128px] shrink-0 rounded-lg border border-ink-600 bg-ink-900/60 focus-within:border-brand-500">
+      <div className={`pointer-events-none flex h-full items-center justify-between gap-2 px-3 text-sm ${value ? 'text-fg-100' : 'text-fg-600'}`}>
+        <span className="truncate"><span className="text-fg-500">{label} </span>{shown}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-fg-500"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
       </div>
+      <input type="date" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)}
+        onClick={(e) => { try { e.currentTarget.showPicker?.() } catch { /* нет поддержки — откроется само */ } }}
+        aria-label={label} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
     </div>
   )
 }
@@ -84,7 +81,7 @@ function ProductPicker({ value, onChange, options }: { value: string; onChange: 
  * показываются одной точкой на месяц, в колонке «Данные за» видно, за какие даты точка на самом деле.
  */
 export default function PriceDynamics({ active = true }: { active?: boolean }) {
-  const { edits, periods, restaurants, venueLabel, status } = useEdits()
+  const { edits, periods, restaurants, venueLabel, status, dataVersion } = useEdits()
   const manual = !!status?.manualLinks
   const allPeriods = useMemo(() => periods.map((p) => p.period), [periods])
   const latestEnd = useMemo(() => allPeriods.reduce((m, p) => { const e = periodSpan(p).end; return e > m ? e : m }, ''), [allPeriods])
@@ -108,16 +105,17 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cache = useRef(new Map<string, Loaded>())
-  // Страница остаётся смонтированной, пока открыта другая: после синка или фиксации цен кэш периодов устаревает.
-  // При возвращении на вкладку кэш старше 30 секунд сбрасываем и грузим периоды заново.
+  // Страница остаётся смонтированной, пока открыта другая: после «Обновить» или фиксации цен данные на сервере меняются, и кэш периодов
+  // устаревает. Версия данных (dataVersion) и время последней загрузки (status.lastSync) меняются ровно тогда — тогда кэш сбрасывается и,
+  // когда страница открыта, периоды загружаются заново. Если ничего не менялось, возвращение на вкладку ничего не грузит.
   const [reload, setReload] = useState(0)
-  const wasActive = useRef(active)
-  const loadedAt = useRef(Date.now())
+  const ver = status ? `${dataVersion}|${status.lastSync ?? ''}` : '' // пока статус не пришёл — версии нет
+  const verSeen = useRef<string | null>(null)
   useEffect(() => {
-    const back = active && !wasActive.current
-    wasActive.current = active
-    if (back && Date.now() - loadedAt.current > 30_000) { cache.current.clear(); setReload((n) => n + 1) }
-  }, [active])
+    if (!ver || !active) return
+    if (verSeen.current === null) { verSeen.current = ver; return } // первая версия — это не изменение
+    if (verSeen.current !== ver) { verSeen.current = ver; cache.current.clear(); setReload((n) => n + 1) }
+  }, [active, ver])
 
   // окно по умолчанию — последние ~3 месяца, но целыми загруженными периодами: начало сдвигаем к началу самого раннего периода,
   // который попадает в окно (иначе месяц обрезается и показывается предупреждение «период шире выбранных дат»).
@@ -138,6 +136,9 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
   useEffect(() => {
     let dead = false
     if (!chosen.length) { setLoaded([]); setLoading(false); setError(null); return }
+    // всё уже в кэше — показываем сразу, без «загрузки»
+    const cached = chosen.map((p) => cache.current.get(p))
+    if (cached.every(Boolean)) { setLoaded(cached as Loaded[]); setLoading(false); setError(null); return }
     setLoading(true); setError(null)
     ;(async () => {
       const out: Loaded[] = []
@@ -149,13 +150,12 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
             const [data, matching] = await Promise.all([fetchDataset(p), fetchMatching(p)])
             if (!data || !data.restaurants) { failed++; continue }
             hit = { period: p, data, matching }
-            cache.current.set(p, hit)
+            if (!dead) cache.current.set(p, hit) // отменённая загрузка не должна класть в кэш устаревшие данные
           }
           out.push(hit)
         } catch { failed++ }
       }
       if (dead) return
-      loadedAt.current = Date.now()
       setLoaded(out); setLoading(false)
       if (failed) setError(`Не удалось загрузить периодов: ${failed}`)
     })()
@@ -251,7 +251,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [series])
 
-  const setPreset = (days: number, g: Granularity) => { const end = to || latestEnd; if (end) { autoWindow.current = false; setTo(end); setFrom(addDays(end, -days)); setGran(g); setAllCols(false); setPickedDates(false) } }
+  const blocking = loading && loaded.length === 0 // пока есть что показать, прежние данные остаются на экране, а загрузка — маленькая пометка
   const noData = !loading && chosen.length === 0
   // месяцы выбранных дат, за которые в системе нет ни одного загруженного периода
   const missing = useMemo(() => {
@@ -273,7 +273,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
 
   return (
     <div className="space-y-5">
-      {!loading && built.positions.length > 0 && (
+      {!blocking && built.positions.length > 0 && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <DynStat delay={0} tone="slate" label="Позиций в выборке" value={String(base.length)} hint={`периодов: ${chosen.length}`} />
           <DynStat delay={50} tone="bad" label="Цена выросла" value={String(counts.up)} hint={counts.up ? `переплата из-за роста ${money(counts.upSum)}` : 'нет роста'} />
@@ -282,47 +282,33 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
         </div>
       )}
 
-      <div className="card space-y-4 p-4">
-        <div className="grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-[minmax(150px,1.6fr)_minmax(150px,1fr)_164px_164px] lg:gap-x-4">
-          <label className="col-span-2 block text-xs font-medium text-fg-400 lg:col-span-1">Поиск
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Товар, поставщик или точка" className="mt-1.5 block h-10 w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 text-sm font-normal text-fg-100 outline-none placeholder:text-fg-600 focus:border-brand-500" />
-          </label>
-          <div className="col-span-2 text-xs font-medium text-fg-400 lg:col-span-1">Рестораны
-            <div className="mt-1.5 [&>div]:w-full [&>div>button:first-child]:h-10 [&>div>button:first-child]:w-full [&>div>button:first-child]:rounded-lg">
-              <MultiSelectFilter allLabel="Вся сеть" options={restaurantOptions} selected={scope} onChange={setScope} />
-            </div>
+      <div className="card p-4">
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
+          <div className="relative w-28 shrink-0">
+            <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск" title="Поиск: товар, поставщик, точка"
+              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none" />
           </div>
-          <DateField label="С" value={from} max={to || undefined} onChange={userFrom} />
-          <DateField label="По" value={to} min={from || undefined} onChange={userTo} />
-        </div>
-        <div className="flex flex-wrap gap-x-6 gap-y-4">
-          <div className="w-full min-w-0 text-xs font-medium text-fg-400 sm:w-[240px]">Поставщик
-            <div className="mt-1.5 [&>div]:w-full [&>div>button:first-child]:h-10 [&>div>button:first-child]:w-full [&>div>button:first-child]:rounded-lg">
-              <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supSel} onChange={setSupSel} />
-            </div>
+          <MultiSelectFilter allLabel="Вся сеть" options={restaurantOptions} selected={scope} onChange={setScope} />
+          <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supSel} onChange={setSupSel} />
+          <DateField label="с" value={from} max={to || undefined} onChange={userFrom} />
+          <DateField label="по" value={to} min={from || undefined} onChange={userTo} />
+          <div className="flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
+            {GRAN.map((g) => <button key={g.id} onClick={() => setGran(g.id)} className={`h-9 rounded-md px-2 text-sm font-normal ${gran === g.id ? 'bg-brand-500/20 text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{g.label}</button>)}
           </div>
-          <div className="min-w-0 text-xs font-medium text-fg-400">Быстрый период
-            <div className="mt-1.5 flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
-              {PRESETS.map((p) => <button key={p.label} onClick={() => setPreset(p.days, p.gran)} className="h-9 flex-1 rounded-md px-3 text-sm font-normal text-fg-300 hover:bg-ink-800 hover:text-fg-50 sm:flex-none">{p.label}</button>)}
-            </div>
-          </div>
-          <div className="min-w-0 text-xs font-medium text-fg-400">Детализация
-            <div className="mt-1.5 flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
-              {GRAN.map((g) => <button key={g.id} onClick={() => setGran(g.id)} className={`h-9 flex-1 rounded-md px-3 text-sm font-normal sm:flex-none ${gran === g.id ? 'bg-brand-500/20 text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{g.label}</button>)}
-            </div>
-          </div>
+          {loading && loaded.length > 0 && <span className="text-xs text-fg-500">Обновляю…</span>}
         </div>
       </div>
 
       {missing.length > 0 && !loading && !noData && <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">В выбранных датах нет загруженных данных за: {missing.join(', ')}. Загрузите их в разделе «Обновление», тогда они появятся в таблице.</div>}
       {wider.length > 0 && !loading && <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">Загруженные периоды шире выбранных дат ({wider.join(', ')}): цена считается по периоду целиком. Чтобы увидеть меньший отрезок, загрузите его отдельно в разделе «Обновление».</div>}
       {error && <div className="rounded-lg border border-bad/30 bg-bad/10 px-4 py-2 text-xs text-bad">{error}</div>}
-      {loading && <EmptyHint>Загружаю периоды…</EmptyHint>}
+      {blocking && <EmptyHint>Загружаю периоды…</EmptyHint>}
       {noData && <EmptyHint>За выбранные даты нет загруженных периодов. Загрузите данные в разделе «Обновление».</EmptyHint>}
 
 
       {!loading && !noData && built.positions.length === 0 && <EmptyHint>В выбранных периодах и ресторанах нет закупок с ценой.</EmptyHint>}
-      {!loading && built.positions.length > 0 && (
+      {!blocking && built.positions.length > 0 && (
         <>
           <Section
             title="Динамика цен по всем позициям"
@@ -389,8 +375,8 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
             <div className="min-w-[260px] flex-1"><ProductPicker value={product} onChange={(v) => { setProduct(v); setSelKey('') }} options={products} /></div>
             <button onClick={() => { setProduct(''); setSelKey('') }} className="btn border border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800">Закрыть подробности</button>
           </div>
-          {!loading && !series.length && <EmptyHint>{built.positions.some((p) => p.product === product) ? `Позицию «${product}» скрыл фильтр по поставщику.` : `Позицию «${product}» в выбранных периодах и ресторанах не покупали.`}</EmptyHint>}
-      {!loading && series.length > 0 && (
+          {!blocking && !series.length && <EmptyHint>{built.positions.some((p) => p.product === product) ? `Позицию «${product}» скрыл фильтр по поставщику.` : `Позицию «${product}» в выбранных периодах и ресторанах не покупали.`}</EmptyHint>}
+      {!blocking && series.length > 0 && (
         <>
           <Section
             title={product}
