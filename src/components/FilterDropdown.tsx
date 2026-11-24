@@ -26,16 +26,16 @@ export default function FilterDropdown({ label, icon: Icon, value, options, onCh
   const pick = (v: string | null) => { onChange(v); setOpen(false) }
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative min-w-0 shrink" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`btn ${wide ? 'w-[158px]' : 'w-[140px]'} h-10 justify-between border px-3 text-sm ${
+        className={`btn ${wide ? 'w-[158px]' : 'w-[140px]'} h-10 max-w-full justify-between border px-3 text-sm ${
           value && !noAll ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500'
         }`}
         title={label}
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <Icon width={14} height={14} className="shrink-0 text-brand-300" />
+          <Icon width={14} height={14} className="hidden shrink-0 text-brand-300 xl:block" />
           <span className="truncate">{value ?? allLabel}</span>
         </span>
         <IChevron className={`shrink-0 text-fg-500 transition-transform ${open ? 'rotate-90' : ''}`} width={13} height={13} />

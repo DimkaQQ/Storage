@@ -109,10 +109,10 @@ export default function MultiSelectFilter({
     `Выбрано: ${selected.size}`
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative min-w-0 shrink" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`btn h-10 justify-between gap-2 border text-sm ${selected.size > 0 ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100'} hover:border-ink-500`}
+        className={`btn h-10 max-w-full justify-between gap-2 border text-sm ${selected.size > 0 ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100'} hover:border-ink-500`}
       >
         <span className="truncate">{buttonLabel}</span>
         <IChevron width={13} height={13} className={`shrink-0 text-fg-500 transition-transform ${open ? '-rotate-90' : 'rotate-90'}`} />

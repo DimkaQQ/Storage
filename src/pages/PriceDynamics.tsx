@@ -267,14 +267,14 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
       )}
 
       <div className="card p-4">
-        <div className="flex flex-wrap items-center justify-center gap-2.5">
-          <div className="relative w-28 shrink-0">
+        <div className="flex flex-nowrap items-center justify-center gap-2">
+          <div className="relative w-28 min-w-[88px] shrink">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск" title="Поиск: товар, поставщик, точка"
               className="w-full h-10 rounded-lg border border-ink-600 bg-ink-900/60 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none" />
           </div>
           <MultiSelectFilter allLabel="Вся сеть" options={restaurantOptions} selected={scope} onChange={setScope} />
-          <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supSel} onChange={setSupSel} />
+          <MultiSelectFilter allLabel="Поставщики" options={supplierOptions} selected={supSel} onChange={setSupSel} />
           <DateField label="с" value={from} max={to || undefined} onChange={userFrom} />
           <DateField label="по" value={to} min={from || undefined} onChange={userTo} />
           <FilterDropdown label="Детализация" icon={ILayers} noAll wide value={GRAN.find((g) => g.id === gran)!.label} options={GRAN.map((g) => g.label)}

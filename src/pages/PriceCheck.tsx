@@ -389,8 +389,8 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
 
       {/* toolbar */}
       <div className="card p-4">
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <div className="relative w-28 shrink-0">
+        <div className="flex flex-nowrap items-center justify-center gap-2">
+          <div className="relative w-28 min-w-[88px] shrink">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
             <input
               value={q}
@@ -407,8 +407,8 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
               в этом срезе. У товара под названием — поставщик, иначе
               голый текст фасовки вместо названия (их собственное описание
               в матрице) ничего не говорит сам по себе. */}
-          <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supplierFilter} onChange={setSupplierFilter} />
-          <MultiSelectFilter allLabel="Все товары" options={productOptions} selected={productFilter} onChange={setProductFilter} />
+          <MultiSelectFilter allLabel="Поставщики" options={supplierOptions} selected={supplierFilter} onChange={setSupplierFilter} />
+          <MultiSelectFilter allLabel="Товары" options={productOptions} selected={productFilter} onChange={setProductFilter} />
           <FiltersMenu
             active={active}
             onToggleStatus={toggle}
@@ -423,17 +423,17 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
           <button
             onClick={() => setMoneyMode((m) => !m)}
             title="Переключить, как считаются План/Факт/Δ: реальные деньги за закупку, или цена за единицу матрицы (кг и т.п.)"
-            className={`btn h-10 border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500'}`}
+            className={`btn h-10 shrink-0 whitespace-nowrap border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500'}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
-            {moneyMode ? 'Общ. сумма закупки' : 'тенге за 1кг'}
+            {moneyMode ? <><span className="hidden xl:inline">Общ. сумма закупки</span><span className="xl:hidden">Сумма</span></> : <><span className="hidden xl:inline">тенге за 1кг</span><span className="xl:hidden">₸/кг</span></>}
           </button>
             <button onClick={runUpdate} disabled={syncing} title={`Обновить: ${city || 'все города'}, ${period || 'выбранный период'}. Закупки из iiko и матрица (листы, поставщики, товары); цены матрицы не меняются. Выбор города и месяца в шапке.`}
-              className="btn h-10 bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+              className="btn h-10 shrink-0 whitespace-nowrap bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
               <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? (updateStep || (updRunning ? 'Обновляю…' : 'Идёт обновление…')) : 'Обновить'}
             </button>
-          <button onClick={exportExcel} title="Скачать в Excel" className="btn h-10 border border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500">
-            <IDownload width={16} height={16} /> Excel
+          <button onClick={exportExcel} title="Скачать в Excel" className="btn h-10 shrink-0 border border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500">
+            <IDownload width={16} height={16} /> <span className="hidden xl:inline">Excel</span>
           </button>
         </div>
         {updMsg && !syncing && (
@@ -737,10 +737,10 @@ function FiltersMenu({
   const count = active.size + (onlyNoted ? 1 : 0) + (onlyDiff ? 1 : 0) + (hideEmpty ? 1 : 0)
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative min-w-0 shrink" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`btn h-10 justify-between gap-2 border text-sm ${count > 0 ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100'} hover:border-ink-500`}
+        className={`btn h-10 max-w-full justify-between gap-2 border text-sm ${count > 0 ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100'} hover:border-ink-500`}
       >
         <span className="truncate">{count > 0 ? `Фильтры: ${count}` : 'Фильтры'}</span>
         <IChevron width={13} height={13} className={`shrink-0 text-fg-500 transition-transform ${open ? '-rotate-90' : 'rotate-90'}`} />
