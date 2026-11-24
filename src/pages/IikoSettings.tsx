@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { norm, matchRestaurant } from '../lib/data'
+import { useAuth } from '../lib/auth'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
@@ -24,14 +25,17 @@ const INTERVALS: { id: Settings['interval']; label: string }[] = [
 
 export default function IikoSettings() {
   const { backendOnline, status, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
+  // Режим разработчика: доступы, точки сети, автообновление и резервные копии видит только разработчик (DEVELOPER_EMAILS на сервере)
+  const isDev = !!useAuth().user?.developer
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
-  const SECTIONS = [
+  const ALL_SECTIONS = [
     { id: 'matrix', label: 'Зафиксировать цены' },
     { id: 'venues', label: 'Точки сети' },
     { id: 'auto', label: 'Автообновление' },
     { id: 'backup', label: 'Резервная копия' },
   ] as const
-  type SectionId = typeof SECTIONS[number]['id']
+  const SECTIONS = isDev ? ALL_SECTIONS : ALL_SECTIONS.filter((x) => x.id === 'matrix')
+  type SectionId = typeof ALL_SECTIONS[number]['id']
   const [fullBusy, setFullBusy] = useState<'' | 'restore' | 'wipe'>('')
   const [fullResult, setFullResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [section, setSection] = useState<SectionId>(() => { try { const v = localStorage.getItem('settingsSection'); return SECTIONS.some((x) => x.id === v) ? (v as SectionId) : 'matrix' } catch { return 'matrix' } })
@@ -118,7 +122,7 @@ export default function IikoSettings() {
     if (!form || !oneTabInfo || !matrixPeriod) return
     const cov = await coveredBy(oneTab); if (!askCovered(cov)) return
     setOneSyncing(true); setOneResult(null)
-    const r0 = await saveSettings(form)
+    const r0 = (isDev ? await saveSettings(form) : null)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix(oneTabInfo.target, matrixPeriod, oneTab)
     setOneResult(r.ok ? { ok: true, message: `Цены «${oneRest}» зафиксированы за выбранный период (${r.rows ?? 0} позиций)` } : r)
@@ -154,14 +158,14 @@ export default function IikoSettings() {
 
   const save = async () => {
     if (!form) return
-    const r = await saveSettings(form)
+    const r = (isDev ? await saveSettings(form) : null)
     if (r) { setForm(r); setSaved(true); reloadStatus() }
   }
   const test = async () => {
     if (!form) return
     setTesting(true); setTestResult(null)
     // «Проверить» = «Сохранить и проверить»: введённое не пропадает, если уйти со страницы
-    const r = await saveSettings(form)
+    const r = (isDev ? await saveSettings(form) : null)
     if (r) { setForm(r); setSaved(true); reloadStatus() }
     setTestResult(await testConnection(form))
     setTesting(false)
@@ -169,7 +173,7 @@ export default function IikoSettings() {
   const testMatrix = async () => {
     if (!form) return
     setMatrixTesting(true); setMatrixTestResult(null); setAstanaTesting(true); setAstanaTestResult(null)
-    const r = await saveSettings(form)
+    const r = (isDev ? await saveSettings(form) : null)
     if (r) { setForm(r); setSaved(true); reloadStatus() }
     setMatrixTestResult(await testMatrixConnection(form))
     setMatrixTesting(false)
@@ -181,7 +185,7 @@ export default function IikoSettings() {
     const cov = MATRIX_SNAPSHOTS ? await coveredBy() : []; if (!askCovered(cov)) return
     setMatrixSyncing(true); setMatrixSyncResult(null)
     // Сохраняем перед синком: иначе синк ушёл бы со старым ID/ключом, а не с только что вписанным
-    const r0 = await saveSettings(form)
+    const r0 = (isDev ? await saveSettings(form) : null)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix(undefined, MATRIX_SNAPSHOTS ? matrixPeriod || undefined : undefined)
     setMatrixSyncResult(r)
@@ -192,7 +196,7 @@ export default function IikoSettings() {
     if (!form) return
     const cov = MATRIX_SNAPSHOTS ? await coveredBy() : []; if (!askCovered(cov)) return
     setAstanaSyncing(true); setAstanaSyncResult(null)
-    const r0 = await saveSettings(form)
+    const r0 = (isDev ? await saveSettings(form) : null)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix('astana', MATRIX_SNAPSHOTS ? matrixPeriod || undefined : undefined)
     setAstanaSyncResult(r)
@@ -273,7 +277,7 @@ export default function IikoSettings() {
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-10">
 
-      <nav className="flex shrink-0 flex-col gap-0.5 lg:w-56" aria-label="Разделы">
+      {SECTIONS.length > 1 && <nav className="flex shrink-0 flex-col gap-0.5 lg:w-56" aria-label="Разделы">
         {SECTIONS.map((x) => (
           <button key={x.id} onClick={() => pickSection(x.id)}
             className={`flex h-10 items-center justify-between rounded-xl px-3 text-left text-sm ${section === x.id ? 'bg-brand-500 font-medium text-white shadow-sm' : 'text-fg-300 hover:bg-ink-800/70 hover:text-fg-100'}`}>
@@ -281,14 +285,14 @@ export default function IikoSettings() {
             {x.id === 'venues' ? <span className={`rounded-full px-2 py-0.5 text-xs ${section === x.id ? 'bg-white/25 text-white' : 'bg-ink-800 text-fg-400'}`}>{venues.enabled.length}</span> : x.id === 'backup' ? null : <i className={`h-2 w-2 rounded-full ${dot(x.id)} ${section === x.id ? 'ring-2 ring-white' : ''}`} />}
           </button>
         ))}
-      </nav>
+      </nav>}
       <div className="min-w-0 flex-1 space-y-5">
-      {section === 'matrix' && (<>
+      {(section === 'matrix' || !isDev) && (<>
       <div>
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-xl font-semibold text-fg-50">Зафиксировать цены</h2>
         </div>
-        <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: за какой период фиксируем цены. Названия листов, поставщиков и товаров подтягиваются кнопкой «Обновить» в Справочниках (перед этим сохраните доступы ниже).</p>
+        <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: за какой период фиксируем цены. Названия листов, поставщиков и товаров подтягиваются кнопкой «Обновить» в Справочниках.</p>
         <div className="mt-5">
           <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период: день, неделя, отрезок или один ресторан. Другие периоды не меняются. Новые строки и листы подхватывает «Обновить» в Справочниках.">
         <div className="space-y-4">
@@ -392,6 +396,7 @@ export default function IikoSettings() {
         </div>
         </div>
           </SettingsRow>
+          {isDev && (
           <SettingsRow title="Доступы" desc="Доступ к iiko, ID таблиц и ключ сервисного аккаунта.">
         <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
           <summary className={summary}>Доступ к iiko</summary>
@@ -444,10 +449,11 @@ export default function IikoSettings() {
           </div>
         </details>
           </SettingsRow>
+          )}
         </div>
       </div>
       </>)}
-      {section === 'venues' && (<>
+      {isDev && section === 'venues' && (<>
       {/* venues */}
       <Section title="Точки сети" subtitle="Точки приходят из iiko вместе с закупками: найдите нужную в списке «Обнаружены в закупках» и нажмите «Добавить». Дальше в Справочниках → Точки выберите для неё вкладку матрицы (матрица читает все вкладки таблицы сама) и, при желании, своё название — после этого закупки и план тянутся по этой вкладке, без правки кода.">
         <div className="text-sm text-fg-400">Сейчас включено: <span className="text-fg-200">{venues.enabled.length}</span> точек</div>
@@ -493,7 +499,7 @@ export default function IikoSettings() {
       </Section>
 
       </>)}
-      {section === 'auto' && (<>
+      {isDev && section === 'auto' && (<>
       {/* schedule */}
       <Section title="Автообновление" subtitle="Приложение будет само подтягивать данные из iiko по расписанию.">
         <label className="flex cursor-pointer items-center gap-3">
@@ -517,7 +523,7 @@ export default function IikoSettings() {
       </div>
 
       </>)}
-      {section === 'backup' && (<>
+      {isDev && section === 'backup' && (<>
       {/* резервная копия */}
       <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
         <div>

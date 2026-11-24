@@ -15,6 +15,8 @@ services:
       - IIKO_API_LOGIN=${IIKO_API_LOGIN:-}
       - IIKO_ORGANIZATION_ID=${IIKO_ORGANIZATION_ID:-}
       - IIKO_LOCK_ORG=${IIKO_LOCK_ORG:-}
+      # режим разработчика: почты (через запятую), кому видны доступы, точки сети, автообновление и резервные копии; пусто — всем админам
+      - DEVELOPER_EMAILS=${DEVELOPER_EMAILS:-}
     volumes:
       # данные, настройки iiko и плановые цены переживают пересборку
       - pricecheck-data:/app/data

@@ -1,3 +1,4 @@
+import { getUser } from './store.js'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -44,5 +45,30 @@ export function requireAuth(req, res, next) {
 /** Express middleware: requires requireAuth to have run first, and role === 'admin'. */
 export function requireAdmin(req, res, next) {
   if (req.auth?.role !== 'admin') return res.status(403).json({ ok: false, message: 'Только для администратора' })
+  next()
+}
+
+/**
+ * Режим разработчика: часть настроек (доступы, точки сети, автообновление, резервные копии, диагностика iiko) видит и меняет только разработчик.
+ * Разработчики — почты из переменной окружения DEVELOPER_EMAILS (через запятую, .env на сервере); `*` — все админы.
+ * Не задана: на локальной установке и при разработке (NODE_ENV не production) все админы — разработчики, как раньше;
+ * на сервере в Docker (NODE_ENV=production) НИКТО — иначе забытая переменная молча отдала бы клиентам восстановление и стирание данных.
+ */
+const devList = () => (process.env.DEVELOPER_EMAILS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)
+if (!devList().length && process.env.NODE_ENV === 'production' && !process.env.STATIC_DIR) {
+  console.warn('[developer] DEVELOPER_EMAILS не задан — на сервере режим разработчика закрыт для всех. Укажите почту в .env (см. .env.example).')
+}
+export function isDeveloper(user) {
+  if (!user || user.role !== 'admin') return false
+  const list = devList()
+  if (list.includes('*')) return true
+  if (!list.length) return !(process.env.NODE_ENV === 'production' && !process.env.STATIC_DIR)
+  return list.includes(String(user.email ?? '').trim().toLowerCase())
+}
+
+/** Express middleware (после requireAuth): только разработчик. Проверяется по актуальной записи пользователя, а не по токену. */
+export function requireDeveloper(req, res, next) {
+  const user = getUser(req.auth?.id)
+  if (!isDeveloper(user)) return res.status(403).json({ ok: false, message: 'Только для разработчика' })
   next()
 }

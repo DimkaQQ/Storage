@@ -4,7 +4,7 @@ import { DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
 
 const TOKEN_KEY = 'pricecheck-token'
 
-export interface AuthUser { id: string; email: string; orgId: string; role: 'admin' | 'employee' }
+export interface AuthUser { id: string; email: string; orgId: string; role: 'admin' | 'employee'; developer?: boolean }
 
 export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) } catch { return null } }
 export const authHeaders = (): Record<string, string> => {

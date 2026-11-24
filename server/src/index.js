@@ -21,7 +21,7 @@ import { composeRange, monthBounds } from './range.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { isValidPeriod, MONTH_RE } from './period.js'
 import { runIikoProbe } from './iikoProbe.js'
-import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin } from './auth.js'
+import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin, requireDeveloper, isDeveloper } from './auth.js'
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
@@ -178,13 +178,13 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ ok: false, message: 'Неверная почта или пароль' })
   }
   const token = signToken(user)
-  res.json({ ok: true, token, user: { id: user.id, email: user.email, orgId: user.orgId, role: user.role } })
+  res.json({ ok: true, token, user: { id: user.id, email: user.email, orgId: user.orgId, role: user.role, developer: isDeveloper(user) } })
 })
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const user = getUser(req.auth.id)
   if (!user) return res.status(401).json({ ok: false })
-  res.json({ id: user.id, email: user.email, orgId: user.orgId, role: user.role })
+  res.json({ id: user.id, email: user.email, orgId: user.orgId, role: user.role, developer: isDeveloper(user) })
 })
 
 app.post('/api/auth/change-password', requireAuth, (req, res) => {
@@ -315,10 +315,13 @@ const maskSecrets = (s, orgId) => {
 // теперь тоже adminOnly — это не расходится с ней, а закрывает то же самое
 // с двух сторон.
 app.get('/api/settings', requireAuth, requireAdmin, (req, res) => {
-  res.json(maskSecrets(getSettings(req.auth.orgId), req.auth.orgId))
+  const out = maskSecrets(getSettings(req.auth.orgId), req.auth.orgId)
+  // не разработчику доступы не показываем: остаётся только факт «задано / не задано» (интерфейс проверяет лишь наличие)
+  if (!isDeveloper(getUser(req.auth.id))) for (const k of CONNECTION_KEYS) out[k] = out[k] ? '********' : ''
+  res.json(out)
 })
 
-app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
+app.put('/api/settings', requireAuth, requireDeveloper, (req, res) => {
   const incoming = { ...req.body }
   for (const f of SECRET_FIELDS) if (incoming[f] === '********') delete incoming[f]
   // эти поля меняются только своими действиями (Точки сети, ручной режим, миграции) — устаревшая форма в браузере не должна их затирать
@@ -328,7 +331,7 @@ app.put('/api/settings', requireAuth, requireAdmin, (req, res) => {
   res.json(maskSecrets(next, req.auth.orgId))
 })
 
-app.post('/api/test-connection', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/test-connection', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   const merged = { ...s, ...req.body, ...iikoLockValues(req.auth.orgId) }
   if (req.body?.password === '********') merged.password = s.password
@@ -339,7 +342,7 @@ app.post('/api/test-connection', requireAuth, requireAdmin, async (req, res) => 
 // «Проверить, что можно тянуть из iiko» — длинная диагностика только на чтение, результат — текстовый отчёт (см. iikoProbe.js).
 // Идёт в фоне (занимает минуты), страница опрашивает GET.
 const probeJobs = {}
-app.post('/api/iiko/probe', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/iiko/probe', requireAuth, requireDeveloper, (req, res) => {
   const orgId = req.auth.orgId
   const old = probeJobs[orgId]
   if (old?.running && Date.now() - old.startedAt < 20 * 60 * 1000) return res.json({ ok: true, running: true }) // старше 20 минут считаем зависшей
@@ -354,7 +357,7 @@ app.post('/api/iiko/probe', requireAuth, requireAdmin, (req, res) => {
     .finally(() => { job.running = false })
   res.json({ ok: true, running: true })
 })
-app.get('/api/iiko/probe', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/iiko/probe', requireAuth, requireDeveloper, (req, res) => {
   const j = probeJobs[req.auth.orgId]
   if (!j) return res.json({ ok: true, running: false, idle: true })
   res.json({ ok: true, running: j.running, step: j.step, seconds: Math.round((Date.now() - j.startedAt) / 1000), error: j.error, text: j.running ? null : j.text })
@@ -365,7 +368,7 @@ app.get('/api/iiko/probe', requireAuth, requireAdmin, (req, res) => {
  * гадать по одному полю за раз через "Unknown OLAP field", сразу спрашивает
  * у iikoServer, что у него реально есть для этого типа отчёта.
  */
-app.get('/api/iiko/olap-columns', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/olap-columns', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     res.json({ ok: true, columns: await fetchOlapColumns(s, req.query.reportType || 'TRANSACTIONS') })
@@ -381,7 +384,7 @@ app.get('/api/iiko/olap-columns', requireAuth, requireAdmin, async (req, res) =>
  * похожих на искомый товар, чтобы увидеть текст глазами вместо того,
  * чтобы перебирать поля по одному через деплой.
  */
-app.get('/api/iiko/olap-sample', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/olap-sample', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const period = String(req.query.period || resolveLivePeriod(s).period)
@@ -401,7 +404,7 @@ app.get('/api/iiko/olap-sample', requireAuth, requireAdmin, async (req, res) => 
  * iikoServerTransactionTypes): агрегат по одному полю TransactionType без
  * разбивки по товарам/складам, должен отвечать быстро даже на всю сеть.
  */
-app.get('/api/iiko/olap-types', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/olap-types', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const period = String(req.query.period || resolveLivePeriod(s).period)
@@ -411,7 +414,7 @@ app.get('/api/iiko/olap-types', requireAuth, requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/api/iiko/extra-facts', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/extra-facts', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const period = String(req.query.period || resolveLivePeriod(s).period)
@@ -422,7 +425,7 @@ app.get('/api/iiko/extra-facts', requireAuth, requireAdmin, async (req, res) => 
   }
 })
 
-app.get('/api/iiko/invoice-reconcile', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/invoice-reconcile', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const period = String(req.query.period || resolveLivePeriod(s).period)
@@ -441,7 +444,7 @@ app.get('/api/iiko/invoice-reconcile', requireAuth, requireAdmin, async (req, re
  * эндпоинт) и возвращаем кусок сырого XML вокруг искомого товара —
  * нужные имена полей будут видны глазами.
  */
-app.get('/api/iiko/invoice-sample', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/invoice-sample', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const period = String(req.query.period || resolveLivePeriod(s).period)
@@ -459,7 +462,7 @@ app.get('/api/iiko/invoice-sample', requireAuth, requireAdmin, async (req, res) 
  * сконфигурированных для него фасовок/тар с именами, которые и resolve-ят
  * эти GUID в текст типа "брусника".
  */
-app.get('/api/iiko/product-sample', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/product-sample', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const num = String(req.query.num || '')
@@ -488,7 +491,7 @@ app.get('/api/iiko/product-sample', requireAuth, requireAdmin, async (req, res) 
  * же. Смотрим прямо в то, что реально ЛЕЖИТ в датасете после синка — без
  * догадок, тот ли код его посчитал.
  */
-app.get('/api/debug/dataset-items', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/debug/dataset-items', requireAuth, requireDeveloper, (req, res) => {
   if (req.query.period !== undefined && !isValidPeriod(req.query.period)) {
     return res.status(400).json({ ok: false, message: 'period должен быть в формате YYYY-MM или ГГГГ-ММ-ДД..ГГГГ-ММ-ДД' })
   }
@@ -507,7 +510,7 @@ app.get('/api/debug/dataset-items', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: true, period, items })
 })
 
-app.get('/api/iiko/stores-sample', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/stores-sample', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const search = String(req.query.search || '')
@@ -524,7 +527,7 @@ app.get('/api/iiko/stores-sample', requireAuth, requireAdmin, async (req, res) =
  * EXCLUDED_CATEGORIES, без пересинка и без риска временно замусорить
  * живую "Проверку цен" у всех остальных.
  */
-app.get('/api/iiko/product-category-sample', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/product-category-sample', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const search = String(req.query.search || '')
@@ -542,7 +545,7 @@ app.get('/api/iiko/product-category-sample', requireAuth, requireAdmin, async (r
  * решить, что из этого на самом деле нужно сверять, а не искать по
  * одному названию за раз.
  */
-app.get('/api/iiko/excluded-category-list', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/excluded-category-list', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     res.json(await iikoServerExcludedCategoryList(s))
@@ -558,7 +561,7 @@ app.get('/api/iiko/excluded-category-list', requireAuth, requireAdmin, async (re
  * схлопывания — чтобы увидеть разом все вклады в сумму по ресторанам/
  * складам, без ручного перебора по одному GUID через окна XML.
  */
-app.get('/api/iiko/assortment-debug', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/iiko/assortment-debug', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   try {
     const period = String(req.query.period || resolveLivePeriod(s).period)
@@ -582,7 +585,7 @@ app.get('/api/iiko/assortment-debug', requireAuth, requireAdmin, async (req, res
 // проверяем/синкаем; у Астаны свой googleSheetId (astanaSheetId), но тот
 // же сервисный аккаунт (googleServiceAccountKey), поэтому не отдельные
 // настройки целиком, а просто другой sheetId + другой маппинг вкладок.
-app.post('/api/matrix/test-connection', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/matrix/test-connection', requireAuth, requireDeveloper, async (req, res) => {
   const s = getSettings(req.auth.orgId)
   const astana = req.body?.target === 'astana'
   const merged = { ...s, ...req.body }
@@ -780,14 +783,14 @@ app.get('/api/venues', requireAuth, (req, res) => {
   res.json({ enabled: getEnabledRestaurants(req.auth.orgId), all: getSettings(req.auth.orgId).enabledRestaurants == null, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
-app.post('/api/venues/enable', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/venues/enable', requireAuth, requireDeveloper, (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = enableRestaurant(req.auth.orgId, name)
   res.json({ enabled, all: false, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
-app.post('/api/venues/disable', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/venues/disable', requireAuth, requireDeveloper, (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = disableRestaurant(req.auth.orgId, name)
@@ -800,7 +803,7 @@ app.post('/api/venues/disable', requireAuth, requireAdmin, (req, res) => {
  * чтобы было куда вернуться. Настройки подключения к iiko/Google сюда не
  * входят (их не трогаем ни при экспорте, ни при сбросе — см. store.js).
  */
-app.get('/api/org-data/export', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/org-data/export', requireAuth, requireDeveloper, (req, res) => {
   try {
     res.json({ ...exportOrgData(req.auth.orgId), edits: editsDb.getEditsForOrg(req.auth.orgId) })
   } catch (e) {
@@ -809,7 +812,7 @@ app.get('/api/org-data/export', requireAuth, requireAdmin, (req, res) => {
 })
 
 // Полная копия ВСЕЙ папки данных (включая пароли и ключи) — для переноса на другой компьютер / бэкапа с возможностью восстановления.
-app.get('/api/org-data/full-export', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/org-data/full-export', requireAuth, requireDeveloper, (req, res) => {
   try {
     const withSecrets = req.query.secrets !== '0' // ?secrets=0 — копия без паролей и пользователей (можно отправлять разработчику)
     const tar = buildDataTar(withSecrets)
@@ -826,7 +829,7 @@ app.get('/api/org-data/full-export', requireAuth, requireAdmin, (req, res) => {
  * подключения не трогаем. Безвозвратно — кнопка на фронте перед вызовом
  * должна явно предупредить и посоветовать сначала скачать бэкап выше.
  */
-app.post('/api/org-data/reset', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/org-data/reset', requireAuth, requireDeveloper, (req, res) => {
   try {
     resetOrgData(req.auth.orgId)
     editsDb.resetEdits(req.auth.orgId)
@@ -838,7 +841,7 @@ app.post('/api/org-data/reset', requireAuth, requireAdmin, (req, res) => {
 
 // «Стереть всё, кроме подключения»: закупки, матрицы, снимки, каталог, точки, правки/привязки и настройки (кроме доступов к iiko и Google).
 // Вернуть всё можно из ранее скачанной копии (restore.tar): Резервная копия → «Восстановить всё из копии».
-app.post('/api/org-data/wipe', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/org-data/wipe', requireAuth, requireDeveloper, (req, res) => {
   try {
     const backup = wipeOrgKeepConnection(req.auth.orgId, (file) => editsDb.backupDbTo(file))
     editsDb.resetEdits(req.auth.orgId)
@@ -852,7 +855,7 @@ app.post('/api/org-data/wipe', requireAuth, requireAdmin, (req, res) => {
 // «Восстановить всё из копии»: из restore.tar (полная копия папки данных) разом возвращается всё для ЭТОЙ организации — закупки, матрицы и
 // снимки, каталог, точки, настройки, правки/привязки, доступы к iiko/Google (группой — только если группа в копии полная, иначе остаётся
 // нынешняя) и пользователи (недостающие добавляются; существующие и их пароли не меняются).
-app.post('/api/org-data/restore', requireAuth, requireAdmin, express.raw({ type: () => true, limit: '600mb' }), (req, res) => {
+app.post('/api/org-data/restore', requireAuth, requireDeveloper, express.raw({ type: () => true, limit: '600mb' }), (req, res) => {
   const tmp = joinPath(tmpdir(), `pricecheck-restore-${Date.now()}.db`)
   try {
     if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ ok: false, message: 'Файл не получен' })
