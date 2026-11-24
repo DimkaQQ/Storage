@@ -26,7 +26,7 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
   ...(DYNAMICS ? [{ id: 'dynamics' as const, label: 'Динамика цен', icon: IChart, hint: 'История цены по позициям' }] : []),
   { id: 'data', label: 'Справочники', icon: IDatabase, hint: 'Компании, товары, точки' },
-  { id: 'iiko', label: 'Обновление', icon: ISync, hint: 'Цены, точки, копия', adminOnly: true },
+  { id: 'iiko', label: 'Цены на период', icon: ISync, hint: 'Зафиксировать цены', adminOnly: true },
   { id: 'users', label: 'Команда', icon: IUser, hint: 'Пользователи вашей сети', adminOnly: true },
 ]
 
@@ -172,12 +172,12 @@ export default function App() {
           <header className="shrink-0 border-b border-ink-700/50 bg-ink-950">
             {matchingIsStale && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
-                План-цены ещё не загружены: подключите Google-таблицу и синхронизируйте её (Обновление → Зафиксировать цены) — тогда появится сверка с матрицей.
+                План-цены ещё не загружены: подключите Google-таблицу и синхронизируйте её (Цены на период → Зафиксировать цены) — тогда появится сверка с матрицей.
               </div>
             )}
             {datasetPartial && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
-                {datasetPartial.skippedItems > 0 && <>Часть позиций ({datasetPartial.skippedItems}) не вошла в выбранные даты: у месяца {datasetPartial.monthsWithoutDays.map((m) => periods.find((x) => x.period === m)?.periodLabel ?? m).join(', ')} нет раскладки по дням. Загрузите этот месяц заново в разделе «Обновление». </>}
+                {datasetPartial.skippedItems > 0 && <>Часть позиций ({datasetPartial.skippedItems}) не вошла в выбранные даты: у месяца {datasetPartial.monthsWithoutDays.map((m) => periods.find((x) => x.period === m)?.periodLabel ?? m).join(', ')} нет раскладки по дням. Нажмите «Обновить» в «Проверке цен», чтобы загрузить этот месяц заново. </>}
                 {(datasetPartial.noDayItems ?? 0) > 0 && <>Ещё {datasetPartial.noDayItems} позиций (ассортименты и позиции, где iiko не дал раскладку по дням) в выбранные даты не входят.</>}
               </div>
             )}

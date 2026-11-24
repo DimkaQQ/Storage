@@ -306,12 +306,8 @@ export default function IikoSettings() {
       )}
       {(section === 'matrix' || !isDev) && (<>
       <div>
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-xl font-semibold text-fg-50">Зафиксировать цены</h2>
-        </div>
-        <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: за какой период фиксируем цены. Названия листов, поставщиков и товаров подтягиваются кнопкой «Обновить» в Справочниках.</p>
-        <div className="mt-5">
-          <SettingsRow title="Цены за период" desc="Цены из таблицы записываются за выбранный период: день, неделя, отрезок или один ресторан. Другие периоды не меняются. Новые строки и листы подхватывает «Обновить» в Справочниках.">
+        <div>
+          <SettingsRow title="Цены за период">
         <div className="space-y-4">
         {MATRIX_SNAPSHOTS && (
           <div className="space-y-4">
@@ -323,10 +319,10 @@ export default function IikoSettings() {
               {matrixFrom && matrixTo && matrixFrom > matrixTo && <span className="chip border-bad/30 bg-bad/10 text-bad">Дата «с» позже даты «по»</span>}
               {spanDays > 92 && <span className="chip border-bad/30 bg-bad/10 text-bad">Не больше 3 месяцев (92 дня)</span>}
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
-              Что фиксируем:
-              <button onClick={() => setMatrixScope('all')} className={`chip ${matrixScope === 'all' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Все рестораны</button>
-              <button onClick={() => setMatrixScope('one')} className={`chip ${matrixScope === 'one' ? 'border-brand-500 bg-brand-500 text-white' : 'border-ink-600 text-fg-400'}`}>Один ресторан</button>
+            <div className="inline-flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
+              {([['all', 'Все рестораны'], ['one', 'Один ресторан']] as const).map(([id, label]) => (
+                <button key={id} onClick={() => setMatrixScope(id)} className={`h-8 rounded-md px-3 text-sm ${matrixScope === id ? 'bg-brand-500/20 text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{label}</button>
+              ))}
             </div>
             {matrixScope === 'one' && (
               <div className="space-y-2">
@@ -363,7 +359,7 @@ export default function IikoSettings() {
             )}
             {snapshots.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
-                Уже зафиксированные даты:
+                Зафиксировано:
                 {snapshots.map((x) => (
                   <span key={x.period} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
                     {x.periodLabel}
@@ -372,7 +368,7 @@ export default function IikoSettings() {
                   </span>
                 ))}
               </div>
-            ) : <div className="text-xs text-fg-500">Зафиксированных дат пока нет: все периоды берут общую матрицу.</div>}
+            ) : <div className="text-xs text-fg-500">Пока ничего не зафиксировано</div>}
             {tabSnapshots.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
                 Отдельно по ресторанам:

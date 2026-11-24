@@ -7,11 +7,12 @@ import { Granularity, PeriodRows, Position, Series, addDays, bucketOf, buildPosi
 import MultiSelectFilter from '../components/MultiSelectFilter'
 import { ChartTip, C, SERIES } from '../components/charts'
 import { Section, EmptyHint } from '../components/ui'
-import { ISearch } from '../components/icons'
+import { ISearch, ILayers } from '../components/icons'
+import FilterDropdown from '../components/FilterDropdown'
 
 interface Loaded { period: string; data: any; matching: any }
 
-const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'Дни' }, { id: 'week', label: 'Недели' }, { id: 'month', label: 'Месяцы' }, { id: 'quarter', label: 'Кварталы' }, { id: 'year', label: 'Годы' }]
+const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'По дням' }, { id: 'week', label: 'По неделям' }, { id: 'month', label: 'По месяцам' }, { id: 'quarter', label: 'По кварталам' }, { id: 'year', label: 'По годам' }]
 const coarser: Partial<Record<Granularity, Granularity>> = { day: 'week', week: 'month', month: 'quarter', quarter: 'year' } // следующая, более крупная детализация
 const MAX_COLS = 4 // столько периодов показываем в таблице; остальные — по кнопке «Все периоды» (иначе таблица шире экрана)
 
@@ -293,18 +294,17 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supSel} onChange={setSupSel} />
           <DateField label="с" value={from} max={to || undefined} onChange={userFrom} />
           <DateField label="по" value={to} min={from || undefined} onChange={userTo} />
-          <div className="flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
-            {GRAN.map((g) => <button key={g.id} onClick={() => setGran(g.id)} className={`h-9 rounded-md px-2 text-sm font-normal ${gran === g.id ? 'bg-brand-500/20 text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{g.label}</button>)}
-          </div>
+          <FilterDropdown label="Детализация" icon={ILayers} noAll wide value={GRAN.find((g) => g.id === gran)!.label} options={GRAN.map((g) => g.label)}
+            onChange={(l) => { const g = GRAN.find((x) => x.label === l); if (g) setGran(g.id) }} />
           {loading && loaded.length > 0 && <span className="text-xs text-fg-500">Обновляю…</span>}
         </div>
       </div>
 
-      {missing.length > 0 && !loading && !noData && <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">В выбранных датах нет загруженных данных за: {missing.join(', ')}. Загрузите их в разделе «Обновление», тогда они появятся в таблице.</div>}
+      {missing.length > 0 && !loading && !noData && <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">В выбранных датах нет загруженных данных за: {missing.join(', ')}. Нажмите «Обновить» в «Проверке цен» за эти месяцы — тогда они появятся в таблице.</div>}
       {wider.length > 0 && !loading && <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">Загруженные периоды шире выбранных дат ({wider.join(', ')}): цена считается по периоду целиком. Чтобы увидеть меньший отрезок, загрузите его отдельно в разделе «Обновление».</div>}
       {error && <div className="rounded-lg border border-bad/30 bg-bad/10 px-4 py-2 text-xs text-bad">{error}</div>}
       {blocking && <EmptyHint>Загружаю периоды…</EmptyHint>}
-      {noData && <EmptyHint>За выбранные даты нет загруженных периодов. Загрузите данные в разделе «Обновление».</EmptyHint>}
+      {noData && <EmptyHint>За выбранные даты нет загруженных периодов. Нажмите «Обновить» в «Проверке цен».</EmptyHint>}
 
 
       {!loading && !noData && built.positions.length === 0 && <EmptyHint>В выбранных периодах и ресторанах нет закупок с ценой.</EmptyHint>}
