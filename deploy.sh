@@ -14,9 +14,9 @@ echo "→ Собираю и перезапускаю контейнер…"
 docker compose up -d --build
 
 if [ -d /etc/caddy ] && command -v caddy >/dev/null 2>&1; then
-  echo "→ Обновляю блок Caddy для sklad.dimkaprojects.xyz…"
+  echo "→ Обновляю блоки Caddy (все домены из папки caddy/)…"
   sudo mkdir -p /etc/caddy/sites
-  sudo install -m 644 caddy/sklad.caddy /etc/caddy/sites/sklad.caddy
+  for f in caddy/*.caddy; do sudo install -m 644 "$f" "/etc/caddy/sites/$(basename "$f")"; done
   if sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
     sudo systemctl reload caddy
   else

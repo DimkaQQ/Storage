@@ -1,0 +1,6 @@
+# Второй домен для того же приложения (клиент заходит по красивой ссылке). Устанавливается deploy.sh вместе с sklad.caddy.
+# Нужна DNS-запись A: horeca.mirelli.eu -> IP этого сервера (та же, что у sklad.dimkaprojects.xyz). HTTPS Caddy выпустит сам.
+horeca.mirelli.eu {
+	import security
+	reverse_proxy 127.0.0.1:3000
+}
