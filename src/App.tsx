@@ -7,6 +7,7 @@ import ScopePicker from './components/ScopePicker'
 import ThemePicker from './components/ThemePicker'
 import FilterDropdown from './components/FilterDropdown'
 import PeriodPicker from './components/PeriodPicker'
+import DeveloperUnlock from './components/DeveloperUnlock'
 import { DYNAMICS } from './lib/features'
 
 // Pages are code-split: only the open page's code is downloaded.
@@ -68,6 +69,15 @@ export default function App() {
   const [cityPricecheck, setCityPricecheck] = useState<string | null>(null)
   const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, matrixPriceLabel, saveError, datasetPartial } = useEdits()
   const { user, logout } = useAuth()
+  // «Секретная кнопка»: 7 быстрых нажатий (за 4 секунды) на подвал страницы открывают ввод ключа разработчика (только админ)
+  const [devOpen, setDevOpen] = useState(false)
+  const footerTaps = useRef<number[]>([])
+  const footerTap = () => {
+    if (user?.role !== 'admin') return
+    const now = Date.now()
+    footerTaps.current = [...footerTaps.current.filter((x) => now - x < 4000), now]
+    if (footerTaps.current.length >= 7) { footerTaps.current = []; setDevOpen(true) }
+  }
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 
   const categories = useMemo(() => [...new Set(allRows.map((r) => r.category))].sort(), [allRows])
@@ -240,13 +250,14 @@ export default function App() {
               </div>
             ))}
 
-            <footer className="px-0 pb-2 pt-6 text-center text-[11px] text-fg-600">
+            <footer className="px-0 pb-2 pt-6 text-center text-[11px] text-fg-600" onClick={footerTap}>
               HoReCa Закупки.kz · план (матрица) против факта (iiko) · {period} · сборка {__BUILD_TIME__} UTC
             </footer>
           </main>
         </div>
       </div>
 
+      {devOpen && <DeveloperUnlock onClose={() => setDevOpen(false)} />}
       {/* Desktop-only guard */}
       <div className="flex min-h-screen items-center justify-center px-6 text-center min-[1100px]:hidden">
         <div className="card max-w-sm p-8">

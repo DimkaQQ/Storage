@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { norm, matchRestaurant } from '../lib/data'
-import { useAuth } from '../lib/auth'
+import { useAuth, hasDeveloperToken } from '../lib/auth'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
@@ -26,7 +26,8 @@ const INTERVALS: { id: Settings['interval']; label: string }[] = [
 export default function IikoSettings() {
   const { backendOnline, status, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
   // Режим разработчика: доступы, точки сети, автообновление и резервные копии видит только разработчик (DEVELOPER_EMAILS на сервере)
-  const isDev = !!useAuth().user?.developer
+  const { user, lockDeveloper } = useAuth()
+  const isDev = !!user?.developer
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const ALL_SECTIONS = [
     { id: 'matrix', label: 'Зафиксировать цены' },
@@ -287,6 +288,12 @@ export default function IikoSettings() {
         ))}
       </nav>}
       <div className="min-w-0 flex-1 space-y-5">
+      {isDev && hasDeveloperToken() && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">
+          <span>Режим разработчика включён (действует 12 часов)</span>
+          <button onClick={() => { void lockDeveloper() }} className="font-semibold underline hover:no-underline">Выйти из режима</button>
+        </div>
+      )}
       {(section === 'matrix' || !isDev) && (<>
       <div>
         <div className="flex flex-wrap items-baseline justify-between gap-3">

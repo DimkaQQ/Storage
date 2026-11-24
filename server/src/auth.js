@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', 'data')
@@ -37,7 +37,7 @@ export function requireAuth(req, res, next) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : null
   const payload = token && verifyToken(token)
-  if (!payload) return res.status(401).json({ ok: false, message: 'Не авторизовано' })
+  if (!payload || payload.dev) return res.status(401).json({ ok: false, message: 'Не авторизовано' })
   req.auth = { id: payload.sub, orgId: payload.orgId, role: payload.role, email: payload.email }
   next()
 }
@@ -50,25 +50,59 @@ export function requireAdmin(req, res, next) {
 
 /**
  * Режим разработчика: часть настроек (доступы, точки сети, автообновление, резервные копии, диагностика iiko) видит и меняет только разработчик.
- * Разработчики — почты из переменной окружения DEVELOPER_EMAILS (через запятую, .env на сервере); `*` — все админы.
- * Не задана: на локальной установке и при разработке (NODE_ENV не production) все админы — разработчики, как раньше;
- * на сервере в Docker (NODE_ENV=production) НИКТО — иначе забытая переменная молча отдала бы клиентам восстановление и стирание данных.
+ * Войти в режим можно тремя способами:
+ *  1) «секретная кнопка» в интерфейсе + ключ DEVELOPER_KEY из .env на сервере (POST /api/auth/developer выдаёт токен на 12 часов,
+ *     клиент присылает его в заголовке X-Developer-Token) — основной способ;
+ *  2) почты в DEVELOPER_EMAILS (через запятую; `*` — все админы) — разработчик без ввода ключа;
+ *  3) ничего не задано: на локальной установке и вне production все админы — разработчики (как раньше), на сервере в Docker
+ *     (NODE_ENV=production) никто — чтобы забытая переменная не отдала клиентам восстановление и стирание.
+ * Если задан DEVELOPER_KEY или DEVELOPER_EMAILS — без токена/почты админ разработчиком НЕ считается.
  */
 const devList = () => (process.env.DEVELOPER_EMAILS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)
-if (!devList().length && process.env.NODE_ENV === 'production' && !process.env.STATIC_DIR) {
-  console.warn('[developer] DEVELOPER_EMAILS не задан — на сервере режим разработчика закрыт для всех. Укажите почту в .env (см. .env.example).')
-}
-export function isDeveloper(user) {
-  if (!user || user.role !== 'admin') return false
-  const list = devList()
-  if (list.includes('*')) return true
-  if (!list.length) return !(process.env.NODE_ENV === 'production' && !process.env.STATIC_DIR)
-  return list.includes(String(user.email ?? '').trim().toLowerCase())
+export const devKeyConfigured = () => !!(process.env.DEVELOPER_KEY ?? '').trim()
+const closedByDefault = () => process.env.NODE_ENV === 'production' && !process.env.STATIC_DIR
+if (!devList().length && !devKeyConfigured() && closedByDefault()) {
+  console.warn('[developer] Ни DEVELOPER_KEY, ни DEVELOPER_EMAILS не заданы — на сервере режим разработчика закрыт для всех. Задайте DEVELOPER_KEY в .env (см. .env.example).')
 }
 
-/** Express middleware (после requireAuth): только разработчик. Проверяется по актуальной записи пользователя, а не по токену. */
+/** Проверка ключа разработчика (сравнение без утечки по времени). */
+export function checkDeveloperKey(key) {
+  const real = (process.env.DEVELOPER_KEY ?? '').trim()
+  if (!real || typeof key !== 'string') return false
+  const h = (s) => createHash('sha256').update(s).digest()
+  return timingSafeEqual(h(key.trim()), h(real))
+}
+export const signDeveloperToken = (user) => jwt.sign({ sub: user.id, dev: true }, SECRET, { expiresIn: '12h' })
+function hasDeveloperToken(req, user) {
+  const t = req?.headers?.['x-developer-token']
+  const p = typeof t === 'string' && t ? verifyToken(t) : null
+  return !!(p && p.dev === true && p.sub === user.id)
+}
+
+// простая защита от подбора ключа: не больше 5 неудач за 15 минут на пользователя
+const failures = new Map()
+export function developerKeyAttemptsLeft(userId) {
+  const now = Date.now()
+  const list = (failures.get(userId) ?? []).filter((t) => now - t < 15 * 60_000)
+  if (list.length) failures.set(userId, list); else failures.delete(userId)
+  return 5 - list.length
+}
+export const clearDeveloperKeyFailures = (userId) => { failures.delete(userId) }
+export const noteDeveloperKeyFailure = (userId) => { const l = failures.get(userId) ?? []; l.push(Date.now()); failures.set(userId, l) }
+
+export function isDeveloper(user, req) {
+  if (!user || user.role !== 'admin') return false
+  if (req && hasDeveloperToken(req, user)) return true
+  const list = devList()
+  if (list.includes('*')) return true
+  if (list.length) return list.includes(String(user.email ?? '').trim().toLowerCase())
+  if (devKeyConfigured()) return false
+  return !closedByDefault()
+}
+
+/** Express middleware (после requireAuth): только разработчик. Проверяется по актуальной записи пользователя, а не по токену входа. */
 export function requireDeveloper(req, res, next) {
   const user = getUser(req.auth?.id)
-  if (!isDeveloper(user)) return res.status(403).json({ ok: false, message: 'Только для разработчика' })
+  if (!isDeveloper(user, req)) return res.status(403).json({ ok: false, message: 'Только для разработчика' })
   next()
 }
