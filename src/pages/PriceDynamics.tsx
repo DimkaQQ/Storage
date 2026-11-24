@@ -273,6 +273,15 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
 
   return (
     <div className="space-y-5">
+      {!loading && built.positions.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <DynStat delay={0} tone="slate" label="Позиций в выборке" value={String(base.length)} hint={`периодов: ${chosen.length}`} />
+          <DynStat delay={50} tone="bad" label="Цена выросла" value={String(counts.up)} hint={counts.up ? `переплата из-за роста ${money(counts.upSum)}` : 'нет роста'} />
+          <DynStat delay={100} tone="good" label="Цена снизилась" value={String(counts.down)} hint={counts.down ? `экономия из-за снижения ${money(-counts.downSum)}` : 'нет снижения'} />
+          <DynStat delay={150} tone="slate" label="Без изменений" value={String(counts.flat)} hint={counts.single + counts.stale ? `не сравниваем: ${counts.single} с одной закупкой, ${counts.stale} не покупали в последнем периоде` : 'изменение меньше 0,5%'} />
+        </div>
+      )}
+
       <div className="card space-y-4 p-4">
         <div className="grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-[minmax(150px,1.6fr)_minmax(150px,1fr)_164px_164px] lg:gap-x-4">
           <label className="col-span-2 block text-xs font-medium text-fg-400 lg:col-span-1">Поиск
@@ -315,13 +324,6 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
       {!loading && !noData && built.positions.length === 0 && <EmptyHint>В выбранных периодах и ресторанах нет закупок с ценой.</EmptyHint>}
       {!loading && built.positions.length > 0 && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div className="card p-4"><div className="text-xs text-fg-500">Позиций в выборке</div><div className="mt-1 text-2xl font-semibold tabular-nums text-fg-50">{base.length}</div><div className="mt-0.5 text-xs text-fg-500">периодов: {chosen.length}</div></div>
-            <div className="card p-4"><div className="text-xs text-fg-500">Цена выросла</div><div className="mt-1 text-2xl font-semibold tabular-nums text-bad">{counts.up}</div><div className="mt-0.5 text-xs text-fg-500">{counts.up ? `переплата из-за роста ${money(counts.upSum)}` : 'нет роста'}</div></div>
-            <div className="card p-4"><div className="text-xs text-fg-500">Цена снизилась</div><div className="mt-1 text-2xl font-semibold tabular-nums text-good">{counts.down}</div><div className="mt-0.5 text-xs text-fg-500">{counts.down ? `экономия из-за снижения ${money(-counts.downSum)}` : 'нет снижения'}</div></div>
-            <div className="card p-4"><div className="text-xs text-fg-500">Без изменений</div><div className="mt-1 text-2xl font-semibold tabular-nums text-fg-50">{counts.flat}</div><div className="mt-0.5 text-xs text-fg-500">{counts.single + counts.stale ? `не сравниваем: ${counts.single} с одной закупкой, ${counts.stale} не покупали в последнем периоде` : 'изменение меньше 0,5%'}</div></div>
-          </div>
-
           <Section
             title="Динамика цен по всем позициям"
             subtitle={`Позиция = точка + поставщик + фасовка, цена за единицу, ₸ · «К пред.» — последняя цена к предыдущей закупке этой позиции · влияние = (цена − предыдущая) × последний объём · нажмите на строку, чтобы увидеть график`}
@@ -474,6 +476,21 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
       )}
         </div>
       )}
+    </div>
+  )
+}
+
+
+/** Плитка итога: как в «Проверке цен», но с цветной полоской слева и пояснением под числом. */
+function DynStat({ label, value, hint, tone, delay = 0 }: { label: string; value: string; hint: string; tone: 'slate' | 'bad' | 'good'; delay?: number }) {
+  const val = tone === 'bad' ? 'text-bad' : tone === 'good' ? 'text-good' : 'text-fg-50'
+  const bar = tone === 'bad' ? 'bg-bad' : tone === 'good' ? 'bg-good' : 'bg-fg-600'
+  return (
+    <div className="card card-hover animate-fade-up relative overflow-hidden py-3 pl-5 pr-4" style={{ animationDelay: `${delay}ms` }}>
+      <span className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${bar}`} />
+      <div className="text-[11px] text-fg-500">{label}</div>
+      <div className={`mt-1 text-lg font-bold tabnum ${val}`}>{value}</div>
+      <div title={hint} className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-fg-500">{hint}</div>
     </div>
   )
 }
