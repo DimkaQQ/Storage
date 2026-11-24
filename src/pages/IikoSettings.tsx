@@ -25,7 +25,7 @@ const INTERVALS: { id: Settings['interval']; label: string }[] = [
 
 export default function IikoSettings() {
   const { backendOnline, status, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
-  // Режим разработчика: доступы, точки сети, автообновление и резервные копии видит только разработчик (DEVELOPER_EMAILS на сервере)
+  // Режим разработчика: доступы, точки сети, автообновление и резервные копии видит только разработчик (ключ DEVELOPER_KEY, «секретная кнопка»)
   const { user, lockDeveloper } = useAuth()
   const isDev = !!user?.developer
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный

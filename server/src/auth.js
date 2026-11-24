@@ -49,20 +49,16 @@ export function requireAdmin(req, res, next) {
 }
 
 /**
- * Режим разработчика: часть настроек (доступы, точки сети, автообновление, резервные копии, диагностика iiko) видит и меняет только разработчик.
- * Войти в режим можно тремя способами:
- *  1) «секретная кнопка» в интерфейсе + ключ DEVELOPER_KEY из .env на сервере (POST /api/auth/developer выдаёт токен на 12 часов,
- *     клиент присылает его в заголовке X-Developer-Token) — основной способ;
- *  2) почты в DEVELOPER_EMAILS (через запятую; `*` — все админы) — разработчик без ввода ключа;
- *  3) ничего не задано: на локальной установке и вне production все админы — разработчики (как раньше), на сервере в Docker
- *     (NODE_ENV=production) никто — чтобы забытая переменная не отдала клиентам восстановление и стирание.
- * Если задан DEVELOPER_KEY или DEVELOPER_EMAILS — без токена/почты админ разработчиком НЕ считается.
+ * Режим разработчика: часть настроек (доступы, точки сети, автообновление, резервные копии, диагностика iiko) видит и меняет только тот,
+ * кто ввёл ключ DEVELOPER_KEY («секретная кнопка» в интерфейсе, POST /api/auth/developer выдаёт токен на 12 часов; клиент присылает его
+ * в заголовке X-Developer-Token). Отдельного логина разработчика нет: вход один, как раньше (обычный админ).
+ * Ключ не задан: на локальной установке и вне production все админы видят всё (как раньше), на сервере в Docker (NODE_ENV=production)
+ * режим закрыт для всех — иначе забытая переменная молча отдала бы клиентам восстановление и стирание.
  */
-const devList = () => (process.env.DEVELOPER_EMAILS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)
 export const devKeyConfigured = () => !!(process.env.DEVELOPER_KEY ?? '').trim()
 const closedByDefault = () => process.env.NODE_ENV === 'production' && !process.env.STATIC_DIR
-if (!devList().length && !devKeyConfigured() && closedByDefault()) {
-  console.warn('[developer] Ни DEVELOPER_KEY, ни DEVELOPER_EMAILS не заданы — на сервере режим разработчика закрыт для всех. Задайте DEVELOPER_KEY в .env (см. .env.example).')
+if (!devKeyConfigured() && closedByDefault()) {
+  console.warn('[developer] DEVELOPER_KEY не задан — на сервере режим разработчика закрыт для всех. Задайте DEVELOPER_KEY в .env (см. .env.example).')
 }
 
 /** Проверка ключа разработчика (сравнение без утечки по времени). */
@@ -93,9 +89,6 @@ export const noteDeveloperKeyFailure = (userId) => { const l = failures.get(user
 export function isDeveloper(user, req) {
   if (!user || user.role !== 'admin') return false
   if (req && hasDeveloperToken(req, user)) return true
-  const list = devList()
-  if (list.includes('*')) return true
-  if (list.length) return list.includes(String(user.email ?? '').trim().toLowerCase())
   if (devKeyConfigured()) return false
   return !closedByDefault()
 }
