@@ -319,12 +319,12 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
               {([['all', 'Все', base.length], ['up', 'Выросла', counts.up], ['down', 'Снизилась', counts.down], ['flat', 'Без изменений', counts.flat], ['single', 'Одна точка', counts.single], ['stale', 'Не в последнем периоде', counts.stale]] as const).map(([id, label, n]) => (
                 <button key={id} onClick={() => setTrend(id)} className={`h-8 rounded-full border px-3 text-xs ${trend === id ? 'border-brand-500 bg-brand-500/20 text-fg-50' : 'border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800'}`}>{label} <span className="text-fg-500">{n}</span></button>
               ))}
-              <label className="ml-auto flex items-center gap-2 text-xs text-fg-400">Сортировка
+              <label className="ml-auto flex items-center gap-2 text-xs text-fg-400">Сортировать
                 <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-8 rounded-lg border border-ink-600 bg-ink-900 px-2 text-xs text-fg-100">
-                  <option value="step">Сначала самый большой рост, %</option>
-                  <option value="impact">Сначала самое большое влияние, ₸</option>
-                  <option value="total">Сначала рост за весь период, %</option>
-                  <option value="rest">По точкам</option>
+                  <option value="step">Рост к пред., %</option>
+                  <option value="impact">Влияние, ₸</option>
+                  <option value="total">Рост за период, %</option>
+                  <option value="rest">Точка А–Я</option>
                 </select>
               </label>
             </div>
