@@ -9,31 +9,13 @@ import { ChartTip, C, SERIES } from '../components/charts'
 import { Section, EmptyHint } from '../components/ui'
 import { ISearch, ILayers } from '../components/icons'
 import FilterDropdown from '../components/FilterDropdown'
+import DateField from '../components/DateField'
 
 interface Loaded { period: string; data: any; matching: any }
 
 const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'По дням' }, { id: 'week', label: 'По неделям' }, { id: 'month', label: 'По месяцам' }, { id: 'quarter', label: 'По кварталам' }, { id: 'year', label: 'По годам' }]
 const coarser: Partial<Record<Granularity, Granularity>> = { day: 'week', week: 'month', month: 'quarter', quarter: 'year' } // следующая, более крупная детализация
 const MAX_COLS = 4 // столько периодов показываем в таблице; остальные — по кнопке «Все периоды» (иначе таблица шире экрана)
-
-/**
- * Поле даты: показываем свой текст по центру (родное поле даты в Safari/iOS рисует значение у верхнего края и разной высоты),
- * а настоящий input лежит сверху невидимым — нажатие открывает родной выбор даты.
- */
-function DateField({ label, value, min, max, onChange }: { label: string; value: string; min?: string; max?: string; onChange: (v: string) => void }) {
-  const shown = value ? new Date(value + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }) : 'Дата'
-  return (
-    <div className="relative h-10 w-[128px] shrink-0 rounded-lg border border-ink-600 bg-ink-900/60 focus-within:border-brand-500">
-      <div className={`pointer-events-none flex h-full items-center justify-between gap-2 px-3 text-sm ${value ? 'text-fg-100' : 'text-fg-600'}`}>
-        <span className="truncate"><span className="text-fg-500">{label} </span>{shown}</span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-fg-500"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
-      </div>
-      <input type="date" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)}
-        onClick={(e) => { try { e.currentTarget.showPicker?.() } catch { /* нет поддержки — откроется само */ } }}
-        aria-label={label} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
-    </div>
-  )
-}
 
 /** Выбор позиции: поле с подсказками (без родного списка браузера — он рисуется по-разному и ломает ровность). */
 function ProductPicker({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { name: string; count: number }[] }) {

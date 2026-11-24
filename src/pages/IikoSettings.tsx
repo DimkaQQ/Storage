@@ -1,11 +1,11 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { norm, matchRestaurant } from '../lib/data'
-import { useAuth, hasDeveloperToken } from '../lib/auth'
+import { useAuth } from '../lib/auth'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
-import DeveloperUnlock from '../components/DeveloperUnlock'
+import DateField from '../components/DateField'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, ITrash } from '../components/icons'
 
 function extractSheetId(input: string): string {
@@ -26,10 +26,11 @@ const INTERVALS: { id: Settings['interval']; label: string }[] = [
 
 export default function IikoSettings() {
   const { backendOnline, status, reloadStatus, venues, enableVenueByName, disableVenueByName, refreshMatrix, periodKey, restaurants, matching, edits } = useEdits()
-  // Режим разработчика: доступы, точки сети, автообновление и резервные копии видит только разработчик (ключ DEVELOPER_KEY, «секретная кнопка»)
-  const { user, lockDeveloper } = useAuth()
-  const isDev = !!user?.developer
-  const [devOpen, setDevOpen] = useState(false)
+  const { user } = useAuth()
+  // «Для разработчика» — без пароля: кнопка просто показывает администратору скрытые разделы (запоминается в браузере)
+  const [devMode, setDevMode] = useState(() => { try { return localStorage.getItem('pricecheck-dev-ui') === '1' } catch { return false } })
+  const toggleDev = (on: boolean) => { setDevMode(on); try { localStorage.setItem('pricecheck-dev-ui', on ? '1' : '0') } catch { /* без хранилища — до перезагрузки */ } }
+  const isDev = user?.role === 'admin' && devMode
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const ALL_SECTIONS = [
     { id: 'matrix', label: 'Зафиксировать цены' },
@@ -292,38 +293,38 @@ export default function IikoSettings() {
       <div className="min-w-0 flex-1 space-y-5">
       {!isDev && user?.role === 'admin' && (
         <div className="flex justify-end">
-          <button onClick={() => setDevOpen(true)} title="Доступы, точки сети, автообновление, резервные копии — по ключу"
+          <button onClick={() => toggleDev(true)} title="Доступы, точки сети, автообновление, резервные копии"
             className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-fg-500 hover:bg-ink-800/60 hover:text-fg-200">
             <IPlug width={12} height={12} /> Для разработчика
           </button>
         </div>
       )}
-      {isDev && hasDeveloperToken() && (
+      {isDev && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warn/30 bg-warn/10 px-4 py-2 text-xs text-warn">
-          <span>Режим разработчика включён (действует 12 часов)</span>
-          <button onClick={() => { void lockDeveloper() }} className="font-semibold underline hover:no-underline">Выйти из режима</button>
+          <span>Режим разработчика</span>
+          <button onClick={() => toggleDev(false)} className="font-semibold underline hover:no-underline">Выйти из режима</button>
         </div>
       )}
       {(section === 'matrix' || !isDev) && (<>
       <div>
         <div>
-          <SettingsRow title="Цены за период">
-        <div className="space-y-4">
-        {MATRIX_SNAPSHOTS && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-fg-400">
-              с <input type="date" value={matrixFrom} onChange={(e) => { setMatrixFrom(e.target.value); setMatrixPeriodTouched(true) }}
-                className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-              по <input type="date" value={matrixTo} onChange={(e) => { setMatrixTo(e.target.value); setMatrixPeriodTouched(true) }}
-                className="h-10 rounded-lg border border-ink-600 bg-ink-900/60 px-2 text-sm text-fg-100 focus:border-brand-500 focus:outline-none" />
-              {matrixFrom && matrixTo && matrixFrom > matrixTo && <span className="chip border-bad/30 bg-bad/10 text-bad">Дата «с» позже даты «по»</span>}
-              {spanDays > 92 && <span className="chip border-bad/30 bg-bad/10 text-bad">Не больше 3 месяцев (92 дня)</span>}
-            </div>
-            <div className="inline-flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
-              {([['all', 'Все рестораны'], ['one', 'Один ресторан']] as const).map(([id, label]) => (
-                <button key={id} onClick={() => setMatrixScope(id)} className={`h-8 rounded-md px-3 text-sm ${matrixScope === id ? 'bg-brand-500/20 text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{label}</button>
-              ))}
-            </div>
+          <div className="mx-auto w-full max-w-2xl space-y-5 rounded-2xl border border-ink-600/70 bg-ink-850 p-5">
+            {MATRIX_SNAPSHOTS && (
+              <>
+                <div>
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-500">Период</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <DateField label="с" value={matrixFrom} max={matrixTo || undefined} onChange={(v) => { setMatrixFrom(v); setMatrixPeriodTouched(true) }} className="w-full" />
+                    <DateField label="по" value={matrixTo} min={matrixFrom || undefined} onChange={(v) => { setMatrixTo(v); setMatrixPeriodTouched(true) }} className="w-full" />
+                  </div>
+                  {matrixFrom && matrixTo && matrixFrom > matrixTo && <div className="mt-2 text-xs text-bad">Дата «с» позже даты «по»</div>}
+                  {spanDays > 92 && <div className="mt-2 text-xs text-bad">Не больше 3 месяцев (92 дня)</div>}
+                </div>
+                <div className="grid grid-cols-2 gap-0.5 rounded-xl border border-ink-700 bg-ink-900 p-0.5">
+                  {([['all', 'Все рестораны'], ['one', 'Один ресторан']] as const).map(([id, label]) => (
+                    <button key={id} onClick={() => setMatrixScope(id)} className={`h-9 rounded-lg text-sm transition-colors ${matrixScope === id ? 'bg-brand-500/20 font-medium text-fg-50' : 'text-fg-400 hover:text-fg-100'}`}>{label}</button>
+                  ))}
+                </div>
             {matrixScope === 'one' && (
               <div className="space-y-2">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -357,9 +358,39 @@ export default function IikoSettings() {
                 </div>
               </div>
             )}
+              </>
+            )}
+            <div className="space-y-3">
+        <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-ink-700 bg-ink-900/40 px-4 py-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
+          <span className="min-w-0 flex-1 text-[15px] font-medium text-fg-100">Алматы</span>
+          <button onClick={doSyncMatrix} disabled={matrixSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn order-2 bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Зафиксировать'}
+          </button>
+          {matrixSyncResult && (
+              <span className={`chip order-3 ${matrixSyncResult.ok && matrixSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+                {matrixSyncResult.ok && !matrixSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+                {matrixSyncResult.ok ? (matrixSyncResult.period ? `Цены зафиксированы за ${matrixSyncResult.period}` : 'Готово') + (matrixSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${matrixSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : matrixSyncResult.message}
+              </span>
+            )}
+        </div>
+        <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-ink-700 bg-ink-900/40 px-4 py-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
+          <span className="min-w-0 flex-1 text-[15px] font-medium text-fg-100">Астана</span>
+          <button onClick={doSyncAstana} disabled={astanaSyncing || !form?.astanaSheetId || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn order-2 bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Зафиксировать'}
+          </button>
+          {astanaSyncResult && (
+              <span className={`chip order-3 ${astanaSyncResult.ok && astanaSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : astanaSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
+                {astanaSyncResult.ok && !astanaSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
+                {astanaSyncResult.ok ? (astanaSyncResult.period ? `Цены зафиксированы за ${astanaSyncResult.period}` : 'Обновлено') + (astanaSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${astanaSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : astanaSyncResult.message}
+              </span>
+            )}
+        </div>
+            </div>
+            {MATRIX_SNAPSHOTS && (
+              <div className="space-y-3 border-t border-ink-700/60 pt-4">
             {snapshots.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
-                Зафиксировано:
+                <span className="mr-1 font-medium text-fg-300">Зафиксировано</span>
                 {snapshots.map((x) => (
                   <span key={x.period} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
                     {x.periodLabel}
@@ -371,7 +402,7 @@ export default function IikoSettings() {
             ) : <div className="text-xs text-fg-500">Пока ничего не зафиксировано</div>}
             {tabSnapshots.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
-                Отдельно по ресторанам:
+                <span className="mr-1 font-medium text-fg-300">Отдельно по ресторанам</span>
                 {tabSnapshots.map((x) => (
                   <span key={`${x.tab}:${x.period}`} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
                     {x.tab} — {x.periodLabel}
@@ -381,34 +412,9 @@ export default function IikoSettings() {
                 ))}
               </div>
             )}
+              </div>
+            )}
           </div>
-        )}
-        <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
-          <span className="w-16 text-sm text-fg-300">Алматы</span>
-          <button onClick={doSyncMatrix} disabled={matrixSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены'}
-          </button>
-          {matrixSyncResult && (
-              <span className={`chip ${matrixSyncResult.ok && matrixSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
-                {matrixSyncResult.ok && !matrixSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-                {matrixSyncResult.ok ? (matrixSyncResult.period ? `Цены зафиксированы за ${matrixSyncResult.period}` : 'Готово') + (matrixSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${matrixSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : matrixSyncResult.message}
-              </span>
-            )}
-        </div>
-        <div className={`flex flex-wrap items-center gap-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
-          <span className="w-16 text-sm text-fg-300">Астана</span>
-          <button onClick={doSyncAstana} disabled={astanaSyncing || !form?.astanaSheetId || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены'}
-          </button>
-          {astanaSyncResult && (
-              <span className={`chip ${astanaSyncResult.ok && astanaSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : astanaSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
-                {astanaSyncResult.ok && !astanaSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-                {astanaSyncResult.ok ? (astanaSyncResult.period ? `Цены зафиксированы за ${astanaSyncResult.period}` : 'Обновлено') + (astanaSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${astanaSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : astanaSyncResult.message}
-              </span>
-            )}
-        </div>
-        </div>
-          </SettingsRow>
           {isDev && (
           <SettingsRow title="Доступы" desc="Доступ к iiko, ID таблиц и ключ сервисного аккаунта.">
         <details className="rounded-lg border border-ink-700/60 bg-ink-900/30 p-3">
@@ -584,7 +590,6 @@ export default function IikoSettings() {
       )}
       </>)}
       </div>
-      {devOpen && <DeveloperUnlock onClose={() => setDevOpen(false)} />}
     </div>
   )
 }

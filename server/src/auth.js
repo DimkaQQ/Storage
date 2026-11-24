@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', 'data')
@@ -37,7 +37,7 @@ export function requireAuth(req, res, next) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : null
   const payload = token && verifyToken(token)
-  if (!payload || payload.dev) return res.status(401).json({ ok: false, message: 'Не авторизовано' })
+  if (!payload) return res.status(401).json({ ok: false, message: 'Не авторизовано' })
   req.auth = { id: payload.sub, orgId: payload.orgId, role: payload.role, email: payload.email }
   next()
 }
@@ -49,53 +49,16 @@ export function requireAdmin(req, res, next) {
 }
 
 /**
- * Режим разработчика: часть настроек (доступы, точки сети, автообновление, резервные копии, диагностика iiko) видит и меняет только тот,
- * кто ввёл ключ DEVELOPER_KEY («секретная кнопка» в интерфейсе, POST /api/auth/developer выдаёт токен на 12 часов; клиент присылает его
- * в заголовке X-Developer-Token). Отдельного логина разработчика нет: вход один, как раньше (обычный админ).
- * Ключ не задан: на локальной установке и вне production все админы видят всё (как раньше), на сервере в Docker (NODE_ENV=production)
- * режим закрыт для всех — иначе забытая переменная молча отдала бы клиентам восстановление и стирание.
+ * «Разработчик» = администратор. Пароля и ключа нет (решение заказчика): кнопка «Для разработчика» в «Ценах на период» просто
+ * показывает скрытые разделы (доступы, точки сети, автообновление, резервные копии) администратору; сотрудникам они закрыты на сервере.
  */
-export const devKeyConfigured = () => !!(process.env.DEVELOPER_KEY ?? '').trim()
-const closedByDefault = () => process.env.NODE_ENV === 'production' && !process.env.STATIC_DIR
-if (!devKeyConfigured() && closedByDefault()) {
-  console.warn('[developer] DEVELOPER_KEY не задан — на сервере режим разработчика закрыт для всех. Задайте DEVELOPER_KEY в .env (см. .env.example).')
-}
-
-/** Проверка ключа разработчика (сравнение без утечки по времени). */
-export function checkDeveloperKey(key) {
-  const real = (process.env.DEVELOPER_KEY ?? '').trim()
-  if (!real || typeof key !== 'string') return false
-  const h = (s) => createHash('sha256').update(s).digest()
-  return timingSafeEqual(h(key.trim()), h(real))
-}
-export const signDeveloperToken = (user) => jwt.sign({ sub: user.id, dev: true }, SECRET, { expiresIn: '12h' })
-function hasDeveloperToken(req, user) {
-  const t = req?.headers?.['x-developer-token']
-  const p = typeof t === 'string' && t ? verifyToken(t) : null
-  return !!(p && p.dev === true && p.sub === user.id)
-}
-
-// простая защита от подбора ключа: не больше 5 неудач за 15 минут на пользователя
-const failures = new Map()
-export function developerKeyAttemptsLeft(userId) {
-  const now = Date.now()
-  const list = (failures.get(userId) ?? []).filter((t) => now - t < 15 * 60_000)
-  if (list.length) failures.set(userId, list); else failures.delete(userId)
-  return 5 - list.length
-}
-export const clearDeveloperKeyFailures = (userId) => { failures.delete(userId) }
-export const noteDeveloperKeyFailure = (userId) => { const l = failures.get(userId) ?? []; l.push(Date.now()); failures.set(userId, l) }
-
-export function isDeveloper(user, req) {
-  if (!user || user.role !== 'admin') return false
-  if (req && hasDeveloperToken(req, user)) return true
-  if (devKeyConfigured()) return false
-  return !closedByDefault()
+export function isDeveloper(user) {
+  return !!user && user.role === 'admin'
 }
 
 /** Express middleware (после requireAuth): только разработчик. Проверяется по актуальной записи пользователя, а не по токену входа. */
 export function requireDeveloper(req, res, next) {
   const user = getUser(req.auth?.id)
-  if (!isDeveloper(user, req)) return res.status(403).json({ ok: false, message: 'Только для разработчика' })
+  if (!isDeveloper(user)) return res.status(403).json({ ok: false, message: 'Только для разработчика' })
   next()
 }

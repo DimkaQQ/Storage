@@ -21,7 +21,7 @@ import { composeRange, monthBounds } from './range.js'
 import { buildDataset, resolveLivePeriod, periodLabelFor, cityForRestaurant } from './dataset.js'
 import { isValidPeriod, MONTH_RE } from './period.js'
 import { runIikoProbe } from './iikoProbe.js'
-import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin, requireDeveloper, isDeveloper, devKeyConfigured, checkDeveloperKey, signDeveloperToken, developerKeyAttemptsLeft, noteDeveloperKeyFailure, clearDeveloperKeyFailures } from './auth.js'
+import { hashPassword, verifyPassword, signToken, requireAuth, requireAdmin, requireDeveloper, isDeveloper } from './auth.js'
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
@@ -29,7 +29,7 @@ app.use(express.json({ limit: '2mb' }))
 app.use((_req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*')
   res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Developer-Token')
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   next()
 })
 app.options('*', (_req, res) => res.sendStatus(204))
@@ -184,18 +184,7 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const user = getUser(req.auth.id)
   if (!user) return res.status(401).json({ ok: false })
-  res.json({ id: user.id, email: user.email, orgId: user.orgId, role: user.role, developer: isDeveloper(user, req) })
-})
-
-// «Секретная кнопка» разработчика: ключ DEVELOPER_KEY (из .env на сервере) → токен на 12 часов (заголовок X-Developer-Token)
-app.post('/api/auth/developer', requireAuth, requireAdmin, (req, res) => {
-  if (!devKeyConfigured()) return res.status(400).json({ ok: false, message: 'Ключ разработчика не задан на сервере (DEVELOPER_KEY в .env)' })
-  if (developerKeyAttemptsLeft(req.auth.id) <= 0) return res.status(429).json({ ok: false, message: 'Слишком много попыток — подождите 15 минут' })
-  if (!checkDeveloperKey(req.body?.key)) { noteDeveloperKeyFailure(req.auth.id); return res.status(401).json({ ok: false, message: 'Неверный ключ' }) }
-  const user = getUser(req.auth.id)
-  if (!user) return res.status(401).json({ ok: false })
-  clearDeveloperKeyFailures(req.auth.id)
-  res.json({ ok: true, token: signDeveloperToken(user) })
+  res.json({ id: user.id, email: user.email, orgId: user.orgId, role: user.role, developer: isDeveloper(user) })
 })
 
 app.post('/api/auth/change-password', requireAuth, (req, res) => {
@@ -328,7 +317,7 @@ const maskSecrets = (s, orgId) => {
 app.get('/api/settings', requireAuth, requireAdmin, (req, res) => {
   const out = maskSecrets(getSettings(req.auth.orgId), req.auth.orgId)
   // не разработчику доступы не показываем: остаётся только факт «задано / не задано» (интерфейс проверяет лишь наличие)
-  if (!isDeveloper(getUser(req.auth.id), req)) for (const k of CONNECTION_KEYS) out[k] = out[k] ? '********' : ''
+  if (!isDeveloper(getUser(req.auth.id))) for (const k of CONNECTION_KEYS) out[k] = out[k] ? '********' : ''
   res.json(out)
 })
 
