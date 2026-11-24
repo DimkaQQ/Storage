@@ -37,7 +37,7 @@ export default function IikoSettings() {
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const SECTIONS = [
     { id: 'iiko', label: 'Данные из iiko' },
-    { id: 'matrix', label: 'Записать матрицу' },
+    { id: 'matrix', label: 'Зафиксировать цены' },
     { id: 'venues', label: 'Точки сети' },
     { id: 'auto', label: 'Автообновление' },
     { id: 'backup', label: 'Резервная копия' },
@@ -451,7 +451,7 @@ export default function IikoSettings() {
       {section === 'matrix' && (<>
       <div>
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-xl font-semibold text-fg-50">Записать матрицу</h2>
+          <h2 className="text-xl font-semibold text-fg-50">Зафиксировать цены</h2>
         </div>
         <p className="mt-1 text-[13px] text-fg-500">План-цены из Google-таблицы: за какой период фиксируем цены. Названия листов, поставщиков и товаров подтягиваются кнопкой «Обновить» в Справочниках (перед этим сохраните доступы ниже).</p>
         <div className="mt-5">
