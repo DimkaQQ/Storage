@@ -7,13 +7,14 @@ import { Granularity, PeriodRows, Position, Series, addDays, bucketOf, buildPosi
 import MultiSelectFilter from '../components/MultiSelectFilter'
 import { ChartTip, C, SERIES } from '../components/charts'
 import { Section, EmptyHint } from '../components/ui'
-import { ISearch, ILayers } from '../components/icons'
+import { ISearch, ILayers, ISort } from '../components/icons'
 import FilterDropdown from '../components/FilterDropdown'
 import DateField from '../components/DateField'
 
 interface Loaded { period: string; data: any; matching: any }
 
 const GRAN: { id: Granularity; label: string }[] = [{ id: 'day', label: 'По дням' }, { id: 'week', label: 'По неделям' }, { id: 'month', label: 'По месяцам' }, { id: 'quarter', label: 'По кварталам' }, { id: 'year', label: 'По годам' }]
+const SORTS: { id: 'step' | 'impact' | 'total' | 'rest'; label: string }[] = [{ id: 'step', label: 'Рост цены, %' }, { id: 'impact', label: 'Переплата, ₸' }, { id: 'total', label: 'Рост за период, %' }, { id: 'rest', label: 'Точка А–Я' }]
 const coarser: Partial<Record<Granularity, Granularity>> = { day: 'week', week: 'month', month: 'quarter', quarter: 'year' } // следующая, более крупная детализация
 const MAX_COLS = 4 // столько периодов показываем в таблице; остальные — по кнопке «Все периоды» (иначе таблица шире экрана)
 
@@ -270,7 +271,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
           <div className="relative w-28 shrink-0">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск" title="Поиск: товар, поставщик, точка"
-              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none" />
+              className="w-full h-10 rounded-lg border border-ink-600 bg-ink-900/60 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none" />
           </div>
           <MultiSelectFilter allLabel="Вся сеть" options={restaurantOptions} selected={scope} onChange={setScope} />
           <MultiSelectFilter allLabel="Все поставщики" options={supplierOptions} selected={supSel} onChange={setSupSel} />
@@ -301,14 +302,10 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
               {([['all', 'Все', base.length], ['up', 'Выросла', counts.up], ['down', 'Снизилась', counts.down], ['flat', 'Без изменений', counts.flat], ['single', 'Одна точка', counts.single], ['stale', 'Не в последнем периоде', counts.stale]] as const).map(([id, label, n]) => (
                 <button key={id} onClick={() => setTrend(id)} className={`h-8 rounded-full border px-3 text-xs ${trend === id ? 'border-brand-500 bg-brand-500/20 text-fg-50' : 'border-ink-700 bg-ink-900 text-fg-300 hover:bg-ink-800'}`}>{label} <span className="text-fg-500">{n}</span></button>
               ))}
-              <label className="ml-auto flex items-center gap-2 text-xs text-fg-400">Сортировать
-                <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="h-8 rounded-lg border border-ink-600 bg-ink-900 px-2 text-xs text-fg-100">
-                  <option value="step">Рост цены, %</option>
-                  <option value="impact">Переплата, ₸</option>
-                  <option value="total">Рост за период, %</option>
-                  <option value="rest">Точка А–Я</option>
-                </select>
-              </label>
+              <div className="ml-auto flex items-center gap-2 text-xs text-fg-400">Сортировать
+                <FilterDropdown label="Сортировать" icon={ISort} noAll wide value={SORTS.find((o) => o.id === sort)!.label} options={SORTS.map((o) => o.label)}
+                  onChange={(l) => { const o = SORTS.find((x) => x.label === l); if (o) setSort(o.id) }} />
+              </div>
             </div>
 
             {built.buckets.length > MAX_COLS && !allCols && (

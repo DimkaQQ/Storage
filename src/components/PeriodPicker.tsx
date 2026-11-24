@@ -39,7 +39,7 @@ export default function PeriodPicker({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="btn w-[190px] justify-between border border-ink-600 bg-ink-800/80 px-2.5 py-2 text-xs text-fg-200 hover:border-brand-500/50 hover:bg-ink-750 hover:text-fg-50"
+        className="btn h-10 w-[200px] justify-between border border-ink-600 bg-ink-900/60 px-3 text-sm text-fg-100 hover:border-ink-500"
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <IClock className="shrink-0 text-brand-300" width={14} height={14} />

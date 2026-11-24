@@ -36,7 +36,7 @@ export default function ThemePicker() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="btn border border-ink-600 bg-ink-800/80 text-fg-300 hover:border-brand-500/50 hover:text-fg-50"
+        className="btn h-10 border border-ink-600 bg-ink-900/60 text-fg-300 hover:border-ink-500 hover:text-fg-50"
         title="Цветовая тема"
       >
         <IPalette width={16} height={16} className="text-brand-300" />

@@ -29,8 +29,8 @@ export default function FilterDropdown({ label, icon: Icon, value, options, onCh
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`btn ${wide ? 'w-[158px]' : 'w-[126px]'} justify-between border px-2.5 py-2 text-xs ${
-          value ? 'border-brand-500/50 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-800/80 text-fg-300 hover:border-brand-500/50 hover:text-fg-50'
+        className={`btn ${wide ? 'w-[158px]' : 'w-[140px]'} h-10 justify-between border px-3 text-sm ${
+          value && !noAll ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500'
         }`}
         title={label}
       >

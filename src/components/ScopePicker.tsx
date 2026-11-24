@@ -35,10 +35,10 @@ export default function ScopePicker({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`btn w-[240px] justify-between border bg-ink-800/80 hover:bg-ink-750 ${
+        className={`btn h-10 w-[240px] justify-between border bg-ink-900/60 hover:border-ink-500 ${
           selected.size > 0
             ? 'border-brand-500/60 text-fg-50'
-            : 'border-ink-600 text-fg-200 hover:border-ink-600/80'
+            : 'border-ink-600 text-fg-100'
         }`}
       >
         <span className="flex min-w-0 items-center gap-2">

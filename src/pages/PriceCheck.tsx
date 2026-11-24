@@ -389,15 +389,15 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
 
       {/* toolbar */}
       <div className="card p-4">
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <div className="relative w-36 shrink-0">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="relative w-28 shrink-0">
             <ISearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-500" width={16} height={16} />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Поиск"
               title="Поиск: товар, поставщик, ресторан…"
-              className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
+              className="w-full h-10 rounded-lg border border-ink-600 bg-ink-900/60 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
             />
           </div>
           {/* Отдельные фильтры с множественным выбором и поиском внутри
@@ -423,16 +423,16 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
           <button
             onClick={() => setMoneyMode((m) => !m)}
             title="Переключить, как считаются План/Факт/Δ: реальные деньги за закупку, или цена за единицу матрицы (кг и т.п.)"
-            className={`btn border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
+            className={`btn h-10 border transition-colors ${moneyMode ? 'border-brand-500 bg-brand-500/15 text-brand-300' : 'border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500'}`}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${moneyMode ? 'bg-brand-400' : 'bg-slate-600'}`} />
             {moneyMode ? 'Общ. сумма закупки' : 'тенге за 1кг'}
           </button>
             <button onClick={runUpdate} disabled={syncing} title={`Обновить: ${city || 'все города'}, ${period || 'выбранный период'}. Закупки из iiko и матрица (листы, поставщики, товары); цены матрицы не меняются. Выбор города и месяца в шапке.`}
-              className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
+              className="btn h-10 bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
               <ISync width={16} height={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? (updateStep || (updRunning ? 'Обновляю…' : 'Идёт обновление…')) : 'Обновить'}
             </button>
-          <button onClick={exportExcel} title="Скачать в Excel" className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750">
+          <button onClick={exportExcel} title="Скачать в Excel" className="btn h-10 border border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500">
             <IDownload width={16} height={16} /> Excel
           </button>
         </div>
@@ -740,7 +740,7 @@ function FiltersMenu({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`btn justify-between gap-2 border text-sm ${count > 0 ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100'} hover:border-ink-500`}
+        className={`btn h-10 justify-between gap-2 border text-sm ${count > 0 ? 'border-brand-500 bg-brand-500/10 text-brand-200' : 'border-ink-600 bg-ink-900/60 text-fg-100'} hover:border-ink-500`}
       >
         <span className="truncate">{count > 0 ? `Фильтры: ${count}` : 'Фильтры'}</span>
         <IChevron width={13} height={13} className={`shrink-0 text-fg-500 transition-transform ${open ? '-rotate-90' : 'rotate-90'}`} />

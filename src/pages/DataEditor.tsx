@@ -842,19 +842,19 @@ export default function DataEditor() {
             onClick={refreshFromMatrix}
             disabled={matrixSyncing}
             title="Перечитать названия из Google-таблицы (листы, поставщики, товары). Цены зафиксированных периодов не меняются"
-            className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-60"
+            className="btn h-10 border border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500 disabled:opacity-60"
           ><ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Обновляю…' : 'Обновить'}</button>
           <button
             onClick={undo}
             disabled={!canUndo}
             title="Отменить последнее изменение"
-            className="btn border border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750 disabled:opacity-40 disabled:hover:bg-ink-800/70"
+            className="btn h-10 border border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500 disabled:opacity-40"
           ><IUndo width={16} height={16} /> Отменить</button>
           <button
             onClick={saveCatalog}
             disabled={!catalogDirty || savingCatalog}
             title="Отправить правки компаний/точек/привязок на сервер"
-            className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
+            className="btn h-10 bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
           ><ICheck width={16} height={16} /> {savingCatalog ? 'Сохраняю…' : 'Сохранить'}</button>
         </div>
       </div>
@@ -886,9 +886,9 @@ export default function DataEditor() {
         {/* tabs + search */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 rounded-lg bg-ink-800/70 p-1">
-            <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Компании ({fmt(suppliersBaseEffective.length)})</button>
-            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'products' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Товары ({fmt(matrixRows.length)})</button>
-            <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn px-3 py-1.5 text-xs ${tab === 'venues' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Точки ({fmt(restaurants.length)})</button>
+            <button onClick={() => { setTab('suppliers'); setLimit(60) }} className={`btn h-8 px-3 text-xs ${tab === 'suppliers' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Компании ({fmt(suppliersBaseEffective.length)})</button>
+            <button onClick={() => { setTab('products'); setLimit(60) }} className={`btn h-8 px-3 text-xs ${tab === 'products' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Товары ({fmt(matrixRows.length)})</button>
+            <button onClick={() => { setTab('venues'); setLimit(60) }} className={`btn h-8 px-3 text-xs ${tab === 'venues' ? 'bg-ink-700 text-fg-50' : 'text-fg-400'}`}>Точки ({fmt(restaurants.length)})</button>
           </div>
           {/* Поиск — на любой вкладке в одном и том же месте этой группы; на
               Товарах перед ним появляется значок фильтра, слева от поиска. */}
@@ -898,7 +898,7 @@ export default function DataEditor() {
                 <button
                   onClick={() => setFilterOpen((v) => !v)}
                   title="Фильтр по ресторану, названиям и фасовке (как в Google Sheets)"
-                  className={`btn border px-3 py-2 text-xs ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-800/70 text-fg-300 hover:bg-ink-750'}`}
+                  className={`btn h-10 border px-3 text-sm ${filterOpen || activeFilterDims > 0 ? 'border-brand-500/50 bg-brand-500/10 text-brand-300' : 'border-ink-600 bg-ink-900/60 text-fg-100 hover:border-ink-500'}`}
                 >
                   <IFilter width={14} height={14} /> Фильтр{activeFilterDims > 0 ? ` (${activeFilterDims})` : ''}
                 </button>
@@ -936,7 +936,7 @@ export default function DataEditor() {
                 value={q}
                 onChange={(e) => { setQ(e.target.value); setLimit(60) }}
                 placeholder={tab === 'products' ? 'Поиск товара, поставщика, ресторана или фасовки…' : tab === 'suppliers' ? 'Поиск компании…' : 'Поиск точки или города…'}
-                className="w-full rounded-lg border border-ink-600 bg-ink-900/60 py-2 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
+                className="h-10 w-full rounded-lg border border-ink-600 bg-ink-900/60 pl-9 pr-3 text-sm text-fg-100 placeholder:text-fg-600 focus:border-brand-500 focus:outline-none"
               />
             </div>
           </div>
