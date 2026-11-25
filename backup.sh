@@ -11,6 +11,7 @@
 # создайте ОТДЕЛЬНЫЙ ПРИВАТНЫЙ репозиторий (данные нельзя класть в репозиторий с кодом) и запустите:
 #   BACKUP_REPO=git@github.com:ВАШ/приватный-репозиторий.git ./backup.sh
 set -euo pipefail
+umask 077   # файлы копий (в FULL-режиме с паролями) — только для владельца с момента создания
 
 STAMP="$(date +%Y-%m-%d_%H%M)"
 OUT="${BACKUP_DIR:-$HOME/pricecheck-backups}"
@@ -41,6 +42,7 @@ docker exec pricecheck-api rm -f /app/data/edits.backup.db
 SUFFIX=""; [ "${FULL:-}" = "1" ] && SUFFIX="-FULL"
 FILE="$OUT/pricecheck-backup$SUFFIX-$STAMP.tar.gz"
 tar -czf "$FILE" -C "$TMP" data
+chmod 600 "$FILE"
 echo "✓ Готово: $FILE ($(du -h "$FILE" | cut -f1))"
 
 if [ -n "${BACKUP_REPO:-}" ]; then
@@ -54,3 +56,7 @@ if [ -n "${BACKUP_REPO:-}" ]; then
   git push -q
   echo "✓ Отправлено на GitHub"
 fi
+
+# хранить копии за последние KEEP_DAYS дней (по умолчанию 30): чистим только ПОСЛЕ того, как новая копия готова и отправлена.
+# Папка BACKUP_DIR должна быть отдельной, только для копий этой программы.
+find "$OUT" -maxdepth 1 -name 'pricecheck-backup*.tar.gz' -mtime +"${KEEP_DAYS:-30}" -delete || true
