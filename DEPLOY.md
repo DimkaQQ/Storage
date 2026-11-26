@@ -173,7 +173,9 @@ APP_NAME=pricecheck-prod
 COMPOSE_PROJECT_NAME=pricecheck-prod
 WEB_PORT=3001
 CADDY_SITES=horeca.caddy
-DEPLOY_REF=<sha-коммита-версии-клиента>
+DEPLOY_REF=<sha-коммита-со-скриптами>
+APP_REF=ea94d294dd77e0df54647cb79e80404216370beb
+APP_SRC=.app-src
 EOF
 ./deploy.sh
 docker exec pricecheck-prod-api node src/create-org.js "Название сети" почта@клиента "сильный-пароль"

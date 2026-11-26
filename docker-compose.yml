@@ -1,6 +1,6 @@
 services:
   api:
-    build: ./server
+    build: ${APP_SRC:-.}/server   # APP_SRC — папка со старой версией кода (клиентская копия, см. deploy.sh / APP_REF)
     image: ${APP_NAME:-pricecheck}-api:latest
     container_name: ${APP_NAME:-pricecheck}-api
     restart: unless-stopped
@@ -22,7 +22,7 @@ services:
       - "8090"
 
   web:
-    build: .
+    build: ${APP_SRC:-.}
     image: ${APP_NAME:-pricecheck}:latest
     container_name: ${APP_NAME:-pricecheck}
     restart: unless-stopped
