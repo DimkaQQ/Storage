@@ -1,0 +1,42 @@
+diff --git a/src/pages/PriceCheck.tsx b/src/pages/PriceCheck.tsx
+index f953613..0c69c0c 100644
+--- a/src/pages/PriceCheck.tsx
++++ b/src/pages/PriceCheck.tsx
+@@ -58,6 +58,10 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
+   { id: 'notPurchased', label: 'Не закупали' },
+ ]
+ 
++/** Фасовка, под которой привезли, — для подписи под названием из iiko («название - фасовка»): у ассортиментов (пюре, ягода в асс) всегда,
++ *  у остальных — когда это настоящая фасовка с числом («банка 400г», «уп 10 кг»); голое «кг»/«шт» ничего не уточняет и только шумит. */
++const packLabel = (r: { pack?: string; isPackSensitive?: boolean }) => (r.pack && (r.isPackSensitive || /\d/.test(r.pack)) ? r.pack : '')
++
+ export default function PriceCheck({ rows }: { rows: Row[] }) {
+   const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel } = useEdits()
+   const [q, setQ] = useState('')
+@@ -517,7 +521,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
+                           <HoverName text={r.product} className="min-w-0 flex-1" />
+                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
+                         </span>
+-                        {r.isPackSensitive && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
++                        {packLabel(r) && <HoverName text={packLabel(r)} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
+                       </>
+                     ) : r.productLabel || r.product !== r.productRaw ? (
+                       // Крупным — название из матрицы, если товар с ней совпал,
+@@ -541,7 +545,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
+                           )}
+                         </span>
+                         <HoverName
+-                          text={r.isPackSensitive && r.pack ? `${r.productRaw} - ${r.pack}` : r.productRaw}
++                          text={packLabel(r) ? `${r.productRaw} - ${packLabel(r)}` : r.productRaw}
+                           className="mt-0.5 block text-[11px] font-normal text-fg-500"
+                         />
+                       </>
+@@ -562,7 +566,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
+                             <AmbiguousPicker options={r.ambiguousOptions} onPick={(v) => setAmbiguousChoice(r.rowKey, v)} />
+                           )}
+                         </span>
+-                        {r.isPackSensitive && r.pack && <HoverName text={r.pack} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
++                        {packLabel(r) && <HoverName text={packLabel(r)} className="mt-0.5 block text-[11px] font-normal text-fg-500" />}
+                       </>
+                     )}
+                   </td>
