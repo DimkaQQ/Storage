@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, parseDataset, computeRows, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
 import { useEdits } from '../lib/edits'
 import { useAuth } from '../lib/auth'
-import { syncMatrix, fetchPeriods, fetchDataset, fetchIikoNames } from '../lib/api'
+import { syncMatrix, fetchPeriods, fetchDataset } from '../lib/api'
 import { rankSimilar } from '../lib/fuzzy'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import { EditableText } from '../components/EditableCell'
@@ -399,20 +399,14 @@ export default function DataEditor() {
   // поставщика: показывать его (даже во всплывающей табличке) только
   // захламляло список у дженериковых названий вроде "Ягода с/м в асс",
   // которые под тем же текстом привозит добрый десяток разных компаний.
-  // + названия из закупок ВСЕХ загруженных месяцев и обоих городов (с сервера): искать товар нужно независимо от открытого месяца
-  const [serverIikoNames, setServerIikoNames] = useState<string[]>([])
-  useEffect(() => { void fetchIikoNames().then((n) => { if (n) setServerIikoNames(n) }) }, [])
   const allIikoNameOptions = useMemo(() => {
     const seen = new Set<string>()
     for (const r of allKnownRows) {
       if (r.unit == null) continue
       seen.add(r.productRaw)
     }
-    // без дублей, отличающихся только пробелами/регистром
-    const known = new Set([...seen].map((x) => norm(x)))
-    for (const n of serverIikoNames) if (!known.has(norm(n))) { seen.add(n); known.add(norm(n)) }
     return [...seen].sort((a, b) => a.localeCompare(b)).map((label) => ({ label }))
-  }, [allKnownRows, serverIikoNames])
+  }, [allKnownRows])
 
   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
   // замене — см. commitMatrixIikoName) — обратный индекс по edits.

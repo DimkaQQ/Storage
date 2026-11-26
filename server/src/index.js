@@ -249,20 +249,6 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
 app.get('/api/periods', requireAuth, (req, res) => res.json(listDatasetPeriods(req.auth.orgId)))
 
-// Все названия товаров «как в iiko», встречавшиеся в закупках ВСЕХ загруженных месяцев и обоих городов (подсказки в Справочниках:
-// название нужно находить независимо от того, какой месяц сейчас открыт и покупали ли его именно в нём).
-app.get('/api/iiko-names', requireAuth, (req, res) => {
-  const names = new Set()
-  for (const p of listDatasetPeriods(req.auth.orgId)) {
-    const ds = getDataset(req.auth.orgId, p.period)
-    for (const r of ds?.restaurants ?? []) for (const it of r?.items ?? []) {
-      const n = typeof it?.p === 'string' ? it.p.trim() : ''
-      if (n) names.add(n)
-    }
-  }
-  res.json([...names].sort((a, b) => a.localeCompare(b, 'ru')))
-})
-
 app.get('/api/data', requireAuth, (req, res) => {
   // period отсюда идёт прямиком в имя файла (orgDatasetPath в store.js) —
   // без проверки формата "../../другая-папка" в query-параметре увело бы
