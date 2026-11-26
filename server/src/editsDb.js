@@ -64,6 +64,14 @@ try { db.exec('ALTER TABLE venue_overrides ADD COLUMN matrix TEXT') } catch { /*
 // максимум придётся привязать заново, зато не утекут в другой ресторан.
 try { db.exec("ALTER TABLE product_links ADD COLUMN restaurant TEXT NOT NULL DEFAULT ''") } catch { /* столбец уже есть */ }
 
+// Журнал действий («кто что сделал»): пишется всегда, стирать из программы нельзя; сброс правок и «стереть всё» его НЕ трогают
+// (поэтому таблицы нет в TABLES). Хранится по организациям; в копию организации попадает вместе с остальным (есть org_id).
+db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, org_id TEXT NOT NULL, ts TEXT NOT NULL, user_id TEXT, email TEXT,
+  category TEXT NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL DEFAULT '', search TEXT NOT NULL DEFAULT ''
+)`)
+db.exec('CREATE INDEX IF NOT EXISTS audit_log_org ON audit_log (org_id, id)')
+
 const TABLES = ['product_renames', 'supplier_renames', 'venue_overrides', 'new_venues', 'acknowledged_suppliers', 'product_pack_override', 'pack_aliases', 'product_links', 'supplier_links', 'plan_overrides', 'row_comments', 'row_colors', 'ambiguous_choices']
 
 /* ---------- reads: assemble the full Edits object a client expects ---------- */
@@ -438,4 +446,40 @@ export function replaceAllEdits(orgId, e) {
 /** Согласованный снимок базы правок в отдельный файл (для переноса на другой компьютер; «живой» файл с WAL копировать нельзя). */
 export function snapshotTo(path) {
   db.exec(`VACUUM INTO '${String(path).replace(/'/g, "''")}'`)
+}
+
+
+/* ---------- журнал действий ---------- */
+
+export function logAudit(orgId, { userId = null, email = null, category, action, details = '' }) {
+  db.prepare('INSERT INTO audit_log (org_id, ts, user_id, email, category, action, details, search) VALUES (?,?,?,?,?,?,?,?)')
+    .run(orgId, new Date().toISOString(), userId, email, String(category), String(action), String(details).slice(0, 600), `${email ?? ''} ${action} ${details}`.slice(0, 900).toLowerCase())
+}
+
+/** Страница журнала: новые сверху. before — id записи, ниже которой читаем (постраничная подгрузка). */
+export function listAudit(orgId, { limit = 50, before = 0, q = '', email = '', category = '' } = {}) {
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 200)
+  const where = ['org_id = ?']; const args = [orgId]
+  if (before > 0) { where.push('id < ?'); args.push(before) }
+  if (email) { where.push('email = ?'); args.push(email) }
+  if (category) { where.push('category = ?'); args.push(category) }
+  if (q) {
+    // SQLite LIKE не различает регистр только у латиницы, поэтому ищем по столбцу search (уже в нижнем регистре, JS понимает кириллицу)
+    where.push("search LIKE ? ESCAPE '\\'")
+    args.push(`%${String(q).toLowerCase().replace(/[\\%_]/g, (c) => '\\' + c)}%`)
+  }
+  const rows = db.prepare(`SELECT id, ts, user_id AS userId, email, category, action, details FROM audit_log WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`).all(...args, lim + 1)
+  return { items: rows.slice(0, lim), more: rows.length > lim }
+}
+
+export function auditFilters(orgId) {
+  return {
+    users: db.prepare('SELECT DISTINCT email FROM audit_log WHERE org_id=? AND email IS NOT NULL ORDER BY email').all(orgId).map((r) => r.email),
+    categories: db.prepare('SELECT DISTINCT category FROM audit_log WHERE org_id=? ORDER BY category').all(orgId).map((r) => r.category),
+  }
+}
+
+/** Записи старше года убираем (журнал не должен расти бесконечно). */
+export function pruneAudit(days = 365) {
+  db.prepare('DELETE FROM audit_log WHERE ts < ?').run(new Date(Date.now() - days * 86400_000).toISOString())
 }

@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { fetchUsers, addUser, removeUser, TeamUser } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { Section } from '../components/ui'
+import AuditLog from '../components/AuditLog'
 import { IPlus, ITrash, IUser } from '../components/icons'
 
 export default function UsersAdmin() {
   const { user: me, changePassword } = useAuth()
+  const [view, setView] = useState<'team' | 'log'>('team')
   const [users, setUsers] = useState<TeamUser[] | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [email, setEmail] = useState('')
@@ -50,6 +52,12 @@ export default function UsersAdmin() {
 
   return (
     <div className="space-y-5">
+      <div className="inline-flex rounded-lg border border-ink-700 bg-ink-900 p-0.5">
+        {([['team', 'Участники'], ['log', 'Журнал действий']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setView(id)} className={`h-9 rounded-md px-4 text-sm ${view === id ? 'bg-brand-500/20 font-medium text-fg-50' : 'text-fg-300 hover:bg-ink-800 hover:text-fg-50'}`}>{label}</button>
+        ))}
+      </div>
+      {view === 'log' ? <AuditLog /> : (<>
       <Section
         title="Команда"
         subtitle="Все сотрудники видят одни и те же данные и правки — это одна и та же сеть."
@@ -132,6 +140,7 @@ export default function UsersAdmin() {
           {pwMsg && <p className={`text-xs ${pwMsg.ok ? 'text-good' : 'text-bad'}`}>{pwMsg.text}</p>}
         </div>
       </Section>
+      </>)}
     </div>
   )
 }

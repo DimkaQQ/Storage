@@ -14,6 +14,7 @@ import {
   restoreUsersFromBackup, iikoLocked, iikoLockValues,
 } from './store.js'
 import * as editsDb from './editsDb.js'
+import { audit, auditUser, auditEdit, auditFailedLogin, CAT } from './audit.js'
 import { buildDataTar, readTarFiles } from './migration.js'
 import { fetchFacts, testConnection, fetchOlapColumns, iikoServerOlapSample, iikoServerInvoiceSample, iikoServerProductByNum, iikoServerStoresSample, iikoServerAssortmentDebug, iikoServerTransactionTypes, iikoServerInvoiceReconcile, iikoServerExtraFacts, iikoServerProductCategorySample, iikoServerExcludedCategoryList } from './iiko.js'
 import { testConnection as testSheetsConnection, syncMatrix, mergeMatching, sliceMatching, stripTabs, DEFAULT_EXCLUDED_TABS, mergeCatalog, applyCatalog, norm as normKey, SHEET_TO_RESTAURANT, SHEET_TO_RESTAURANT_ASTANA } from './sheets.js'
@@ -175,8 +176,10 @@ app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body || {}
   const user = email && findUserByEmail(email)
   if (!user || !verifyPassword(password || '', user.passwordHash)) {
+    if (user) auditFailedLogin(user)
     return res.status(401).json({ ok: false, message: 'Неверная почта или пароль' })
   }
+  auditUser(user, CAT.LOGIN, 'Вошёл в программу')
   const token = signToken(user)
   res.json({ ok: true, token, user: { id: user.id, email: user.email, orgId: user.orgId, role: user.role, developer: isDeveloper(user) } })
 })
@@ -197,8 +200,23 @@ app.post('/api/auth/change-password', requireAuth, (req, res) => {
     return res.status(400).json({ ok: false, message: 'Новый пароль должен быть не короче 6 символов' })
   }
   updateUserPassword(user.id, hashPassword(newPassword))
+  audit(req, CAT.TEAM, 'Сменил свой пароль')
   res.json({ ok: true })
 })
+
+/* ---------- журнал действий (только админ своей организации) ---------- */
+
+app.get('/api/audit', requireAuth, requireAdmin, (req, res) => {
+  const q = req.query
+  const page = editsDb.listAudit(req.auth.orgId, {
+    limit: Number(q.limit) || 50, before: Number(q.before) || 0,
+    q: typeof q.q === 'string' ? q.q.slice(0, 100) : '', email: typeof q.email === 'string' ? q.email : '', category: typeof q.category === 'string' ? q.category : '',
+  })
+  res.json({ ...page, filters: editsDb.auditFilters(req.auth.orgId) })
+})
+const pruneAuditSafe = () => { try { editsDb.pruneAudit() } catch (e) { console.error('[audit] чистка журнала:', e?.message || e) } }
+pruneAuditSafe()
+setInterval(pruneAuditSafe, 24 * 3600_000).unref()
 
 /* ---------- team management (admin only, scoped to the admin's own org) ---------- */
 
@@ -213,12 +231,15 @@ app.post('/api/auth/users', requireAuth, requireAdmin, (req, res) => {
   }
   if (findUserByEmail(email)) return res.status(409).json({ ok: false, message: 'Пользователь с такой почтой уже есть' })
   const user = createUser({ email, passwordHash: hashPassword(password), orgId: req.auth.orgId, role: role === 'admin' ? 'admin' : 'employee' })
+  audit(req, CAT.TEAM, 'Добавил пользователя', `${user.email} (${user.role === 'admin' ? 'админ' : 'сотрудник'})`)
   res.json({ id: user.id, email: user.email, role: user.role, createdAt: user.createdAt })
 })
 
 app.delete('/api/auth/users/:id', requireAuth, requireAdmin, (req, res) => {
   if (req.params.id === req.auth.id) return res.status(400).json({ ok: false, message: 'Нельзя удалить самого себя' })
+  const gone = getUser(req.params.id)
   const ok = deleteUser(req.params.id, req.auth.orgId)
+  if (ok) audit(req, CAT.TEAM, 'Удалил пользователя', gone?.email || '')
   res.json({ ok })
 })
 
@@ -260,6 +281,7 @@ app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.au
 app.post('/api/manual-links', requireAuth, requireAdmin, (req, res) => {
   const v = Number(req.body?.freezeVersion)
   saveSettings(req.auth.orgId, { manualLinks: req.body?.enabled === true, ...(req.body?.enabled === true && Number.isFinite(v) && v > 0 ? { manualFreeze: v } : {}) })
+  audit(req, CAT.SYSTEM, req.body?.enabled === true ? 'Включил ручной режим связей' : 'Выключил ручной режим связей')
   res.json({ ok: true, manualLinks: req.body?.enabled === true })
 })
 
@@ -277,6 +299,7 @@ app.post('/api/sync', requireAuth, (req, res) => {
   if (syncing[orgId]) return res.status(409).json({ ok: false, busy: true, message: 'Обновление уже выполняется' })
   if (req.auth?.role !== 'admin' && Date.now() - (lastManualSync[orgId] ?? 0) < 60_000) return res.status(429).json({ ok: false, message: 'Данные только что обновляли — подождите минуту и нажмите снова' })
   lastManualSync[orgId] = Date.now()
+  audit(req, CAT.DATA, 'Загрузил закупки из iiko', [period ? `период ${periodLabelFor(period)}` : 'текущий месяц', city ? `город ${city}` : ''].filter(Boolean).join(', '))
   // Не ждём runSync здесь — у реального iikoServer запрос за полный месяц
   // может идти десятками секунд (см. таймаут 60с в iikoServerFacts), а между
   // браузером и этим сервером обычно есть ещё reverse-proxy/CDN со своим
@@ -326,8 +349,12 @@ app.put('/api/settings', requireAuth, requireDeveloper, (req, res) => {
   for (const f of SECRET_FIELDS) if (incoming[f] === '********') delete incoming[f]
   // эти поля меняются только своими действиями (Точки сети, ручной режим, миграции) — устаревшая форма в браузере не должна их затирать
   for (const f of ['enabledRestaurants', 'manualLinks', 'manualFreeze', 'matrixKeysV2', 'matrixHistoryFrozen']) delete incoming[f]
+  const before = getSettings(req.auth.orgId)
   const next = saveSettings(req.auth.orgId, incoming)
   armSchedule(req.auth.orgId)
+  // в журнал — только если что-то реально изменилось (форма сохраняется и при обычной загрузке), без значений (там пароли)
+  const changed = Object.keys(incoming).filter((k) => JSON.stringify(before[k] ?? '') !== JSON.stringify(next[k] ?? ''))
+  if (changed.length) audit(req, CAT.SYSTEM, 'Изменил настройки подключения', `изменены поля: ${changed.join(', ')}`)
   res.json(maskSecrets(next, req.auth.orgId))
 })
 
@@ -733,6 +760,11 @@ function startMatrixJob(req, res) {
     const out = { code: 200, body: null, status(c) { this.code = c; return this }, json(b) { this.body = b } }
     try { await matrixSyncHandler(req, out) } catch (e) { out.body = { ok: false, message: String(e?.message || e) } }
     matrixJobs[key] = { running: false, result: out.body ?? { ok: false, message: 'Нет ответа' } }
+    // в журнал — по итогу: что реально получилось (повторные нажатия, отклонённые запросом «занято» и сбои не дают ложных записей)
+    const fix = !!(req.body?.period || req.body?.tab)
+    const where = [req.body?.period && isValidPeriod(req.body.period) ? `за ${periodLabelFor(req.body.period)}` : '', req.body?.tab ? `вкладка ${req.body.tab}` : '', req.body?.target ? `таблица ${req.body.target === 'astana' ? 'Астаны' : 'Алматы'}` : ''].filter(Boolean).join(', ')
+    if (out.body?.ok) audit(req, fix ? CAT.PRICES : CAT.DATA, fix ? 'Зафиксировал цены из таблицы' : 'Прочитал Google-таблицу (цены не менялись)', where)
+    else if (fix) audit(req, CAT.PRICES, 'Не удалось зафиксировать цены', [where, String(out.body?.message || '').slice(0, 150)].filter(Boolean).join(': '))
   })
 }
 // Чтение матрицы (листы, поставщики, товары; цены не меняются) — любому пользователю. ФИКСАЦИЯ ЦЕН за период (period/tab) — только админ.
@@ -760,7 +792,9 @@ app.delete('/api/matrix/snapshots', requireAuth, requireAdmin, (req, res) => {
   const period = String(req.query.period ?? '')
   if (!MATRIX_SNAPSHOTS || !isValidPeriod(period)) return res.status(400).json({ ok: false, message: 'Некорректный период' })
   const tab = typeof req.query.tab === 'string' && req.query.tab ? req.query.tab : null
-  res.json({ ok: tab ? deleteMatrixTabSnapshot(req.auth.orgId, tab, period) : deleteMatrixSnapshot(req.auth.orgId, period) })
+  const okDel = tab ? deleteMatrixTabSnapshot(req.auth.orgId, tab, period) : deleteMatrixSnapshot(req.auth.orgId, period)
+  if (okDel) audit(req, CAT.PRICES, 'Удалил зафиксированные цены', `за ${periodLabelFor(period)}${tab ? `, вкладка ${tab}` : ''}`)
+  res.json({ ok: okDel })
 })
 app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
   res.json({
@@ -787,6 +821,7 @@ app.post('/api/venues/enable', requireAuth, requireDeveloper, (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = enableRestaurant(req.auth.orgId, name)
+  audit(req, CAT.SYSTEM, 'Включил точку сети', name)
   res.json({ enabled, all: false, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
@@ -794,6 +829,7 @@ app.post('/api/venues/disable', requireAuth, requireDeveloper, (req, res) => {
   const name = String(req.body?.name || '').trim()
   if (!name) return res.status(400).json({ ok: false, message: 'Не указано название точки' })
   const enabled = disableRestaurant(req.auth.orgId, name)
+  audit(req, CAT.SYSTEM, 'Выключил точку сети', name)
   res.json({ enabled, all: false, discovered: discoverRestaurants(req.auth.orgId) })
 })
 
@@ -805,7 +841,9 @@ app.post('/api/venues/disable', requireAuth, requireDeveloper, (req, res) => {
  */
 app.get('/api/org-data/export', requireAuth, requireDeveloper, (req, res) => {
   try {
-    res.json({ ...exportOrgData(req.auth.orgId), edits: editsDb.getEditsForOrg(req.auth.orgId) })
+    const out = { ...exportOrgData(req.auth.orgId), edits: editsDb.getEditsForOrg(req.auth.orgId) }
+    audit(req, CAT.SYSTEM, 'Скачал выгрузку правок')
+    res.json(out)
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.stack || e?.message || e) })
   }
@@ -816,6 +854,7 @@ app.get('/api/org-data/full-export', requireAuth, requireDeveloper, (req, res) =
   try {
     const withSecrets = req.query.secrets !== '0' // ?secrets=0 — копия без паролей и пользователей (можно отправлять разработчику)
     const tar = buildDataTar(withSecrets, req.auth.orgId, { orgs: listOrgs(), users: listUsersByOrg(req.auth.orgId) }) // только своя организация
+    audit(req, CAT.SYSTEM, 'Скачал резервную копию', withSecrets ? 'с паролями и доступами' : 'без паролей')
     res.set({ 'Content-Type': 'application/x-tar', 'Content-Disposition': `attachment; filename="${withSecrets ? 'restore.tar' : 'data-no-passwords.tar'}"`, 'Content-Length': String(tar.length) })
     res.send(tar)
   } catch (e) {
@@ -833,6 +872,7 @@ app.post('/api/org-data/reset', requireAuth, requireDeveloper, (req, res) => {
   try {
     resetOrgData(req.auth.orgId)
     editsDb.resetEdits(req.auth.orgId)
+    audit(req, CAT.SYSTEM, 'Сбросил данные организации', 'закупки, матрицы, правки')
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.stack || e?.message || e) })
@@ -845,6 +885,7 @@ app.post('/api/org-data/wipe', requireAuth, requireDeveloper, (req, res) => {
   try {
     const backup = wipeOrgKeepConnection(req.auth.orgId, (file) => editsDb.backupDbTo(file))
     editsDb.resetEdits(req.auth.orgId)
+    audit(req, CAT.SYSTEM, 'Стёр все данные, кроме подключения')
     console.log(`[wipe] организация ${req.auth.orgId}: стёрто всё, кроме подключения; копия — data/${backup}`)
     res.json({ ok: true, backup })
   } catch (e) {
@@ -921,6 +962,7 @@ app.post('/api/org-data/restore', requireAuth, requireDeveloper, express.raw({ t
     const written = plan.length + (savedSettings ? 1 : 0)
     armSchedule(orgId)
     console.log(`[restore] организация ${orgId}: получено ${Math.round(req.body.length / 1048576)} МБ, восстановлено файлов ${written}${edits ? ' и привязки' : ''}`)
+    audit(req, CAT.SYSTEM, 'Восстановил данные из копии', `файлов: ${written}`)
     res.json({ ok: true, files: written, edits: !!edits, connection, users: usersAdded, periods: listDatasetPeriods(orgId).length })
   } catch (e) {
     res.status(500).json({ ok: false, message: String(e?.message || e) })
@@ -940,6 +982,7 @@ app.get('/api/edits', requireAuth, (req, res) => res.json(editsDb.getEditsForOrg
 // переименования/комментарии/цвета, которые накопили все остальные.
 app.put('/api/edits', requireAuth, requireAdmin, (req, res) => {
   editsDb.replaceAllEdits(req.auth.orgId, req.body || {})
+  audit(req, CAT.EDITS, 'Импортировал правки целиком', 'заменены все правки организации')
   res.json({ ok: true })
 })
 
@@ -983,6 +1026,7 @@ app.post('/api/edits/op', requireAuth, (req, res) => {
   }
   try {
     apply(req.auth.orgId, payload)
+    auditEdit(req, type, payload)
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ ok: false, message: String(err?.message || err) })

@@ -71,6 +71,19 @@ export async function setManualLinks(enabled: boolean, freezeVersion?: number): 
 }
 export const fetchEdits = () => get<any>('/api/edits')
 
+export interface AuditEntry { id: number; ts: string; userId: string | null; email: string | null; category: string; action: string; details: string }
+export interface AuditPage { items: AuditEntry[]; more: boolean; filters: { users: string[]; categories: string[] } }
+/** Журнал действий (только админ): новые сверху, before — id последней уже показанной записи. */
+export const fetchAudit = (p: { before?: number; q?: string; email?: string; category?: string; limit?: number }) => {
+  const qs = new URLSearchParams()
+  if (p.before) qs.set('before', String(p.before))
+  if (p.q) qs.set('q', p.q)
+  if (p.email) qs.set('email', p.email)
+  if (p.category) qs.set('category', p.category)
+  qs.set('limit', String(p.limit ?? 50))
+  return get<AuditPage>(`/api/audit?${qs}`)
+}
+
 export async function saveSettings(s: Partial<IikoSettings>): Promise<IikoSettings | null> {
   try {
     const r = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(s) })
