@@ -105,7 +105,7 @@ export default function App() {
   // Период и категория доступны на Обзоре и Проверке цен; точки —
   // тоже на этих двух страницах; город — только в Проверке цен.
   const showFilters = page !== 'data' && page !== 'iiko' && page !== 'users' && page !== 'dynamics'
-  const showPeriodPicker = page !== 'iiko' && page !== 'users' && page !== 'dynamics'
+  const showPeriodPicker = page !== 'iiko' && page !== 'users' && page !== 'dynamics' && page !== 'data' // в Справочниках месяц не выбираем
   // Тема — слева от фильтров, когда они есть (рядом с заголовком), и в конце
   // ряда на страницах без фильтров (Справочники), чтобы не висела одна.
   const themeBeforeFilters = showFilters
@@ -189,7 +189,7 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-8 py-4">
               <div className="min-w-0">
                 <h1 className="text-lg font-bold text-fg-50">{nav.find((n) => n.id === page)!.label}</h1>
-                {page === 'dynamics' ? <p className="text-xs text-fg-500">История закупочной цены позиции по загруженным периодам</p> : <p className="text-xs text-fg-500">
+                {page === 'dynamics' ? <p className="text-xs text-fg-500">История закупочной цены позиции по загруженным периодам</p> : page === 'data' ? null : <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
                   {matrixPriceLabel && <span title="Для сверки берутся плановые цены, действовавшие в первый день этого периода"> · Плановые цены: <span className="text-fg-300">{matrixPriceLabel}</span></span>}
                 </p>}
