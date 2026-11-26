@@ -1,0 +1,73 @@
+diff --git a/server/src/index.js b/server/src/index.js
+index a04c0eb..7dd146c 100644
+--- a/server/src/index.js
++++ b/server/src/index.js
+@@ -234,6 +234,20 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
+ 
+ app.get('/api/periods', requireAuth, (req, res) => res.json(listDatasetPeriods(req.auth.orgId)))
+ 
++// Все названия товаров «как в iiko», встречавшиеся в закупках ВСЕХ загруженных месяцев и обоих городов (подсказки в Справочниках:
++// название нужно находить независимо от того, какой месяц сейчас открыт и покупали ли его именно в нём).
++app.get('/api/iiko-names', requireAuth, (req, res) => {
++  const names = new Set()
++  for (const p of listDatasetPeriods(req.auth.orgId)) {
++    const ds = getDataset(req.auth.orgId, p.period)
++    for (const r of ds?.restaurants ?? []) for (const it of r?.items ?? []) {
++      const n = typeof it?.p === 'string' ? it.p.trim() : ''
++      if (n) names.add(n)
++    }
++  }
++  res.json([...names].sort((a, b) => a.localeCompare(b, 'ru')))
++})
++
+ app.get('/api/data', requireAuth, (req, res) => {
+   // period отсюда идёт прямиком в имя файла (orgDatasetPath в store.js) —
+   // без проверки формата "../../другая-папка" в query-параметре увело бы
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index bf8745e..563eff5 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -54,6 +54,8 @@ export interface PeriodMeta { period: string; periodLabel: string }
+ 
+ export const fetchDataset = (period?: string) => get<any>(period ? `/api/data?period=${encodeURIComponent(period)}` : '/api/data')
+ export const fetchPeriods = () => get<PeriodMeta[]>('/api/periods')
++/** Названия товаров как в iiko из закупок всех загруженных месяцев (подсказки в Справочниках). */
++export const fetchIikoNames = () => get<string[]>('/api/iiko-names')
+ export const fetchStatus = () => get<SyncStatus>('/api/status')
+ export const fetchSettings = () => get<IikoSettings>('/api/settings')
+ /** Включить/выключить ручной режим сопоставления (только админ). */
+diff --git a/src/pages/DataEditor.tsx b/src/pages/DataEditor.tsx
+index 4cb0014..44f1be4 100644
+--- a/src/pages/DataEditor.tsx
++++ b/src/pages/DataEditor.tsx
+@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
+ import { fmt, plural, norm, normPack, matchRestaurant, linkTargets, bundledMatching, bundledDataset, capitalize, scopedMatching, withSupplierLinks, ProductLink, SupplierLink, BUNDLED_PERIODS, parseDataset, computeRows, EMPTY_EDITS, Row, anySupplierAlias, supplierAliasFor, isExcludedPair } from '../lib/data'
+ import { useEdits } from '../lib/edits'
+ import { useAuth } from '../lib/auth'
+-import { syncMatrix, fetchPeriods, fetchDataset } from '../lib/api'
++import { syncMatrix, fetchPeriods, fetchDataset, fetchIikoNames } from '../lib/api'
+ import { rankSimilar } from '../lib/fuzzy'
+ import { Section, InfoTip, Checkbox } from '../components/ui'
+ import { EditableText } from '../components/EditableCell'
+@@ -405,14 +405,20 @@ export default function DataEditor() {
+   // поставщика: показывать его (даже во всплывающей табличке) только
+   // захламляло список у дженериковых названий вроде "Ягода с/м в асс",
+   // которые под тем же текстом привозит добрый десяток разных компаний.
++  // + названия из закупок ВСЕХ загруженных месяцев и обоих городов (с сервера): искать товар нужно независимо от открытого месяца
++  const [serverIikoNames, setServerIikoNames] = useState<string[]>([])
++  useEffect(() => { void fetchIikoNames().then((n) => { if (n) setServerIikoNames(n) }) }, [])
+   const allIikoNameOptions = useMemo(() => {
+     const seen = new Set<string>()
+     for (const r of allKnownRows) {
+       if (r.unit == null) continue
+       seen.add(r.productRaw)
+     }
++    // без дублей, отличающихся только пробелами/регистром
++    const known = new Set([...seen].map((x) => norm(x)))
++    for (const n of serverIikoNames) if (!known.has(norm(n))) { seen.add(n); known.add(norm(n)) }
+     return [...seen].sort((a, b) => a.localeCompare(b)).map((label) => ({ label }))
+-  }, [allKnownRows])
++  }, [allKnownRows, serverIikoNames])
+ 
+   // Уже НАЗНАЧЕННОЕ вручную название (для очистки старой привязки при
+   // замене — см. commitMatrixIikoName) — обратный индекс по edits.
