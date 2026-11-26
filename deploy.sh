@@ -44,10 +44,17 @@ if [ -n "$APP_REF" ]; then
   git cat-file -e "$APP_REF^{commit}" 2>/dev/null || { echo "✗ Коммит $APP_REF не найден — проверьте APP_REF в .env"; exit 1; }
   if [ -e .app-src/.git ]; then
     git -C .app-src checkout --detach -f "$APP_REF"
+    git -C .app-src clean -fdq   # убираем файлы прошлого применения доработок
   else
     rm -rf .app-src; git worktree prune
     git worktree add --detach .app-src "$APP_REF"
   fi
+  # доработки поверх старой версии клиента (client-patches/*.patch, например журнал действий) — по порядку имён
+  for p in client-patches/*.patch; do
+    [ -e "$p" ] || continue
+    echo "  применяю $p"
+    git -C .app-src apply --whitespace=nowarn "$PWD/$p" || { echo "✗ Не применилась доработка $p к версии $APP_REF"; exit 1; }
+  done
 fi
 
 echo "→ Собираю и перезапускаю контейнер…"
