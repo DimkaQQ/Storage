@@ -815,7 +815,7 @@ app.get('/api/org-data/export', requireAuth, requireDeveloper, (req, res) => {
 app.get('/api/org-data/full-export', requireAuth, requireDeveloper, (req, res) => {
   try {
     const withSecrets = req.query.secrets !== '0' // ?secrets=0 — копия без паролей и пользователей (можно отправлять разработчику)
-    const tar = buildDataTar(withSecrets)
+    const tar = buildDataTar(withSecrets, req.auth.orgId, { orgs: listOrgs(), users: listUsersByOrg(req.auth.orgId) }) // только своя организация
     res.set({ 'Content-Type': 'application/x-tar', 'Content-Disposition': `attachment; filename="${withSecrets ? 'restore.tar' : 'data-no-passwords.tar'}"`, 'Content-Length': String(tar.length) })
     res.send(tar)
   } catch (e) {

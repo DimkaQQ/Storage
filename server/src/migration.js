@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
+import { DatabaseSync } from 'node:sqlite'
 import { snapshotTo } from './editsDb.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -49,13 +50,17 @@ function sanitizeSettings(buf) {
   } catch { return Buffer.from('{}') }
 }
 
-function walk(dir, base, out, withSecrets) {
+function walk(dir, base, out, withSecrets, orgId) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name)
     const rel = base ? `${base}/${name}` : name
     const st = statSync(full)
     if (!base && name.startsWith('_backup')) continue // серверные копии (перед стиранием, перед миграцией) в restore.tar не кладём — иначе он растёт с каждой копией
-    if (st.isDirectory()) walk(full, rel, out, withSecrets)
+    // копия ОДНОЙ организации: чужие организации, общий users.json/orgs.json (они подменяются ниже) и старые общие файлы корня в неё не попадают
+    if (orgId && !base && name === 'orgs') { walk(full, rel, out, withSecrets, orgId); continue }
+    if (orgId && base === 'orgs' && name !== orgId) continue
+    if (orgId && !base) continue // в копию одной организации из корня папки данных берётся только orgs/ (остальное — общее для сервера)
+    if (st.isDirectory()) walk(full, rel, out, withSecrets, orgId)
     else if (SKIP.has(rel)) continue
     else if (!withSecrets && name === 'users.json') continue // пользователи и хэши паролей
     else if (!withSecrets && name === 'settings.json') out.push({ rel, full, mtime: st.mtimeMs, sanitize: true }) // настройки — без секретов
@@ -63,17 +68,45 @@ function walk(dir, base, out, withSecrets) {
   }
 }
 
-// withSecrets=false — копия «для разработчика»: без настроек подключения (пароль iiko, ключ Google) и без пользователей
-export function buildDataTar(withSecrets = true) {
+// Оставляет в копии базы правок только строки одной организации (в живой базе лежат правки всех организаций сервера).
+function keepOnlyOrg(dbFile, orgId) {
+  const db = new DatabaseSync(dbFile)
+  try {
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name)
+    for (const t of tables) {
+      if (t.startsWith('sqlite_')) continue
+      const q = `"${t.replace(/"/g, '""')}"`
+      const hasOrg = db.prepare(`PRAGMA table_info(${q})`).all().some((c) => c.name === 'org_id')
+      if (hasOrg) db.prepare(`DELETE FROM ${q} WHERE org_id IS NOT ?`).run(orgId)
+      else db.exec(`DELETE FROM ${q}`) // таблица без org_id — неизвестно, чьи в ней данные: в копию одной организации данные не кладём (саму таблицу оставляем пустой)
+    }
+    db.exec('VACUUM')
+  } finally { db.close() }
+}
+
+// withSecrets=false — копия «для разработчика»: без настроек подключения (пароль iiko, ключ Google) и без пользователей.
+// orgId — копия ТОЛЬКО этой организации (ручное скачивание в программе): данные других организаций сервера, их пользователи и
+// пароли в файл не попадают. Без orgId — вся папка данных (служебный вызов).
+export function buildDataTar(withSecrets = true, orgId = null, extra = {}) {
   const files = []
-  walk(DATA_DIR, '', files, withSecrets)
+  walk(DATA_DIR, '', files, withSecrets, orgId)
+  if (orgId && !Array.isArray(extra.orgs)) throw new Error('buildDataTar: для копии организации нужен список организаций (extra.orgs)')
   const tmp = join(tmpdir(), `pricecheck-edits-${randomBytes(6).toString('hex')}.db`)
-  snapshotTo(tmp)
+  try {
+    snapshotTo(tmp)
+    if (orgId) keepOnlyOrg(tmp, orgId)
+  } catch (e) { try { unlinkSync(tmp) } catch { /* ignore */ } throw e }
   files.push({ rel: 'edits.db', full: tmp, mtime: Date.now() })
+  if (orgId) {
+    // orgs.json и users.json — только эта организация и её пользователи
+    const mk = (rel, obj) => files.push({ rel, buf: Buffer.from(JSON.stringify(obj, null, 2)), mtime: Date.now() })
+    mk('orgs.json', (extra.orgs || []).filter((o) => o.id === orgId))
+    if (withSecrets) mk('users.json', (extra.users || []).filter((u) => u.orgId === orgId))
+  }
   const parts = []
   try {
     for (const f of files) {
-      let data = readFileSync(f.full)
+      let data = f.buf ?? readFileSync(f.full)
       if (f.sanitize) data = sanitizeSettings(data)
       parts.push(header(f.rel, data.length, f.mtime), data)
       const pad = (512 - (data.length % 512)) % 512
