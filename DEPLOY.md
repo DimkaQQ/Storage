@@ -150,3 +150,39 @@ sudo systemctl disable <имя-сервиса>
 Правки справочников и плановых цен, которые пользователь делает в разделе
 «Данные», хранятся в его браузере (не на сервере) — при обновлении кода они
 не теряются. Для переноса на другой компьютер есть кнопка «Экспорт».
+
+
+---
+
+## Две версии на одном сервере: разработка (sklad) и клиент (horeca)
+
+| | Разработка | Клиент |
+|---|---|---|
+| Адрес | `sklad.dimkaprojects.xyz` | `horeca.mirelli.eu` |
+| Папка на сервере | `~/Storage` | `~/Storage-prod` |
+| Порт Caddy | 3000 | 3001 |
+| Контейнеры | `pricecheck-api`, `pricecheck` | `pricecheck-prod-api`, `pricecheck-prod` |
+| Данные | своё хранилище | своё хранилище (совсем отдельное) |
+| Версия | последняя ветка (`./deploy.sh` берёт новое) | закреплена на коммите `DEPLOY_REF`, сама не меняется |
+
+**Первый раз (клиентская копия):**
+```bash
+cd ~ && git clone <URL-репозитория> Storage-prod && cd Storage-prod
+cat > .env <<'EOF'
+APP_NAME=pricecheck-prod
+COMPOSE_PROJECT_NAME=pricecheck-prod
+WEB_PORT=3001
+CADDY_SITES=horeca.caddy
+DEPLOY_REF=<sha-коммита-версии-клиента>
+EOF
+./deploy.sh
+docker exec pricecheck-prod-api node src/create-org.js "Название сети" почта@клиента "сильный-пароль"
+```
+ВАЖНО: пока клиентская копия не поднята, `horeca.mirelli.eu` (если Caddy уже получил старый `horeca.caddy`) указывает на порт 3000 — то есть на разработку; `./deploy.sh` в копии разработки предупредит об этом. `DEPLOY_REF` должен быть коммитом не старше этого разделения (`docker-compose.yml` с `APP_NAME`), иначе deploy.sh остановится. Бэкапы копии клиента называются `pricecheck-prod-backup-….tar.gz`.
+
+Перед этим в DNS должна быть A-запись `horeca.mirelli.eu` на IP сервера, а порты 80 и 443 открыты (в Oracle — ещё и в правилах сети).
+Дальше клиент заходит на `https://horeca.mirelli.eu`, «Для разработчика» → «Резервная копия» → «Восстановить всё из копии».
+
+**Обновить версию клиента** (когда вы проверили новое на `sklad`): в `~/Storage-prod/.env` меняете `DEPLOY_REF` на нужный коммит и запускаете `./deploy.sh`. Данные клиента не затрагиваются.
+**Обновить разработку:** в `~/Storage` просто `./deploy.sh`.
+**Бэкапы клиента:** в `~/Storage-prod` — `./install-backup-cron.sh` (папка `~/pricecheck-prod-backups`); скачивать: `REMOTE_DIR=pricecheck-prod-backups ./pull-backup.sh пользователь@сервер`.

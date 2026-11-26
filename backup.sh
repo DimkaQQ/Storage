@@ -11,23 +11,26 @@
 # создайте ОТДЕЛЬНЫЙ ПРИВАТНЫЙ репозиторий (данные нельзя класть в репозиторий с кодом) и запустите:
 #   BACKUP_REPO=git@github.com:ВАШ/приватный-репозиторий.git ./backup.sh
 set -euo pipefail
+cd "$(dirname "$0")"
 umask 077   # файлы копий (в FULL-режиме с паролями) — только для владельца с момента создания
 
+envv() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | tr -d '"\r' || true; }
+APP="$(envv APP_NAME)"; APP="${APP:-pricecheck}"   # имя копии берём ТОЛЬКО из .env этой папки (у версии клиента — pricecheck-prod)
 STAMP="$(date +%Y-%m-%d_%H%M)"
-OUT="${BACKUP_DIR:-$HOME/pricecheck-backups}"
+OUT="${BACKUP_DIR:-$HOME/$APP-backups}"
 TMP="$(mktemp -d)"
 mkdir -p "$OUT"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "→ Консистентная копия базы правок…"
-docker exec pricecheck-api node -e "
+docker exec $APP-api node -e "
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'); try { fs.unlinkSync('/app/data/edits.backup.db') } catch {}
 new DatabaseSync('/app/data/edits.db').exec(\"VACUUM INTO '/app/data/edits.backup.db'\");
 "
 
 echo "→ Копирую данные из контейнера…"
-docker cp pricecheck-api:/app/data "$TMP/data"
+docker cp $APP-api:/app/data "$TMP/data"
 # в копии — свежий снимок базы, а не «живой» файл; секреты убираем
 mv "$TMP/data/edits.backup.db" "$TMP/data/edits.db"
 rm -f "$TMP/data/edits.db-wal" "$TMP/data/edits.db-shm" "$TMP/data/jwt-secret.txt"
@@ -37,10 +40,10 @@ if [ "${FULL:-}" != "1" ]; then
 else
   echo "⚠ ПОЛНАЯ копия: в архиве пароли и ключи — храните и передавайте только владельцу."
 fi
-docker exec pricecheck-api rm -f /app/data/edits.backup.db
+docker exec $APP-api rm -f /app/data/edits.backup.db
 
 SUFFIX=""; [ "${FULL:-}" = "1" ] && SUFFIX="-FULL"
-FILE="$OUT/pricecheck-backup$SUFFIX-$STAMP.tar.gz"
+FILE="$OUT/$APP-backup$SUFFIX-$STAMP.tar.gz"
 tar -czf "$FILE" -C "$TMP" data
 chmod 600 "$FILE"
 echo "✓ Готово: $FILE ($(du -h "$FILE" | cut -f1))"
@@ -59,4 +62,4 @@ fi
 
 # хранить копии за последние KEEP_DAYS дней (по умолчанию 30): чистим только ПОСЛЕ того, как новая копия готова и отправлена.
 # Папка BACKUP_DIR должна быть отдельной, только для копий этой программы.
-find "$OUT" -maxdepth 1 -name 'pricecheck-backup*.tar.gz' -mtime +"${KEEP_DAYS:-30}" -delete || true
+find "$OUT" -maxdepth 1 -name "$APP-backup*.tar.gz" -mtime +"${KEEP_DAYS:-30}" -delete || true

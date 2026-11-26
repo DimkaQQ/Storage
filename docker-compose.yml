@@ -1,8 +1,8 @@
 services:
   api:
     build: ./server
-    image: pricecheck-api:latest
-    container_name: pricecheck-api
+    image: ${APP_NAME:-pricecheck}-api:latest
+    container_name: ${APP_NAME:-pricecheck}-api
     restart: unless-stopped
     environment:
       - TZ=Asia/Almaty
@@ -23,14 +23,14 @@ services:
 
   web:
     build: .
-    image: pricecheck:latest
-    container_name: pricecheck
+    image: ${APP_NAME:-pricecheck}:latest
+    container_name: ${APP_NAME:-pricecheck}
     restart: unless-stopped
     depends_on:
       - api
     ports:
-      # Тот же порт 3000, на который проксирует nginx (sklad.dimkaprojects.xyz).
-      - "127.0.0.1:3000:80"
+      # Порт, на который проксирует Caddy: 3000 — разработка (sklad.dimkaprojects.xyz), 3001 — версия клиента (horeca.mirelli.eu); задаётся в .env (WEB_PORT)
+      - "127.0.0.1:${WEB_PORT:-3000}:80"
 
 volumes:
   pricecheck-data:
