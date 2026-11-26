@@ -58,9 +58,9 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
   { id: 'notPurchased', label: 'Не закупали' },
 ]
 
-/** Фасовка, под которой привезли, — для подписи под названием из iiko («название - фасовка»): у ассортиментов (пюре, ягода в асс) всегда,
- *  у остальных — когда это настоящая фасовка с числом («банка 400г», «уп 10 кг»); голое «кг»/«шт» ничего не уточняет и только шумит. */
-const packLabel = (r: { pack?: string; isPackSensitive?: boolean }) => (r.pack && (r.isPackSensitive || /\d/.test(r.pack)) ? r.pack : '')
+/** Фасовка, под которой привезли, — для подписи под названием из iiko («название - фасовка»): показываем ВСЁ, что записано в фасовке
+ *  (кг, шт, л, «банка 400г», «1*0,500» и любой другой текст) — для любого товара, не только для ассортиментов. */
+const packLabel = (r: { pack?: string }) => String(r.pack ?? '').trim()
 
 export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?: string | null; noData?: boolean }) {
   const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel, updateAll, updateStep, syncing, status, reloadStatus, reloadData } = useEdits()
