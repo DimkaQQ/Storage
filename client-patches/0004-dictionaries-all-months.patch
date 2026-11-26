@@ -1,0 +1,128 @@
+diff --git a/server/src/index.js b/server/src/index.js
+index a04c0eb..8cf2670 100644
+--- a/server/src/index.js
++++ b/server/src/index.js
+@@ -234,6 +234,34 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
+ 
+ app.get('/api/periods', requireAuth, (req, res) => res.json(listDatasetPeriods(req.auth.orgId)))
+ 
++// Закупки ВСЕХ загруженных месяцев одним набором (для Справочников: это база названий и привязок, месяц там не нужен). Одинаковые
++// позиции (ресторан + поставщик + товар + фасовка) разных месяцев сливаются: количество и сумма складываются; по дням не раскладываем.
++app.get('/api/data-all', requireAuth, (req, res) => {
++  // только целые месяцы (YYYY-MM): отрезки дат из «загрузки за период» — те же закупки ещё раз, сложение удвоило бы суммы
++  const periods = listDatasetPeriods(req.auth.orgId).map((p) => p.period).filter((p) => /^\d{4}-\d{2}$/.test(p)).sort() // старые месяцы первыми: описание точки берём из самого свежего
++  const rests = new Map()
++  let last = null
++  for (const period of periods) {
++    const ds = getDataset(req.auth.orgId, period)
++    last = ds
++    for (const r of ds?.restaurants ?? []) {
++      let cur = rests.get(r.name)
++      if (!cur) { cur = { meta: r, items: new Map() }; rests.set(r.name, cur) } else cur.meta = r
++      for (const it of r.items ?? []) {
++        if (!it || typeof it.p !== 'string') continue
++        const key = `${it.s}::${it.p}::${it.k ?? ''}`
++        const prev = cur.items.get(key)
++        if (prev) { prev.q += Number(it.q) || 0; prev.m += Number(it.m) || 0 }
++        else { const { d: _days, ...rest } = it; cur.items.set(key, { ...rest, q: Number(it.q) || 0, m: Number(it.m) || 0 }) }
++      }
++    }
++  }
++  res.json({
++    period: 'all', periodLabel: 'Все месяцы', city: last?.city, category: last?.category,
++    restaurants: [...rests.values()].map(({ meta, items }) => ({ ...meta, items: [...items.values()] })),
++  })
++})
++
+ app.get('/api/data', requireAuth, (req, res) => {
+   // period отсюда идёт прямиком в имя файла (orgDatasetPath в store.js) —
+   // без проверки формата "../../другая-папка" в query-параметре увело бы
+diff --git a/src/App.tsx b/src/App.tsx
+index 97d6155..802694e 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,4 +1,4 @@
+-import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from 'react'
++import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+ import { summarize } from './lib/data'
+ import { useEdits } from './lib/edits'
+ import { useAuth } from './lib/auth'
+@@ -63,7 +63,10 @@ export default function App() {
+   })
+   // Город — только в Проверке цен: сужает и список точек, и таблицу (город точки — Справочники → Точки)
+   const [cityPricecheck, setCityPricecheck] = useState<string | null>(null)
+-  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError } = useEdits()
++  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, saveError, setAllPeriods } = useEdits()
++  // Справочники — база названий и привязок: месяц там ни при чём. Пока открыта эта страница, весь набор данных — закупки ВСЕХ загруженных
++  // месяцев и обоих городов; уходим со страницы — возвращается открытый месяц. (Страницы остаются смонтированными, поэтому следим за page.)
++  useEffect(() => { setAllPeriods(page === 'data') }, [page, setAllPeriods])
+   const { user, logout } = useAuth()
+   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
+ 
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index bf8745e..aa9b967 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -54,6 +54,8 @@ export interface PeriodMeta { period: string; periodLabel: string }
+ 
+ export const fetchDataset = (period?: string) => get<any>(period ? `/api/data?period=${encodeURIComponent(period)}` : '/api/data')
+ export const fetchPeriods = () => get<PeriodMeta[]>('/api/periods')
++/** Закупки всех загруженных месяцев одним набором (Справочники — база названий, месяц там не выбирается). */
++export const fetchDatasetAll = () => get<any>('/api/data-all')
+ export const fetchStatus = () => get<SyncStatus>('/api/status')
+ export const fetchSettings = () => get<IikoSettings>('/api/settings')
+ /** Включить/выключить ручной режим сопоставления (только админ). */
+diff --git a/src/lib/edits.tsx b/src/lib/edits.tsx
+index 79b4bc7..4f510ce 100644
+--- a/src/lib/edits.tsx
++++ b/src/lib/edits.tsx
+@@ -1,7 +1,7 @@
+ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
+ import { MATRIX_SNAPSHOTS } from './features'
+ import { BUNDLED, BUNDLED_PERIODS, bundledDataset, bundledMatching, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, computeRows, parseDataset, applyVenueOverrides, DEFAULT_RESTAURANT_SCOPE, setRestaurantScope } from './data'
+-import { fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
++import { fetchDataset, fetchDatasetAll, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
+ 
+ const KEY = 'pricecheck-edits-v2'
+ 
+@@ -208,6 +208,8 @@ interface Ctx {
+   category: string
+   restaurants: VenueMeta[]
+   suppliers: SupplierAgg[]
++  /** Справочники: true — все списки строятся по закупкам ВСЕХ загруженных месяцев (месяц там не выбирается), false — как обычно по открытому месяцу. */
++  setAllPeriods: (on: boolean) => void
+   products: ProductAgg[]
+   // backend sync
+   backendOnline: boolean
+@@ -405,11 +407,20 @@ export function EditsProvider({ children }: { children: ReactNode }) {
+     }
+   }, [edits, catalogBaseline, reportOpResult, pendingProductLinks, updateEdits])
+ 
++  const allPeriodsRef = useRef(false) // Справочники открыты: вместо открытого месяца грузим закупки всех месяцев
++  const periodParsedRef = useRef<Parsed | null>(null) // последний набор по ОТКРЫТОМУ месяцу — возвращаем сразу при выходе из Справочников
+   const loadData = useCallback(async (period: string) => {
+-    const data = await fetchDataset(period)
+-    if (data && data.restaurants) { setParsed(parseDataset(data)); setBackendOnline(true) }
++    const data = allPeriodsRef.current ? await fetchDatasetAll() : await fetchDataset(period)
++    if (data && data.restaurants) { const ps = parseDataset(data); if (!allPeriodsRef.current) periodParsedRef.current = ps; setParsed(ps); setBackendOnline(true) }
+     else setParsed(parseDataset(bundledDataset(period)))
+   }, [])
++  const setAllPeriods = useCallback((on: boolean) => {
++    if (allPeriodsRef.current === on) return
++    allPeriodsRef.current = on
++    // выходим из Справочников — сразу возвращаем набор по открытому месяцу (иначе остальные страницы на миг покажут данные всех месяцев)
++    if (!on && periodParsedRef.current) setParsed(periodParsedRef.current)
++    void loadData(periodKeyRef.current)
++  }, [loadData])
+   const loadPeriods = useCallback(async () => {
+     const list = await fetchPeriods()
+     if (list && list.length) { setPeriods(list); setBackendOnline(true) }
+@@ -804,7 +815,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
+   const value: Ctx = {
+     edits, rows, rawBase: parsed.base, editCount,
+     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, city: parsed.city, category: parsed.category,
+-    restaurants, suppliers, products: parsed.products,
++    restaurants, suppliers, setAllPeriods, products: parsed.products,
+     backendOnline, status, syncing: syncing || !!status?.syncing, refresh, syncHistoricalPeriod, reloadStatus,
+     venues, enableVenueByName, disableVenueByName, refreshMatrix,
+     renameProduct, renameSupplier, setVenue,

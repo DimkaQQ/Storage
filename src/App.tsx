@@ -1,4 +1,4 @@
-import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { summarize } from './lib/data'
 import { useEdits } from './lib/edits'
 import { useAuth } from './lib/auth'
@@ -66,7 +66,10 @@ export default function App() {
   })
   // Город — только в Проверке цен: сужает и список точек, и таблицу (город точки — Справочники → Точки)
   const [cityPricecheck, setCityPricecheck] = useState<string | null>(null)
-  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, matrixPriceLabel, saveError, datasetPartial } = useEdits()
+  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, matrixPriceLabel, saveError, datasetPartial, setAllPeriods } = useEdits()
+  // Справочники — база названий и привязок: месяц там ни при чём. Пока открыта эта страница, весь набор данных — закупки ВСЕХ загруженных
+  // месяцев и обоих городов; уходим со страницы — возвращается открытый месяц. (Страницы остаются смонтированными, поэтому следим за page.)
+  useEffect(() => { setAllPeriods(page === 'data') }, [page, setAllPeriods])
   const { user, logout } = useAuth()
   const nav = NAV.filter((n) => !n.adminOnly || user?.role === 'admin')
 

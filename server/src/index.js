@@ -249,6 +249,34 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
 app.get('/api/periods', requireAuth, (req, res) => res.json(listDatasetPeriods(req.auth.orgId)))
 
+// Закупки ВСЕХ загруженных месяцев одним набором (для Справочников: это база названий и привязок, месяц там не нужен). Одинаковые
+// позиции (ресторан + поставщик + товар + фасовка) разных месяцев сливаются: количество и сумма складываются; по дням не раскладываем.
+app.get('/api/data-all', requireAuth, (req, res) => {
+  // только целые месяцы (YYYY-MM): отрезки дат из «загрузки за период» — те же закупки ещё раз, сложение удвоило бы суммы
+  const periods = listDatasetPeriods(req.auth.orgId).map((p) => p.period).filter((p) => /^\d{4}-\d{2}$/.test(p)).sort() // старые месяцы первыми: описание точки берём из самого свежего
+  const rests = new Map()
+  let last = null
+  for (const period of periods) {
+    const ds = getDataset(req.auth.orgId, period)
+    last = ds
+    for (const r of ds?.restaurants ?? []) {
+      let cur = rests.get(r.name)
+      if (!cur) { cur = { meta: r, items: new Map() }; rests.set(r.name, cur) } else cur.meta = r
+      for (const it of r.items ?? []) {
+        if (!it || typeof it.p !== 'string') continue
+        const key = `${it.s}::${it.p}::${it.k ?? ''}`
+        const prev = cur.items.get(key)
+        if (prev) { prev.q += Number(it.q) || 0; prev.m += Number(it.m) || 0 }
+        else { const { d: _days, ...rest } = it; cur.items.set(key, { ...rest, q: Number(it.q) || 0, m: Number(it.m) || 0 }) }
+      }
+    }
+  }
+  res.json({
+    period: 'all', periodLabel: 'Все месяцы', city: last?.city, category: last?.category,
+    restaurants: [...rests.values()].map(({ meta, items }) => ({ ...meta, items: [...items.values()] })),
+  })
+})
+
 app.get('/api/data', requireAuth, (req, res) => {
   // period отсюда идёт прямиком в имя файла (orgDatasetPath в store.js) —
   // без проверки формата "../../другая-папка" в query-параметре увело бы

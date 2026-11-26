@@ -60,6 +60,8 @@ export interface PeriodMeta { period: string; periodLabel: string }
 
 export const fetchDataset = (period?: string) => get<any>(period ? `/api/data?period=${encodeURIComponent(period)}` : '/api/data')
 export const fetchPeriods = () => get<PeriodMeta[]>('/api/periods')
+/** Закупки всех загруженных месяцев одним набором (Справочники — база названий, месяц там не выбирается). */
+export const fetchDatasetAll = () => get<any>('/api/data-all')
 export const fetchStatus = () => get<SyncStatus>('/api/status')
 export const fetchSettings = () => get<IikoSettings>('/api/settings')
 /** Включить/выключить ручной режим сопоставления (только админ). */

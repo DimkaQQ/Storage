@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { MATRIX_SNAPSHOTS } from './features'
 import { BUNDLED, BUNDLED_PERIODS, bundledDataset, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, EMPTY_MATCHING, computeRows, parseDataset, applyVenueOverrides, setRestaurantScope } from './data'
-import { syncMatrix, fetchDataset, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
+import { syncMatrix, fetchDataset, fetchDatasetAll, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 
@@ -211,6 +211,8 @@ interface Ctx {
   category: string
   restaurants: VenueMeta[]
   suppliers: SupplierAgg[]
+  /** Справочники: true — все списки строятся по закупкам ВСЕХ загруженных месяцев (месяц там не выбирается), false — как обычно по открытому месяцу. */
+  setAllPeriods: (on: boolean) => void
   products: ProductAgg[]
   // backend sync
   backendOnline: boolean
@@ -415,14 +417,23 @@ export function EditsProvider({ children }: { children: ReactNode }) {
 
   const [datasetPartial, setDatasetPartial] = useState<{ skippedItems: number; noDayItems?: number; monthsWithoutDays: string[] } | null>(null)
   const loadSeq = useRef(0) // ответ на устаревший запрос (быстро переключили период) не должен перезаписать свежий
+  const allPeriodsRef = useRef(false) // Справочники открыты: вместо открытого месяца грузим закупки всех месяцев
+  const periodParsedRef = useRef<Parsed | null>(null) // последний набор по ОТКРЫТОМУ месяцу — возвращаем сразу при выходе из Справочников
   const loadData = useCallback(async (period: string) => {
     const seq = ++loadSeq.current
-    const data = await fetchDataset(period)
+    const data = allPeriodsRef.current ? await fetchDatasetAll() : await fetchDataset(period)
     if (seq !== loadSeq.current) return
     setDatasetPartial(data?.partial && (data.partial.skippedItems || data.partial.noDayItems) ? data.partial : null)
-    if (data && data.restaurants) { setParsed(parseDataset(data)); setBackendOnline(true) }
+    if (data && data.restaurants) { const ps = parseDataset(data); if (!allPeriodsRef.current) periodParsedRef.current = ps; setParsed(ps); setBackendOnline(true) }
     else setParsed(parseDataset(bundledDataset(period)))
   }, [])
+  const setAllPeriods = useCallback((on: boolean) => {
+    if (allPeriodsRef.current === on) return
+    allPeriodsRef.current = on
+    // выходим из Справочников — сразу возвращаем набор по открытому месяцу (иначе остальные страницы на миг покажут данные всех месяцев)
+    if (!on && periodParsedRef.current) setParsed(periodParsedRef.current)
+    void loadData(periodKeyRef.current)
+  }, [loadData])
   const loadPeriods = useCallback(async () => {
     const list = await fetchPeriods()
     if (list && list.length) { setPeriods(list); setBackendOnline(true) }
@@ -849,7 +860,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const value: Ctx = {
     edits, rows, rawBase: parsed.base, editCount,
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
-    restaurants, suppliers, products: parsed.products,
+    restaurants, suppliers, setAllPeriods, products: parsed.products,
     backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, updateAll, updateStep, dataVersion, reloadData, reloadStatus,
     venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
