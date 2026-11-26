@@ -1,5 +1,5 @@
 diff --git a/src/pages/PriceCheck.tsx b/src/pages/PriceCheck.tsx
-index f953613..0c69c0c 100644
+index f953613..30087c5 100644
 --- a/src/pages/PriceCheck.tsx
 +++ b/src/pages/PriceCheck.tsx
 @@ -58,6 +58,10 @@ const STATUS_FILTERS: { id: Status; label: string }[] = [
@@ -13,6 +13,15 @@ index f953613..0c69c0c 100644
  export default function PriceCheck({ rows }: { rows: Row[] }) {
    const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel } = useEdits()
    const [q, setQ] = useState('')
+@@ -504,7 +508,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
+                       <>
+                         <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
+                         <span className="mt-0.5 flex items-center gap-1 text-[11px] font-normal text-fg-500">
+-                          <HoverName text={r.productLabel ?? r.product} className="min-w-0 flex-1" />
++                          <HoverName text={packLabel(r) ? `${r.productLabel ?? r.product} - ${packLabel(r)}` : (r.productLabel ?? r.product)} className="min-w-0 flex-1" />
+                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
+                         </span>
+                       </>
 @@ -517,7 +521,7 @@ export default function PriceCheck({ rows }: { rows: Row[] }) {
                            <HoverName text={r.product} className="min-w-0 flex-1" />
                            {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}

@@ -534,7 +534,7 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
                       <>
                         <span className={STATUS_META[r.status].color}>{STATUS_META[r.status].label}</span>
                         <span className="mt-0.5 flex items-center gap-1 text-[11px] font-normal text-fg-500">
-                          <HoverName text={r.productLabel ?? r.product} className="min-w-0 flex-1" />
+                          <HoverName text={packLabel(r) ? `${r.productLabel ?? r.product} - ${packLabel(r)}` : (r.productLabel ?? r.product)} className="min-w-0 flex-1" />
                           {starByRowKey.has(r.rowKey) && <FasovkaStar n={starByRowKey.get(r.rowKey)!} pack={r.pack} />}
                         </span>
                       </>
