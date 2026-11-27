@@ -2,6 +2,7 @@ import { Fragment, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo,
 import { createPortal } from 'react-dom'
 import { Row, ROW_COLORS, Status, STATUS_META, AmbiguousVariant, money, signedMoney, pct, fmt, summarize, norm, capitalize } from '../lib/data'
 import { useEdits } from '../lib/edits'
+import { COLUMN_RESIZE } from '../lib/features'
 import { useClickOutside } from '../lib/hooks'
 import { StatusBadge, InfoTip } from '../components/ui'
 import HoverName from '../components/HoverName'
@@ -70,6 +71,7 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
   // запоминаются в этом браузере (localStorage), двойной клик по краю — вернуть как было
   const COLS_KEY = 'pricecheck-col-widths'
   const [colW, setColW] = useState<number[] | null>(() => {
+    if (!COLUMN_RESIZE) return null
     try { const v = JSON.parse(localStorage.getItem(COLS_KEY) ?? 'null'); return Array.isArray(v) && v.length === 8 && v.every((x) => typeof x === 'number' && x > 0) ? v : null } catch { return null }
   })
   const headRowRef = useRef<HTMLTableRowElement>(null)
@@ -90,7 +92,7 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
   const resetCols = () => { setColW(null); try { localStorage.removeItem(COLS_KEY) } catch { /* нет доступа к хранилищу */ } }
-  const resizer = (i: number) => (
+  const resizer = (i: number) => !COLUMN_RESIZE ? null : (
     <span onPointerDown={(e) => startResize(i, e)} onDoubleClick={(e) => { e.stopPropagation(); resetCols() }} onClick={(e) => e.stopPropagation()}
       title="Потяните, чтобы изменить ширину колонки. Двойной клик — вернуть ширину всех колонок как было"
       className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize touch-none border-r-2 border-transparent hover:border-brand-400/70" />
