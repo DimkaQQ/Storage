@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdirSync, unlinkSync, cpSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, readdirSync, unlinkSync, cpSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID, createHash } from 'node:crypto'
@@ -489,9 +489,10 @@ export function listDatasetPeriods(orgId) {
   const dir = orgDir(orgId)
   return readdirSync(dir)
     .filter((f) => /^dataset-.+\.json$/.test(f))
-    .map((f) => read(join(dir, f), null))
+    .map((f) => { const d = read(join(dir, f), null); if (!d) return null; let updatedAt = null; try { updatedAt = statSync(join(dir, f)).mtimeMs } catch { /* нет файла */ } return { d, updatedAt } })
     .filter(Boolean)
-    .map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
+    // updatedAt — когда загрузка записана (время файла): календарь периода показывает «загружено …», а /api/data выбирает более свежие данные
+    .map(({ d, updatedAt }) => ({ period: d.period, periodLabel: d.periodLabel, updatedAt }))
     .sort((a, b) => a.period.localeCompare(b.period))
 }
 

@@ -292,12 +292,23 @@ app.get('/api/data', requireAuth, (req, res) => {
   if (!period) return res.json({ restaurants: [] })
   // Произвольный отрезок дат («с … по …»), который не загружали отдельно: собираем из месячных датасетов с подневной раскладкой (range.js)
   const rangeM = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(String(period))
-  if (rangeM && !periods.some((p) => p.period === period)) {
+  if (rangeM) {
     const [, from, to] = rangeM
     if (from > to || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) return res.status(400).json({ ok: false, message: 'Неверный отрезок дат: «с» позже «по» или дата не существует' })
-    // читаем только месяцы, пересекающиеся с отрезком (датасеты большие, читать все на каждый запрос незачем)
-    const months = periods.filter((p) => MONTH_RE.test(p.period)).filter((p) => { const b = monthBounds(p.period); return b.end >= from && b.start <= to }).map((p) => ({ period: p.period, dataset: getDataset(req.auth.orgId, p.period) }))
-    return res.json(composeRange(months, from, to))
+    // месяцы, пересекающиеся с отрезком (датасеты большие, читать все на каждый запрос незачем)
+    const overlap = periods.filter((p) => MONTH_RE.test(p.period)).filter((p) => { const b = monthBounds(p.period); return b.end >= from && b.start <= to })
+    // Старая отдельная загрузка ровно этого отрезка берётся, если она свежее всех месяцев, из которых его можно собрать,
+    // или если собрать отрезок целиком не получается (у месяцев нет раскладки по дням); иначе — сборка из месяцев
+    // («1–31 октября», загруженное раньше месяца, показывало бы устаревшие закупки)
+    const stored = periods.find((p) => p.period === period)
+    if (stored && (!overlap.length || overlap.every((p) => (p.updatedAt ?? 0) <= (stored.updatedAt ?? 0)))) return res.json(getDataset(req.auth.orgId, period))
+    const months = overlap.map((p) => ({ period: p.period, dataset: getDataset(req.auth.orgId, p.period) }))
+    const composed = composeRange(months, from, to)
+    // какой-то месяц отрезка не загружен или собрать целиком нельзя (нет раскладки по дням) — старая загрузка полнее
+    const allMonths = []; for (let y = +from.slice(0, 4), m = +from.slice(5, 7); `${y}-${String(m).padStart(2, '0')}` <= to.slice(0, 7); m === 12 ? (y++, m = 1) : m++) allMonths.push(`${y}-${String(m).padStart(2, '0')}`)
+    const incomplete = allMonths.some((m) => !overlap.some((p) => p.period === m)) || composed.partial?.skippedItems > 0 || composed.partial?.noDayItems > 0
+    if (stored && incomplete) return res.json(getDataset(req.auth.orgId, period))
+    return res.json(composed)
   }
   res.json(getDataset(req.auth.orgId, period))
 })

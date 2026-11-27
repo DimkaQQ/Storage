@@ -201,7 +201,7 @@ export default function App() {
                 {/* Выбор цветовой схемы — рядом с заголовком страницы (слева от
                     фильтров), чтобы не мешался в одном ряду с выбором точек. */}
                 {themeBeforeFilters && <ThemePicker />}
-                {showPeriodPicker && <PeriodPicker periods={periods} value={periodKey} onChange={setPeriod} />}
+                {showPeriodPicker && <PeriodPicker periods={periods} value={periodKey} onChange={setPeriod} city={page === 'pricecheck' ? cityPricecheck : null} />}
                 {showFilters && categories.length > 1 && (
                   <FilterDropdown label="Категория закупок" icon={ILayers} value={activeCategory} options={categories} onChange={setActiveCategory} />
                 )}

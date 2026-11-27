@@ -56,7 +56,7 @@ const errMsg = (e: unknown) => String((e as Error)?.message || e)
 /** То же самое, с префиксом "Бэкенд недоступен" — для мест, где до этого даже не достучались до ответа сервера. */
 const backendErr = (e: unknown) => `Бэкенд недоступен: ${errMsg(e)}`
 
-export interface PeriodMeta { period: string; periodLabel: string }
+export interface PeriodMeta { period: string; periodLabel: string; updatedAt?: number | null }
 
 export const fetchDataset = (period?: string) => get<any>(period ? `/api/data?period=${encodeURIComponent(period)}` : '/api/data')
 export const fetchPeriods = () => get<PeriodMeta[]>('/api/periods')
