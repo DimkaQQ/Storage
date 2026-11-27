@@ -66,6 +66,35 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
   const { setRowComment, setRowColor, setAmbiguousChoice, period, venueLabel, updateAll, updateStep, syncing, status, reloadStatus, reloadData } = useEdits()
   const [updMsg, setUpdMsg] = useState<{ ok: boolean; message: string } | null>(null)
   const updBusy = useRef(false)
+  // Ширина колонок таблицы: пока не трогали — как раньше (проценты от ширины); потянули за край заголовка — колонки в пикселях,
+  // запоминаются в этом браузере (localStorage), двойной клик по краю — вернуть как было
+  const COLS_KEY = 'pricecheck-col-widths'
+  const [colW, setColW] = useState<number[] | null>(() => {
+    try { const v = JSON.parse(localStorage.getItem(COLS_KEY) ?? 'null'); return Array.isArray(v) && v.length === 8 && v.every((x) => typeof x === 'number' && x > 0) ? v : null } catch { return null }
+  })
+  const headRowRef = useRef<HTMLTableRowElement>(null)
+  const startResize = (i: number, e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    const ths = [...(headRowRef.current?.children ?? [])] as HTMLElement[]
+    const base = colW ?? ths.map((th) => Math.round(th.getBoundingClientRect().width))
+    if (base.length !== 8) return
+    const x0 = e.clientX
+    let last = base, moved = false
+    const move = (ev: PointerEvent) => { moved = true; last = base.map((w, j) => (j === i ? Math.max(48, Math.round(w + ev.clientX - x0)) : w)); setColW(last) }
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      document.body.style.cursor = ''; document.body.style.userSelect = ''
+      if (moved) try { localStorage.setItem(COLS_KEY, JSON.stringify(last)) } catch { /* браузер не даёт сохранить — ширина просто не запомнится */ }
+    }
+    document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
+  const resetCols = () => { setColW(null); try { localStorage.removeItem(COLS_KEY) } catch { /* нет доступа к хранилищу */ } }
+  const resizer = (i: number) => (
+    <span onPointerDown={(e) => startResize(i, e)} onDoubleClick={(e) => { e.stopPropagation(); resetCols() }} onClick={(e) => e.stopPropagation()}
+      title="Потяните, чтобы изменить ширину колонки. Двойной клик — вернуть ширину всех колонок как было"
+      className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize touch-none border-r-2 border-transparent hover:border-brand-400/70" />
+  )
   const [updRunning, setUpdRunning] = useState(false)
   const runUpdate = async () => { if (updBusy.current) return; updBusy.current = true; setUpdRunning(true); setUpdMsg(null); try { setUpdMsg(await updateAll(city)) } finally { updBusy.current = false; setUpdRunning(false) } }
   useEffect(() => { setUpdMsg(null) }, [period, city])
@@ -462,18 +491,19 @@ export default function PriceCheck({ rows, city, noData }: { rows: Row[]; city?:
           занимает почти весь экран, так что внешняя страница обычно не
           скроллится сама и второго скролла на глаз не видно. */}
       <div className="card overflow-hidden p-0">
-        <div ref={containerRef} className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
-          <table className="w-full max-w-[1060px] table-fixed">
+        <div ref={containerRef} className={`max-h-[70vh] overflow-y-auto ${colW ? 'overflow-x-auto' : 'overflow-x-hidden'}`}>
+          <table className={`table-fixed ${colW ? '' : 'w-full max-w-[1060px]'}`} style={colW ? { width: colW.reduce((a, b) => a + b, 0) } : undefined}>
+            {colW && <colgroup>{colW.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>}
             <thead className="sticky top-0 z-10 border-b border-brand-500/20 bg-ink-850">
-              <tr>
-                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width="w-[8%]" tight center>Ресторан</Th>
-                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width="w-[13%]" tight center>Поставщик</Th>
-                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width="w-[16%]" tight center longLabel>Наименование/сырьё</Th>
-                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" center width="w-[11%]" longLabel>Цена в тенге из матрицы сырья</Th>
-                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" center width="w-[11%]" longLabel>Цена в тенге отчёт о закупках из iiko</Th>
-                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" center width="w-[10%]">Дельта</Th>
-                <th className="th w-[11%] text-center">Статус</th>
-                <th className="th w-[6%] pl-[6px] pr-2 text-center">Заметка</th>
+              <tr ref={headRowRef}>
+                <Th onClick={() => setSortKey('restaurant')} sort={sort} k="restaurant" width={colW ? undefined : 'w-[8%]'} tight center resizer={resizer(0)}>Ресторан</Th>
+                <Th onClick={() => setSortKey('supplier')} sort={sort} k="supplier" width={colW ? undefined : 'w-[13%]'} tight center resizer={resizer(1)}>Поставщик</Th>
+                <Th onClick={() => setSortKey('product')} sort={sort} k="product" width={colW ? undefined : 'w-[16%]'} tight center longLabel resizer={resizer(2)}>Наименование/сырьё</Th>
+                <Th onClick={() => setSortKey('plan')} sort={sort} k="plan" center width={colW ? undefined : 'w-[11%]'} longLabel resizer={resizer(3)}>Цена в тенге из матрицы сырья</Th>
+                <Th onClick={() => setSortKey('sum')} sort={sort} k="sum" center width={colW ? undefined : 'w-[11%]'} longLabel resizer={resizer(4)}>Цена в тенге отчёт о закупках из iiko</Th>
+                <Th onClick={() => setSortKey('diff')} sort={sort} k="diff" center width={colW ? undefined : 'w-[10%]'} resizer={resizer(5)}>Дельта</Th>
+                <th className={`th relative text-center ${colW ? '' : 'w-[11%]'}`}>Статус{resizer(6)}</th>
+                <th className={`th relative pl-[6px] pr-2 text-center ${colW ? '' : 'w-[6%]'}`}>Заметка{resizer(7)}</th>
               </tr>
             </thead>
             <tbody>
@@ -918,10 +948,10 @@ function NoteHoverTip({ text, children }: { text: string | null; children: React
 // отключаем uppercase/tracking-wider и даём более плотный межстрочный
 // интервал, оставляя обычным коротким подписям (Ресторан, Статус…) прежний
 // вид без изменений.
-function Th({ children, onClick, sort, k, right, center, width, tight, longLabel }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; center?: boolean; width?: string; tight?: boolean; longLabel?: boolean }) {
+function Th({ children, onClick, sort, k, right, center, width, tight, longLabel, resizer }: { children: React.ReactNode; onClick: () => void; sort: { key: string; dir: number }; k: string; right?: boolean; center?: boolean; width?: string; tight?: boolean; longLabel?: boolean; resizer?: ReactNode }) {
   const on = sort.key === k
   return (
-    <th className={`th hover:text-fg-300 ${right ? 'text-right' : center ? 'text-center' : ''} ${tight ? 'px-2' : ''} ${longLabel ? 'normal-case tracking-normal leading-snug' : ''} ${width ?? ''}`}>
+    <th className={`th relative hover:text-fg-300 ${right ? 'text-right' : center ? 'text-center' : ''} ${tight ? 'px-2' : ''} ${longLabel ? 'normal-case tracking-normal leading-snug' : ''} ${width ?? ''}`}>
       <span className={`inline-flex cursor-pointer items-center gap-1.5 ${right ? 'flex-row-reverse' : ''}`} onClick={onClick}>
         {children}
         {on ? (
@@ -930,6 +960,7 @@ function Th({ children, onClick, sort, k, right, center, width, tight, longLabel
             : <IArrowDown width={15} height={15} className="shrink-0 text-brand-300" />
         ) : <ISort width={15} height={15} className="shrink-0 text-fg-400" />}
       </span>
+      {resizer}
     </th>
   )
 }
