@@ -339,6 +339,18 @@ export async function deleteMatrixSnapshot(period: string, tab?: string): Promis
     return r.ok && (await r.json()).ok === true
   } catch { return false }
 }
+// Фиксация месяца: матрица (снимок за месяц пишет syncMatrix с period=ГГГГ-ММ), привязки и закупки — см. server «Фиксация месяца»
+export interface MonthFixMeta { month: string; label: string; fixedAt: string | null; by: string | null }
+export const fetchMonthFixes = () => get<{ months: MonthFixMeta[] }>('/api/month-fix')
+export async function saveMonthFixReq(month: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const r = await fetch('/api/month-fix', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ month }) })
+    return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
+  } catch (e) { return { ok: false, message: errMsg(e) } }
+}
+export async function deleteMonthFixReq(month: string): Promise<boolean> {
+  try { const r = await fetch(`/api/month-fix?month=${encodeURIComponent(month)}`, { method: 'DELETE', headers: authHeaders() }); return r.ok && (await r.json()).ok === true } catch { return false }
+}
 export const fetchMatrixSnapshots = () => get<{ periods: { period: string; periodLabel: string }[]; tabs?: { tab: string; period: string; periodLabel: string }[] }>('/api/matrix/snapshots')
 
 /** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */

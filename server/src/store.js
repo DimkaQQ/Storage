@@ -271,6 +271,51 @@ export const saveSettings = (orgId, s) => {
 export const getStatus = (orgId) => read(orgPaths(orgId).status, { lastSync: null, lastResult: null, source: null })
 export const saveStatus = (orgId, s) => { write(orgPaths(orgId).status, s); return s }
 export const getDataset = (orgId, period) => read(orgDatasetPath(orgId, period), { restaurants: [] })
+
+// ── Фиксация месяца (27 ноября 2026, решение заказчика) ─────────────────────────────────────────────────────────────
+// «Зафиксировать месяц» сохраняет всё на момент нажатия: закупки месяца (копия датасета), привязки и правки Справочников
+// (всё, кроме цветов и заметок строк — это рабочие отметки) и вместе с ними снимок матрицы за этот месяц (matrixsnap-ГГГГ-ММ,
+// пишет обычная фиксация цен). Пока фиксация есть, месяц показывается именно таким: закупки из копии, связи из копии,
+// матрица — ровно снимок (без новых названий из таблицы), а загрузка из iiko за этот месяц не идёт. Повторная фиксация
+// перезаписывает копию текущим состоянием; «Снять фиксацию» удаляет её (снимок цен остаётся).
+const MONTH_FIX_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+// два файла: monthfix-ГГГГ-ММ.json (кто, когда, правки) и monthfix-ГГГГ-ММ.dataset.json (копия закупок) — список и проверки не читают закупки
+const monthFixPath = (orgId, month) => join(orgDir(orgId), `monthfix-${month}.json`)
+const monthFixDataPath = (orgId, month) => join(orgDir(orgId), `monthfix-${month}.dataset.json`)
+export const isMonthKey = (m) => MONTH_FIX_RE.test(String(m))
+// файлы большие (тысячи привязок, закупки месяца) и читаются на каждый запрос периода — держим разобранными, пока файл не изменился
+const fixCache = new Map()
+function readCached(p) {
+  if (!existsSync(p)) { fixCache.delete(p); return null }
+  const m = statSync(p).mtimeMs, c = fixCache.get(p)
+  if (c && c.m === m) return c.v
+  const v = read(p, null); fixCache.set(p, { m, v }); return v
+}
+export function getMonthFix(orgId, month) { return isMonthKey(month) ? readCached(monthFixPath(orgId, month)) : null }
+export function saveMonthFix(orgId, month, { dataset, ...meta }) {
+  write(monthFixDataPath(orgId, month), dataset)
+  write(monthFixPath(orgId, month), { month, ...meta }) // метаданные — последними: есть они, значит копия закупок уже записана
+  fixCache.delete(monthFixPath(orgId, month)); fixCache.delete(monthFixDataPath(orgId, month)) // время файла могло не смениться
+}
+export function deleteMonthFix(orgId, month) {
+  for (const f of [monthFixPath(orgId, month), monthFixDataPath(orgId, month)]) { fixCache.delete(f); if (existsSync(f)) unlinkSync(f) }
+}
+export function listMonthFixes(orgId) {
+  return readdirSync(orgDir(orgId)).map((f) => /^monthfix-(\d{4}-\d{2})\.json$/.exec(f)?.[1]).filter(Boolean).sort()
+    .map((month) => { const v = getMonthFix(orgId, month); return v ? { month, fixedAt: v.fixedAt ?? null, by: v.by ?? null } : null }).filter(Boolean)
+}
+/** Месяц, к которому относится период, если он зафиксирован: сам месяц или отрезок внутри одного месяца. */
+export function fixedMonthOf(orgId, period) {
+  const p = String(period ?? ''), r = /^(\d{4}-\d{2})-\d{2}\.\.(\d{4}-\d{2})-\d{2}$/.exec(p)
+  const m = isMonthKey(p) ? p : r && r[1] === r[2] ? r[1] : null
+  return m && getMonthFix(orgId, m) ? m : null
+}
+/** Закупки для ПОКАЗА: у зафиксированного месяца — копия на момент фиксации, иначе текущая загрузка. Синк читает getDataset. */
+export function getViewDataset(orgId, period) {
+  const fix = getMonthFix(orgId, period)
+  const data = fix ? readCached(monthFixDataPath(orgId, period)) : null
+  return data ? { ...data, monthFixed: { fixedAt: fix.fixedAt ?? null, by: fix.by ?? null } } : getDataset(orgId, period)
+}
 export const saveDataset = (orgId, period, d) => write(orgDatasetPath(orgId, period), d)
 export const getVenues = (orgId) => read(orgPaths(orgId).venues, [])
 
@@ -424,7 +469,10 @@ export function resolveMatrixFor(orgId, period, { allowLater = true, withTabs = 
   }
   // Названия, появившиеся в таблице ПОСЛЕ снимка (новые строки, листы, поставщики — их подхватывает «Обновить» в Справочниках), добавляем
   // в снимок без цены: цену им даст только фиксация за этот период. Цены и строки самого снимка не меняются.
-  if (withTabs && matching) {
+  // Зафиксированный месяц показывает матрицу ровно на момент фиксации — новые названия из таблицы не добавляем
+  const fm = period ? fixedMonthOf(orgId, period) : null
+  const fixedMonth = !!fm && snapshotPeriod === fm
+  if (withTabs && matching && !fixedMonth) {
     const base = getMatrix(orgId)
     if (base && matching !== base) matching = withNewNames(matching, base)
   }
@@ -601,6 +649,7 @@ export function resetOrgData(orgId) {
   for (const period of legacyMatrixPeriods(orgId)) unlinkSync(orgLegacyMatrixPath(orgId, period))
   for (const period of listMatrixSnapshots(orgId)) unlinkSync(matrixSnapPath(orgId, period))
   for (const t of listMatrixTabSnapshots(orgId)) deleteMatrixTabSnapshot(orgId, t.tab, t.period)
+  for (const { month } of listMonthFixes(orgId)) deleteMonthFix(orgId, month)
   write(orgPaths(orgId).venues, [])
   saveSettings(orgId, { enabledRestaurants: null })
   saveStatus(orgId, { lastSync: null, lastResult: null, source: null, message: 'Данные сброшены — настройте синк заново' })

@@ -6,6 +6,7 @@ import { MATRIX_SNAPSHOTS } from '../lib/features'
 import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
 import DateField from '../components/DateField'
+import MonthFixCard from '../components/MonthFixCard'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, ITrash } from '../components/icons'
 
 function extractSheetId(input: string): string {
@@ -33,7 +34,7 @@ export default function IikoSettings() {
   const isDev = user?.role === 'admin' && devMode
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const ALL_SECTIONS = [
-    { id: 'matrix', label: 'Зафиксировать цены' },
+    { id: 'matrix', label: 'Фиксация месяца' },
     { id: 'venues', label: 'Точки сети' },
     { id: 'auto', label: 'Автообновление' },
     { id: 'backup', label: 'Резервная копия' },
@@ -306,9 +307,12 @@ export default function IikoSettings() {
         </div>
       )}
       {(section === 'matrix' || !isDev) && (<>
+      {MATRIX_SNAPSHOTS && <MonthFixCard />}
       <div>
         <div>
-          <div className="mx-auto w-full max-w-2xl space-y-5 rounded-2xl border border-ink-600/70 bg-ink-850 p-5">
+          {/* Цены за отдельный отрезок / один ресторан — дополнительный инструмент, только в режиме разработчика */}
+          <div className={`${isDev ? '' : 'hidden'} mx-auto w-full max-w-2xl space-y-5 rounded-2xl border border-ink-600/70 bg-ink-850 p-5`}>
+            {MATRIX_SNAPSHOTS && <div className="text-sm font-semibold text-fg-200">Только цены за отрезок или один ресторан (дополнительно)</div>}
             {MATRIX_SNAPSHOTS && (
               <>
                 <div>
