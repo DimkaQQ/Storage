@@ -1,0 +1,6 @@
+# Версия клиента — отдельная копия приложения (папка ~/Storage-prod, порт 3001, свои данные). Ставит её deploy.sh из папки Storage-prod (CADDY_SITES=horeca.caddy).
+# Нужна DNS-запись A: horeca.mirelli.eu -> IP этого сервера (та же, что у sklad.dimkaprojects.xyz). HTTPS Caddy выпустит сам.
+horeca.mirelli.eu {
+	import security
+	reverse_proxy 127.0.0.1:3001
+}

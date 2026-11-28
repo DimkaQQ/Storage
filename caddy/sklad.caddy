@@ -1,0 +1,6 @@
+# Installed by deploy.sh into /etc/caddy/sites/. Imported by the main Caddyfile (Showroom repo, deploy/Caddyfile),
+# so a site deploy there never removes this domain. Frontend container listens on 127.0.0.1:3000.
+sklad.dimkaprojects.xyz {
+	import security
+	reverse_proxy 127.0.0.1:3000
+}

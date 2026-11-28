@@ -1,7 +1,36 @@
 services:
-  warehouse:
-    build: .
-    container_name: restaurant-warehouse
+  api:
+    build: ${APP_SRC:-.}/server   # APP_SRC — папка со старой версией кода (клиентская копия, см. deploy.sh / APP_REF)
+    image: ${APP_NAME:-pricecheck}-api:latest
+    container_name: ${APP_NAME:-pricecheck}-api
     restart: unless-stopped
+    environment:
+      - TZ=Asia/Almaty
+      - PORT=8090
+      # доступ к iiko «заморожен» в файле .env рядом с этим файлом (см. .env.example); пусто — настраивается в программе
+      - IIKO_PROVIDER=${IIKO_PROVIDER:-}
+      - IIKO_SERVER_URL=${IIKO_SERVER_URL:-}
+      - IIKO_LOGIN=${IIKO_LOGIN:-}
+      - IIKO_PASSWORD=${IIKO_PASSWORD:-}
+      - IIKO_API_LOGIN=${IIKO_API_LOGIN:-}
+      - IIKO_ORGANIZATION_ID=${IIKO_ORGANIZATION_ID:-}
+      - IIKO_LOCK_ORG=${IIKO_LOCK_ORG:-}
+    volumes:
+      # данные, настройки iiko и плановые цены переживают пересборку
+      - pricecheck-data:/app/data
+    expose:
+      - "8090"
+
+  web:
+    build: ${APP_SRC:-.}
+    image: ${APP_NAME:-pricecheck}:latest
+    container_name: ${APP_NAME:-pricecheck}
+    restart: unless-stopped
+    depends_on:
+      - api
     ports:
-      - "127.0.0.1:3000:80"
+      # Порт, на который проксирует Caddy: 3000 — разработка (sklad.dimkaprojects.xyz), 3001 — версия клиента (horeca.mirelli.eu); задаётся в .env (WEB_PORT)
+      - "127.0.0.1:${WEB_PORT:-3000}:80"
+
+volumes:
+  pricecheck-data:
