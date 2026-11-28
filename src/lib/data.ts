@@ -2062,19 +2062,3 @@ export function plural(n: number, one: string, few: string, many: string) {
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few
   return many
 }
-
-/**
- * Зафиксированный месяц (сервер: /api/matching → monthFix): привязки товаров и поставщиков, переименования и фасовки
- * Справочников берутся такими, какими были в момент фиксации; отметки строк и настройки точек остаются живыми. Без фиксации — как есть.
- */
-export function withMonthFix(edits: Edits, matching: MatchingTable | null | undefined): Edits {
-  const fixed = (matching as any)?.monthFix?.edits as Partial<Edits> | null | undefined
-  if (!fixed) return edits
-  const out: Edits = { ...edits }
-  for (const k of Object.keys(EMPTY_EDITS) as (keyof Edits)[]) {
-    // живыми остаются отметки конкретных строк (цвет, заметка, выбор варианта, ручная цена) и настройки точек (город, вкладка, подпись)
-    if (k === 'rowComments' || k === 'rowColors' || k === 'ambiguousChoices' || k === 'planOverrides' || k === 'venueOverrides' || k === 'newVenues') continue
-    ;(out as any)[k] = (fixed as any)[k] ?? {}
-  }
-  return out
-}

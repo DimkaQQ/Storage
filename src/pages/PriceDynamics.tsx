@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { computeRows, withMonthFix, parseDataset, EMPTY_MATCHING, money, signedMoney, pct } from '../lib/data'
+import { computeRows, parseDataset, EMPTY_MATCHING, money, signedMoney, pct } from '../lib/data'
 import { fetchDataset, fetchMatching } from '../lib/api'
 import { useEdits } from '../lib/edits'
 import { Granularity, PeriodRows, Position, Series, addDays, bucketOf, buildPositions, pickPeriods, periodSpan, productsIn, summarizeSeries, trendOf, FLAT_EPS } from '../lib/dynamics'
@@ -149,7 +149,7 @@ export default function PriceDynamics({ active = true }: { active?: boolean }) {
   // строки сверки по каждому периоду: те же связи, привязки и план-цены, что в «Проверке цен», но для СВОЕГО периода
   const parsedList = useMemo(() => loaded.map((l) => ({ l, parsed: parseDataset(l.data) })), [loaded])
   const periodRows: PeriodRows[] = useMemo(() => parsedList.map(({ l, parsed }) => (
-    { period: l.period, rows: computeRows(parsed.base, withMonthFix(edits, l.matching), l.matching ?? EMPTY_MATCHING, parsed.restaurants, manual) }
+    { period: l.period, rows: computeRows(parsed.base, edits, l.matching ?? EMPTY_MATCHING, parsed.restaurants, manual) }
   )), [parsedList, edits, manual])
 
   const products = useMemo(() => productsIn(periodRows), [periodRows])

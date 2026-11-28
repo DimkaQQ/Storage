@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { PeriodMeta, fetchMonthFixes, MonthFixMeta } from '../lib/api'
+import { PeriodMeta, fetchMatrixSnapshots, deleteMatrixSnapshot, syncMatrix } from '../lib/api'
 import { useEdits } from '../lib/edits'
 import { useAuth } from '../lib/auth'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
@@ -7,10 +7,10 @@ import { IClock, IChevron, ILock, ISync } from './icons'
 
 /**
  * Выбор периода — ОДИН календарь вместо списка загрузок («Октябрь 2026», «1–31 октября», «25–27 октября» путали, какая
- * из них правильная). Вкладка «Месяц» — 12 месяцев года с отметками (● закупки загружены, замок — цены зафиксированы),
+ * из них правильная). Вкладка «Месяц» — 12 месяцев года с отметками (● закупки загружены, замок — матрица зафиксирована),
  * «Даты» — календарь дней: первый клик — начало, второй — конец. Любой отрезок собирается из загруженных месяцев
  * (сервер: /api/data → composeRange). Внизу — что есть по выбранному периоду и две кнопки: «Загрузить из iiko»
- * (та же updateAll, что «Обновить» в Проверке цен) и для админа «Зафиксировать цены» (снимок матрицы за период, обе таблицы).
+ * (та же updateAll, что «Обновить» в Проверке цен) и для админа «Зафиксировать матрицу» (только целый месяц; город из шапки или оба; подробно — страница «Фиксация матрицы»).
  */
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 const MONTHS_S = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек']
@@ -44,7 +44,7 @@ export function periodTitle(p: string): string {
 const when = (ms: number) => new Date(ms).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).replace(' г.', '')
 
 export default function PeriodPicker({ periods, value, onChange, city = null }: { periods: PeriodMeta[]; value: string; onChange: (period: string) => void; city?: string | null }) {
-  const { updateAll, updateStep, syncing, matrixPriceLabel, fixMonth, unfixMonth } = useEdits()
+  const { updateAll, updateStep, syncing, matrixPriceLabel, refreshMatrix } = useEdits()
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [open, setOpen] = useState(false)
@@ -57,7 +57,7 @@ export default function PeriodPicker({ periods, value, onChange, city = null }: 
   const [selA, setSelA] = useState<string | null>(null)
   const [selB, setSelB] = useState<string | null>(null)
   const [hover, setHover] = useState<string | null>(null)
-  const [fixes, setFixes] = useState<MonthFixMeta[]>([])
+  const [snaps, setSnaps] = useState<{ period: string; tab?: string; fixed?: boolean; fixedTargets?: string[] }[]>([])
   const [busy, setBusy] = useState<'load' | 'fix' | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -67,7 +67,8 @@ export default function PeriodPicker({ periods, value, onChange, city = null }: 
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
-  const loadFixes = () => { if (MATRIX_SNAPSHOTS) fetchMonthFixes().then((r) => setFixes(r?.months ?? [])) }
+  // и снимки всей сети, и снимки отдельных ресторанов (tab)
+  const loadSnaps = () => { if (MATRIX_SNAPSHOTS) fetchMatrixSnapshots().then((r) => setSnaps([...(r?.periods ?? []).map((x) => ({ period: x.period, fixedTargets: x.fixedTargets ?? [] })), ...(r?.tabs ?? []).map((x) => ({ period: x.period, tab: x.tab, fixed: x.fixed }))])) }
   // при открытии — календарь на выбранном периоде, свежий список зафиксированных цен
   useEffect(() => {
     if (!open) return
@@ -75,11 +76,12 @@ export default function PeriodPicker({ periods, value, onChange, city = null }: 
     setYear(Number((b?.a ?? today).slice(0, 4))); setView((b?.a ?? today).slice(0, 7))
     setSelA(b && !MONTH_RE.test(value) ? b.a : null); setSelB(b && !MONTH_RE.test(value) ? b.b : null)
     setTab(MONTH_RE.test(value) ? 'month' : 'days'); setMsg(null)
-    loadFixes()
+    loadSnaps()
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loaded = useMemo(() => new Map(periods.filter((p) => MONTH_RE.test(p.period)).map((p) => [p.period, p])), [periods])
-  const fixedMap = useMemo(() => new Map(fixes.map((f) => [f.month, f])), [fixes])
+  // месяц с зафиксированной матрицей: город целиком (fixedTargets) или отдельный ресторан за этот месяц
+  const fixedIn = (month: string) => snaps.some((x) => x.period === month && (x.tab ? x.fixed : (x.fixedTargets?.length ?? 0) > 0))
 
   const pick = (p: string) => { onChange(p); setOpen(false) }
   // календарь дней
@@ -112,28 +114,47 @@ export default function PeriodPicker({ periods, value, onChange, city = null }: 
   const have = need.filter((m) => loaded.has(m))
   const missing = need.filter((m) => !loaded.has(m) && m <= thisMonth)
   const oldest = have.length ? Math.min(...have.map((m) => loaded.get(m)?.updatedAt ?? Infinity)) : null
-  // цены за ровно этот период (снимок с теми же границами, ключ «ГГГГ-ММ» или «с..по» — всё равно) у всей сети
-  // зафиксированный месяц: выбран сам месяц или отрезок внутри одного месяца
-  const fixMonthKey = MONTH_RE.test(value) ? value : vb && vb.a.slice(0, 7) === vb.b.slice(0, 7) ? vb.a.slice(0, 7) : null
-  const fixInfo = fixMonthKey ? fixedMap.get(fixMonthKey) : undefined
-  const fixedNeed = need.filter((m) => fixedMap.has(m))
-  const canFix = MATRIX_SNAPSHOTS && isAdmin && MONTH_RE.test(value) && value < thisMonth && have.length > 0
+  // фиксация матрицы — только целый месяц; город — из шапки (Проверка цен), иначе оба города
+  const fixedCities = MONTH_RE.test(value) ? (snaps.find((x) => !x.tab && x.period === value)?.fixedTargets ?? []) : []
+  const fixedTabs = MONTH_RE.test(value) ? snaps.filter((x) => x.tab && x.fixed && x.period === value).length : 0
+  const exactFixed = fixedCities.length > 0
+  const targets: ['Алматы' | 'Астана', 'astana' | undefined][] = city === 'Астана' ? [['Астана', 'astana']] : city === 'Алматы' ? [['Алматы', undefined]] : [['Алматы', undefined], ['Астана', 'astana']]
+  const canFix = MATRIX_SNAPSHOTS && isAdmin && MONTH_RE.test(value) && value <= thisMonth
+  const cityName = (t: string) => t === 'astana' ? 'Астана' : 'Алматы'
 
   const doLoad = async () => {
     setBusy('load'); setMsg(null)
     try { const r = await updateAll(city); setMsg({ ok: r.ok, text: r.message }) } finally { setBusy(null) }
   }
   const doFix = async () => {
-    const t = `Зафиксировать ${periodTitle(value)}?\n\nСохранится всё как сейчас: матрица из Google-таблицы (цены, названия, товары, кто на что назначен), привязки из Справочников и закупки из iiko. Месяц будет показываться именно таким, а загрузка из iiko за него — отключена, пока фиксацию не снимут.` +
-      (fixInfo ? '\n\nМесяц уже зафиксирован — прежняя фиксация заменится сегодняшним состоянием.' : '')
-    if (!window.confirm(t)) return
+    if (!vb || !MONTH_RE.test(value)) return
+    const fresh = await fetchMatrixSnapshots() // свежий список: его мог изменить другой админ
+    // старые фиксации за отрезки ВНУТРИ месяца (сеть и рестораны) заменяются месячной, только когда фиксируем оба города:
+    // снимок сети хранит цены обоих городов, при фиксации одного города его удалять нельзя
+    const both = targets.length === 2
+    const inRange = (p: string) => { if (p === value) return false; const b = boundsOf(p); return !!b && b.a >= vb.a && b.b <= vb.b }
+    const inside = both ? [
+      ...(fresh?.periods ?? []).filter((x) => inRange(x.period)).map((x) => ({ period: x.period, label: x.periodLabel, tab: undefined as string | undefined })),
+      ...(fresh?.tabs ?? []).filter((x) => inRange(x.period)).map((x) => ({ period: x.period, label: `${x.periodLabel} (${x.tab})`, tab: x.tab as string | undefined })),
+    ] : []
+    const who = targets.map(([n]) => n).join(' и ')
+    const text = `Зафиксировать матрицу за ${periodTitle(value)} (${who})?\n\nСохранятся плановые цены, названия, товары, поставщики и кто на что назначен — как СЕЙЧАС в Google-таблице. Привязки остаются в Справочниках, закупки из iiko обновляются как обычно.` +
+      (exactFixed ? '\n\nЗа этот месяц матрица уже зафиксирована — она заменится сегодняшней.' : '') +
+      (inside.length ? `\n\nВнутри месяца есть фиксации за отрезки:\n${inside.map((x) => '• ' + x.label).join('\n')}\nОни будут удалены — их заменит месячная.` : '')
+    if (!window.confirm(text)) return
     setBusy('fix'); setMsg(null)
-    try { const r = await fixMonth(value); setMsg({ ok: r.ok, text: r.message }); loadFixes() } finally { setBusy(null) }
-  }
-  const doUnfix = async () => {
-    if (!window.confirm(`Снять фиксацию «${periodTitle(value)}»? Месяц снова будет показываться по текущим привязкам и закупкам, и его можно будет обновить из iiko. Цены матрицы за месяц останутся.`)) return
-    setBusy('fix'); setMsg(null)
-    try { const r = await unfixMonth(value); setMsg({ ok: r.ok, text: r.message }); loadFixes() } finally { setBusy(null) }
+    try {
+      const problems: string[] = []; let done = 0
+      for (const [name, target] of targets) {
+        const r = await syncMatrix(target, value)
+        if (r.ok) done++
+        else if (!/ID таблицы/.test(r.message ?? '')) problems.push(`${name}: ${r.message ?? 'ошибка'}`)
+      }
+      // отрезки внутри месяца удаляем, только если записались ВСЕ выбранные таблицы
+      if (done && !problems.length) for (const x of inside) if (!(await deleteMatrixSnapshot(x.period, x.tab))) problems.push(`не удалось удалить фиксацию «${x.label}» — удалите её в «Фиксация матрицы»`)
+      await refreshMatrix(); loadSnaps()
+      setMsg(problems.length || !done ? { ok: false, text: 'Не получилось полностью: ' + (problems.join('; ') || 'таблица Google не подключена') } : { ok: true, text: `Матрица за ${periodTitle(value)} зафиксирована (${who})` })
+    } finally { setBusy(null) }
   }
 
   const label = MONTH_RE.test(value) || RANGE_RE.test(value) ? periodTitle(value) : (periods.find((p) => p.period === value)?.periodLabel ?? value)
@@ -166,10 +187,10 @@ export default function PeriodPicker({ periods, value, onChange, city = null }: 
               <div className="grid grid-cols-3 gap-1.5">
                 {MONTHS_S.map((n, i) => {
                   const k = `${year}-${pad(i + 1)}`
-                  const future = k > thisMonth, on = value === k, isLoaded = loaded.has(k), isFixed = fixedMap.has(k)
+                  const future = k > thisMonth, on = value === k, isLoaded = loaded.has(k), isFixed = fixedIn(k)
                   return (
                     <button key={k} disabled={future} onClick={() => pick(k)}
-                      title={future ? '' : `${MONTHS[i]} ${year}: ${isFixed ? 'месяц зафиксирован' : isLoaded ? 'закупки загружены' : 'закупки ещё не загружены'}`}
+                      title={future ? '' : `${MONTHS[i]} ${year}: ${isLoaded ? 'закупки загружены' : 'закупки ещё не загружены'}${isFixed ? ', матрица зафиксирована' : ''}`}
                       className={`relative flex h-11 flex-col items-center justify-center rounded-lg border text-sm transition-colors disabled:cursor-default disabled:opacity-30 ${on ? 'border-brand-400 bg-brand-500/20 text-fg-50' : 'border-ink-700 text-fg-200 hover:border-ink-500 hover:bg-ink-800'}`}>
                       <span>{n}</span>
                       <span className="mt-0.5 flex h-2.5 items-center gap-1">
@@ -182,7 +203,7 @@ export default function PeriodPicker({ periods, value, onChange, city = null }: 
               </div>
               <div className="mt-2 flex items-center gap-3 text-[11px] text-fg-500">
                 <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />закупки загружены</span>
-                {MATRIX_SNAPSHOTS && <span className="flex items-center gap-1"><ILock className="text-amber-300" width={10} height={10} />месяц зафиксирован</span>}
+                {MATRIX_SNAPSHOTS && <span className="flex items-center gap-1"><ILock className="text-amber-300" width={10} height={10} />матрица зафиксирована</span>}
               </div>
             </div>
           ) : (
@@ -227,31 +248,25 @@ export default function PeriodPicker({ periods, value, onChange, city = null }: 
             </div>
             {MATRIX_SNAPSHOTS && (
               <div className="flex items-start gap-2">
-                <ILock className={`mt-0.5 shrink-0 ${fixInfo ? 'text-amber-300' : 'text-fg-600'}`} width={11} height={11} />
-                <span className="text-fg-400">
-                  {fixInfo ? `Месяц зафиксирован${fixInfo.fixedAt ? ' ' + when(Date.parse(fixInfo.fixedAt)) : ''}${fixInfo.by ? ` (${fixInfo.by})` : ''} — матрица, привязки и закупки как на тот момент`
-                    : `Не зафиксирован · цены берутся: ${matrixPriceLabel ?? '—'}`}
-                </span>
+                <ILock className={`mt-0.5 shrink-0 ${exactFixed ? 'text-amber-300' : 'text-fg-600'}`} width={11} height={11} />
+                <span className="text-fg-400">{exactFixed ? `Матрица зафиксирована: ${fixedCities.map(cityName).join(', ')}` : `Матрица и цены берутся: ${matrixPriceLabel ?? '—'}`}{fixedTabs ? ` · отдельно зафиксировано ресторанов: ${fixedTabs}` : ''}</span>
               </div>
             )}
             <div className="flex gap-2 pt-1">
-              <button onClick={doLoad} disabled={working || need.length > 4 || fixedNeed.length > 0}
-                title={fixedNeed.length ? 'Месяц зафиксирован — загрузка из iiko за него отключена. Снимите фиксацию, чтобы обновить.' : need.length > 4 ? 'За раз загружается до 4 месяцев — выберите период короче' : `Загрузить закупки из iiko за месяц(ы) этого периода (${city || 'все города'}) и прочитать названия из таблицы`}
+              <button onClick={doLoad} disabled={working || need.length > 4} title={need.length > 4 ? 'За раз загружается до 4 месяцев — выберите период короче' : `Загрузить закупки из iiko за месяц(ы) этого периода (${city || 'все города'}) и прочитать названия из таблицы`}
                 className="btn h-9 flex-1 border border-ink-600 bg-ink-900/60 text-xs text-fg-100 hover:border-ink-500 disabled:opacity-50">
                 <ISync className={busy === 'load' ? 'animate-spin' : ''} width={13} height={13} />{have.length ? 'Обновить из iiko' : 'Загрузить из iiko'}{city ? ` (${city})` : ''}
               </button>
               {canFix && (
-                <button onClick={doFix} disabled={working} title="Сохранить месяц целиком: матрицу (цены, названия, товары), привязки и закупки. Другие месяцы не меняются."
+                <button onClick={doFix} disabled={working} title="Зафиксировать матрицу за этот месяц: цены, названия, товары, поставщики — как сейчас в таблице. Другие месяцы не меняются."
                   className="btn h-9 flex-1 border border-amber-500/40 bg-amber-500/10 text-xs text-fg-100 hover:bg-amber-500/20 disabled:opacity-50">
-                  <ILock width={12} height={12} />{fixInfo ? 'Зафиксировать заново' : 'Зафиксировать месяц'}
+                  <ILock width={12} height={12} />{exactFixed ? 'Зафиксировать заново' : 'Зафиксировать матрицу'}
                 </button>
               )}
             </div>
-            {isAdmin && fixInfo && MONTH_RE.test(value) && <button onClick={doUnfix} disabled={working} className="text-[11px] text-fg-500 underline-offset-2 hover:text-fg-300 hover:underline disabled:opacity-50">Снять фиксацию месяца</button>}
-            {MATRIX_SNAPSHOTS && isAdmin && !MONTH_RE.test(value) && <p className="text-[11px] text-fg-500">Зафиксировать можно только целый месяц — выберите его на вкладке «Месяц».</p>}
-            {MATRIX_SNAPSHOTS && isAdmin && value === thisMonth && <p className="text-[11px] text-fg-500">Текущий месяц ещё идёт — зафиксировать его можно после окончания.</p>}
+            {MATRIX_SNAPSHOTS && isAdmin && !MONTH_RE.test(value) && <p className="text-[11px] text-fg-500">Матрица фиксируется за целый месяц — выберите его на вкладке «Месяц».</p>}
             {busy && updateStep && <p className="text-[11px] text-fg-400">{updateStep}</p>}
-            {busy === 'fix' && <p className="text-[11px] text-fg-400">Фиксирую месяц: читаю таблицу, сохраняю привязки и закупки…</p>}
+            {busy === 'fix' && <p className="text-[11px] text-fg-400">Фиксирую матрицу…</p>}
             {msg && <p className={`text-[11px] ${msg.ok ? 'text-emerald-300' : 'text-amber-300'}`}>{msg.text}</p>}
           </div>
         </div>

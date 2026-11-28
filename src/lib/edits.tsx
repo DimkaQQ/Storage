@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { MATRIX_SNAPSHOTS } from './features'
-import { BUNDLED, BUNDLED_PERIODS, bundledDataset, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, EMPTY_MATCHING, computeRows, withMonthFix, parseDataset, applyVenueOverrides, setRestaurantScope } from './data'
-import { syncMatrix, fetchDataset, fetchDatasetAll, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, fetchMatrixSnapshots, deleteMatrixSnapshot, saveMonthFixReq, deleteMonthFixReq, fetchMonthFixes, Venues, SyncStatus, PeriodMeta } from './api'
+import { BUNDLED, BUNDLED_PERIODS, bundledDataset, MatchingTable, Edits, EMPTY_EDITS, Parsed, Row, RowColor, BaseRow, SupplierAgg, ProductAgg, VenueMeta, VenuePatch, PackAlias, ProductLink, SupplierLink, AmbiguousVariant, EMPTY_MATCHING, computeRows, parseDataset, applyVenueOverrides, setRestaurantScope } from './data'
+import { syncMatrix, fetchDataset, fetchDatasetAll, fetchPeriods, fetchStatus, fetchEdits, saveEdits, applyEditOp, triggerSync, fetchVenues, enableVenue, disableVenue, fetchMatching, setManualLinks, fetchMatchingAll, Venues, SyncStatus, PeriodMeta } from './api'
 
 const KEY = 'pricecheck-edits-v2'
 
@@ -232,9 +232,6 @@ interface Ctx {
   enableVenueByName: (name: string) => Promise<void>
   disableVenueByName: (name: string) => Promise<void>
   refreshMatrix: () => Promise<void>
-  monthFix: { month: string; fixedAt: string | null; by: string | null } | null  // открытый период — в зафиксированном месяце
-  fixMonth: (month: string) => Promise<{ ok: boolean; message: string }>        // зафиксировать месяц целиком (админ)
-  unfixMonth: (month: string) => Promise<{ ok: boolean; message: string }>
   // edits
   renameProduct: (key: string, name: string) => void  // key = "товар::поставщик::фасовка" (raw, как в iiko)
   renameSupplier: (rawName: string, name: string) => void
@@ -436,7 +433,9 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     // выходим из Справочников — сразу возвращаем набор по открытому месяцу (иначе остальные страницы на миг покажут данные всех месяцев)
     if (!on && periodParsedRef.current) setParsed(periodParsedRef.current)
     void loadData(periodKeyRef.current)
+    void loadMatchingRef.current?.() // в Справочниках — товары и поставщики из всех матриц, вне их — матрица открытого периода
   }, [loadData])
+  const loadMatchingRef = useRef<(() => Promise<void>) | null>(null)
   const loadPeriods = useCallback(async () => {
     const list = await fetchPeriods()
     if (list && list.length) { setPeriods(list); setBackendOnline(true) }
@@ -500,10 +499,12 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   const matchingReq = useRef(0)
   const loadMatching = useCallback(async (period?: string) => {
     const id = ++matchingReq.current
-    const m = await fetchMatching(MATRIX_SNAPSHOTS ? (period ?? periodKeyRef.current) : undefined)
+    // Справочники (allPeriods) — база для привязок: товары и поставщики из ВСЕХ матриц, в т.ч. зафиксированных за прошлые месяцы
+    const m = allPeriodsRef.current ? await fetchMatchingAll() : await fetchMatching(MATRIX_SNAPSHOTS ? (period ?? periodKeyRef.current) : undefined)
     if (id !== matchingReq.current) return // пока шёл запрос, выбрали другой период — не затираем его матрицу старым ответом
     setBackendMatching(m && m.planPairs ? (m as MatchingTable) : null)
   }, [])
+  loadMatchingRef.current = () => loadMatching()
 
   // On mount: pull the list of available periods + status + shared
   // corrections from the backend (if present), then the latest period's
@@ -585,10 +586,6 @@ export function EditsProvider({ children }: { children: ReactNode }) {
       }
       if (!months.length) problems.push('закупки: этот период нельзя загрузить из iiko (выберите месяц или даты)')
       if (range && months.length >= 4 && (Number(range[3]) * 12 + Number(range[4])) - (Number(range[1]) * 12 + Number(range[2])) >= 4) problems.push('обновлены только первые 4 месяца периода')
-      // зафиксированные месяцы из iiko не обновляются — пропускаем с пометкой
-      const fixedSet = new Set(((await fetchMonthFixes())?.months ?? []).map((f) => f.month))
-      const skipped = months.filter((m) => fixedSet.has(m))
-      if (skipped.length) { problems.push(`${skipped.map(periodLabelOf).join(', ')} зафиксирован — закупки не обновлялись`); months = months.filter((m) => !fixedSet.has(m)) }
       let stopped = false
       for (const m of months) {
         if (stopped) break
@@ -649,42 +646,9 @@ export function EditsProvider({ children }: { children: ReactNode }) {
   // вшитая демо-матрица вместо реальной.
   const matchingIsStale = !backendMatching
   const ownPrices = Object.keys((backendMatching as any)?.tabSnapshots ?? {}).length
-  const matrixPriceLabel = MATRIX_SNAPSHOTS && backendMatching ? ((backendMatching as any).snapshotLabel ?? 'общая матрица') + (ownPrices ? ` · у ${ownPrices} ресторан${ownPrices === 1 ? 'а' : 'ов'} свои цены` : '') : null
+  const matrixPriceLabel = MATRIX_SNAPSHOTS && backendMatching ? ((backendMatching as any).snapshotLabel ?? 'общая матрица') + ((backendMatching as any).fixedCities?.length ? ` (зафиксирована: ${(backendMatching as any).fixedCities.map((t: string) => t === 'astana' ? 'Астана' : 'Алматы').join(', ')})` : '') + (ownPrices ? ` · у ${ownPrices} ресторан${ownPrices === 1 ? 'а' : 'ов'} свои цены` : '') : null
   const manualMode = !!status?.manualLinks
-  const monthFix = ((backendMatching as any)?.monthFix ?? null) as { month: string; fixedAt: string | null; by: string | null } | null
-  // «Зафиксировать месяц»: 1) снимок матрицы за месяц из обеих таблиц (цены, названия, товары, кто назначен), 2) снимки внутри месяца
-  // (недели, отдельные рестораны) удаляются — их заменяет месячный, 3) сервер сохраняет копию закупок и привязок. Ошибка на шаге 1 — дальше не идём.
-  const fixMonth = useCallback(async (month: string): Promise<{ ok: boolean; message: string }> => {
-    const label = periodLabelOf(month)
-    // проверки ДО изменений: закупки месяца загружены, месяц закончился
-    const now = new Date(), thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    if (month >= thisMonth) return { ok: false, message: 'Зафиксировать можно только закончившийся месяц — текущий ещё пополняется закупками.' }
-    if (!((await fetchPeriods()) ?? []).some((p) => p.period === month)) return { ok: false, message: `Закупки за ${label} ещё не загружены — сначала загрузите месяц из iiko.` }
-    const problems: string[] = []; let done = 0
-    for (const [name, target] of [['Алматы', undefined], ['Астана', 'astana']] as const) {
-      const r = await syncMatrix(target, month)
-      if (r.ok) done++
-      else if (!/ID таблицы/.test(r.message ?? '')) problems.push(`матрица ${name}: ${r.message ?? 'ошибка'}`)
-    }
-    if (!done || problems.length) return { ok: false, message: `${label} не зафиксирован: ` + (problems.join('; ') || 'таблица Google не подключена') }
-    const r = await saveMonthFixReq(month)
-    // снимки внутри месяца (недели, отдельные рестораны) убираем только ПОСЛЕ успешной фиксации — их заменяет месячный
-    if (r.ok) {
-      const fresh = await fetchMatrixSnapshots()
-      const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7)), a = `${month}-01`, b = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`
-      const inside = (p: string) => { if (p === month) return false; const x = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(p); return !!x && x[1] >= a && x[2] <= b }
-      for (const x of fresh?.periods ?? []) if (inside(x.period)) await deleteMatrixSnapshot(x.period)
-      for (const x of fresh?.tabs ?? []) if (inside(x.period) || x.period === month) await deleteMatrixSnapshot(x.period, x.tab)
-    }
-    await loadMatching(periodKeyRef.current); await loadPeriods(); await loadData(periodKeyRef.current); bumpData()
-    return r.ok ? { ok: true, message: `${label} зафиксирован: матрица, привязки и закупки` } : { ok: false, message: `${label}: матрица записана, но закупки и привязки не сохранены — ${r.message ?? 'ошибка'}` }
-  }, [loadMatching, loadPeriods, loadData, bumpData])
-  const unfixMonth = useCallback(async (month: string): Promise<{ ok: boolean; message: string }> => {
-    const ok = await deleteMonthFixReq(month)
-    await loadMatching(periodKeyRef.current); await loadData(periodKeyRef.current); bumpData()
-    return ok ? { ok: true, message: `Фиксация «${periodLabelOf(month)}» снята` } : { ok: false, message: 'Не удалось снять фиксацию' }
-  }, [loadMatching, loadData, bumpData])
-  const rows = useMemo(() => computeRows(parsed.base, withMonthFix(edits, matching), matching, parsed.restaurants, manualMode), [parsed, edits, matching, manualMode])
+  const rows = useMemo(() => computeRows(parsed.base, edits, matching, parsed.restaurants, manualMode), [parsed, edits, matching, manualMode])
   // Поставщик, которого вручную привязали к матрице (edits.supplierLinks), больше не «новый»
   const suppliers = useMemo(() => {
     const linked = new Set(Object.values(edits.supplierLinks).map((l) => l.rawSupplier))
@@ -902,7 +866,7 @@ export function EditsProvider({ children }: { children: ReactNode }) {
     period: parsed.period, periodKey, periods, setPeriod, matching, matchingIsStale, matrixPriceLabel, city: parsed.city, category: parsed.category,
     restaurants, suppliers, setAllPeriods, products: parsed.products,
     backendOnline, datasetPartial, status, syncing: syncing || !!status?.syncing, updateAll, updateStep, dataVersion, reloadData, reloadStatus,
-    venues, enableVenueByName, disableVenueByName, refreshMatrix, monthFix, fixMonth, unfixMonth,
+    venues, enableVenueByName, disableVenueByName, refreshMatrix,
     renameProduct, renameSupplier, setVenue,
     venueLabel,
     acknowledgeSupplier, unacknowledgeSupplier, setProductPackOverride, setPackAlias, setProductLink, setProductLinks, setSupplierLinks, manualMode, enableManualMode, pendingProductLinks, stageProductLink, setPlanOverride, setRowComment, setRowColor, setAmbiguousChoice,
@@ -917,10 +881,4 @@ export function useEdits() {
   const c = useContext(EditsContext)
   if (!c) throw new Error('useEdits must be used within EditsProvider')
   return c
-}
-
-const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
-/** «Октябрь 2026» из «2026-10» */
-export function periodLabelOf(month: string): string {
-  const m = /^(\d{4})-(\d{2})$/.exec(month); return m ? `${MONTHS_RU[+m[2] - 1]} ${m[1]}` : month
 }

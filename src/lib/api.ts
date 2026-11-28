@@ -333,25 +333,17 @@ export async function syncMatrix(target?: 'almaty' | 'astana', period?: string, 
 }
 /** null — матрицу ещё не синхронизировали с Google-таблицы вообще; фронт сам падает на вшитую. period — матрица, действующая для этого месяца (снимок месяца, иначе ближайший более ранний). */
 export const fetchMatching = (period?: string) => get<any>(period ? `/api/matching?period=${encodeURIComponent(period)}` : '/api/matching')
+/** Справочники: товары и поставщики из всех матриц (общей и всех зафиксированных) */
+export const fetchMatchingAll = () => get<any>('/api/matching-all')
 export async function deleteMatrixSnapshot(period: string, tab?: string): Promise<boolean> {
   try {
     const r = await fetch(`/api/matrix/snapshots?period=${encodeURIComponent(period)}${tab ? `&tab=${encodeURIComponent(tab)}` : ''}`, { method: 'DELETE', headers: authHeaders() })
     return r.ok && (await r.json()).ok === true
   } catch { return false }
 }
-// Фиксация месяца: матрица (снимок за месяц пишет syncMatrix с period=ГГГГ-ММ), привязки и закупки — см. server «Фиксация месяца»
-export interface MonthFixMeta { month: string; label: string; fixedAt: string | null; by: string | null }
-export const fetchMonthFixes = () => get<{ months: MonthFixMeta[] }>('/api/month-fix')
-export async function saveMonthFixReq(month: string): Promise<{ ok: boolean; message?: string }> {
-  try {
-    const r = await fetch('/api/month-fix', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ month }) })
-    return r.ok ? await r.json() : { ok: false, message: await errorMessage(r) }
-  } catch (e) { return { ok: false, message: errMsg(e) } }
-}
-export async function deleteMonthFixReq(month: string): Promise<boolean> {
-  try { const r = await fetch(`/api/month-fix?month=${encodeURIComponent(month)}`, { method: 'DELETE', headers: authHeaders() }); return r.ok && (await r.json()).ok === true } catch { return false }
-}
-export const fetchMatrixSnapshots = () => get<{ periods: { period: string; periodLabel: string }[]; tabs?: { tab: string; period: string; periodLabel: string }[] }>('/api/matrix/snapshots')
+export interface SnapshotMeta { period: string; periodLabel: string; fixedTargets?: string[]; fixedAt?: string | null }
+export interface TabSnapshotMeta { tab: string; period: string; periodLabel: string; fixed?: boolean; fixedAt?: string | null }
+export const fetchMatrixSnapshots = () => get<{ periods: SnapshotMeta[]; tabs?: TabSnapshotMeta[] }>('/api/matrix/snapshots')
 
 /** period ("YYYY-MM") — явно загрузить этот прошлый месяц, а не current/prev-month из настроек. */
 export async function triggerSync(period?: string, city?: string): Promise<{ ok: boolean; message?: string; busy?: boolean }> {

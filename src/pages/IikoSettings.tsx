@@ -3,10 +3,8 @@ import { norm, matchRestaurant } from '../lib/data'
 import { useAuth } from '../lib/auth'
 import { useEdits } from '../lib/edits'
 import { MATRIX_SNAPSHOTS } from '../lib/features'
-import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings } from '../lib/api'
+import { fetchSettings, saveSettings, testConnection, fetchMatrixSnapshots, deleteMatrixSnapshot, testMatrixConnection, syncMatrix, fetchFullExport, restoreAllFromBackup, wipeAllKeepConnection, IikoSettings as Settings, SnapshotMeta, TabSnapshotMeta } from '../lib/api'
 import { Section, InfoTip, Checkbox } from '../components/ui'
-import DateField from '../components/DateField'
-import MonthFixCard from '../components/MonthFixCard'
 import { ISync, IPlug, ICheck, IClose, IStore, IPlus, ITrash } from '../components/icons'
 
 function extractSheetId(input: string): string {
@@ -34,7 +32,7 @@ export default function IikoSettings() {
   const isDev = user?.role === 'admin' && devMode
   // Разделы страницы (слева меню, справа один раздел) — запоминаем выбранный
   const ALL_SECTIONS = [
-    { id: 'matrix', label: 'Фиксация месяца' },
+    { id: 'matrix', label: 'Фиксация матрицы' },
     { id: 'venues', label: 'Точки сети' },
     { id: 'auto', label: 'Автообновление' },
     { id: 'backup', label: 'Резервная копия' },
@@ -54,23 +52,19 @@ export default function IikoSettings() {
   const [matrixTesting, setMatrixTesting] = useState(false)
   const [matrixTestResult, setMatrixTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [matrixSyncing, setMatrixSyncing] = useState(false)
-  // Период, ЗА КОТОРЫЙ фиксируем цены матрицы (снимок): месяц или отрезок «с … по …» (день, неделя, любой отрезок)
-  const [matrixFrom, setMatrixFrom] = useState('')
-  const [matrixTo, setMatrixTo] = useState('')
-  const [matrixPeriodTouched, setMatrixPeriodTouched] = useState(false)
-  // пока даты не трогали — подставляем весь выбранный в шапке месяц (первое и последнее число)
-  useEffect(() => {
-    if (matrixPeriodTouched) return
-    const r = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(periodKey ?? '')
-    if (r) { setMatrixFrom(r[1]); setMatrixTo(r[2]); return }
-    const m = /^\d{4}-\d{2}$/.test(periodKey ?? '') ? periodKey : new Date().toISOString().slice(0, 7)
-    const last = new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate()
-    setMatrixFrom(`${m}-01`); setMatrixTo(`${m}-${String(last).padStart(2, '0')}`)
-  }, [periodKey, matrixPeriodTouched])
-  const spanDays = matrixFrom && matrixTo ? Math.round((Date.parse(matrixTo) - Date.parse(matrixFrom)) / 86400000) : 0
-  const matrixPeriod = matrixFrom && matrixTo && matrixFrom <= matrixTo && spanDays <= 92 ? `${matrixFrom}..${matrixTo}` : ''
-  const [snapshots, setSnapshots] = useState<{ period: string; periodLabel: string }[]>([])
-  const [tabSnapshots, setTabSnapshots] = useState<{ tab: string; period: string; periodLabel: string }[]>([])
+  // Месяц, ЗА КОТОРЫЙ фиксируем матрицу (снимок «ГГГГ-ММ»: цены, названия, товары, поставщики, кто назначен) — только целый месяц
+  const curMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })()
+  const [matrixMonth, setMatrixMonth] = useState('')
+  const [matrixMonthTouched, setMatrixMonthTouched] = useState(false)
+  // пока не выбирали — месяц из шапки (если там отрезок — его месяц)
+  useEffect(() => { if (!matrixMonthTouched) setMatrixMonth(/^\d{4}-\d{2}/.exec(periodKey ?? '')?.[0] ?? curMonth) }, [periodKey, matrixMonthTouched]) // eslint-disable-line react-hooks/exhaustive-deps
+  const matrixPeriod = /^\d{4}-\d{2}$/.test(matrixMonth) ? matrixMonth : ''
+  // выбор месяца: последние 24 месяца, свежие сверху
+  const monthOptions = Array.from({ length: 24 }, (_, i) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` })
+  const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+  const monthName = (m: string) => `${MONTHS_RU[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`
+  const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([])
+  const [tabSnapshots, setTabSnapshots] = useState<TabSnapshotMeta[]>([])
   const loadSnapshots = () => { if (!MATRIX_SNAPSHOTS) return; fetchMatrixSnapshots().then((r) => { if (r) { setSnapshots(r.periods); setTabSnapshots(r.tabs ?? []) } }) }
   // Границы периода-ключа («ГГГГ-ММ» — старые месячные снимки, или «с..по»)
   const boundsOf = (p: string) => {
@@ -130,7 +124,7 @@ export default function IikoSettings() {
     const r0 = (isDev ? await saveSettings(form) : null)
     if (r0) { setForm(r0); setSaved(true); reloadStatus() }
     const r = await syncMatrix(oneTabInfo.target, matrixPeriod, oneTab)
-    setOneResult(r.ok ? { ok: true, message: `Цены «${oneRest}» зафиксированы за выбранный период (${r.rows ?? 0} позиций)` } : r)
+    setOneResult(r.ok ? { ok: true, message: `Матрица «${oneRest}» зафиксирована за ${monthName(matrixPeriod)} (${r.rows ?? 0} позиций)` } : r)
     if (r.ok) { await dropCovered(cov); await refreshMatrix(); loadSnapshots() }
     setOneSyncing(false)
   }
@@ -307,25 +301,22 @@ export default function IikoSettings() {
         </div>
       )}
       {(section === 'matrix' || !isDev) && (<>
-      {MATRIX_SNAPSHOTS && <MonthFixCard />}
       <div>
         <div>
-          {/* Цены за отдельный отрезок / один ресторан — дополнительный инструмент, только в режиме разработчика */}
-          <div className={`${isDev ? '' : 'hidden'} mx-auto w-full max-w-2xl space-y-5 rounded-2xl border border-ink-600/70 bg-ink-850 p-5`}>
-            {MATRIX_SNAPSHOTS && <div className="text-sm font-semibold text-fg-200">Только цены за отрезок или один ресторан (дополнительно)</div>}
+          <div className="mx-auto w-full max-w-2xl space-y-5 rounded-2xl border border-ink-600/70 bg-ink-850 p-5">
             {MATRIX_SNAPSHOTS && (
               <>
                 <div>
-                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-500">Период</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <DateField label="с" value={matrixFrom} max={matrixTo || undefined} onChange={(v) => { setMatrixFrom(v); setMatrixPeriodTouched(true) }} className="w-full" />
-                    <DateField label="по" value={matrixTo} min={matrixFrom || undefined} onChange={(v) => { setMatrixTo(v); setMatrixPeriodTouched(true) }} className="w-full" />
-                  </div>
-                  {matrixFrom && matrixTo && matrixFrom > matrixTo && <div className="mt-2 text-xs text-bad">Дата «с» позже даты «по»</div>}
-                  {spanDays > 92 && <div className="mt-2 text-xs text-bad">Не больше 3 месяцев (92 дня)</div>}
+                  <div className="mb-1 text-base font-semibold text-fg-50">Зафиксировать матрицу</div>
+                  <p className="mb-3 text-xs leading-relaxed text-fg-500">Сохраняет матрицу из Google-таблицы за месяц: плановые цены, названия, товары, поставщиков и кто на что назначен. Потом таблицу можно менять — зафиксированный месяц останется таким. Привязки делаются в Справочниках, закупки из iiko обновляются как обычно.</p>
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-500">Месяц</div>
+                  <select value={matrixMonth} onChange={(e) => { setMatrixMonth(e.target.value); setMatrixMonthTouched(true); setMatrixSyncResult(null); setAstanaSyncResult(null); setOneResult(null) }}
+                    className="h-10 w-full rounded-lg border border-ink-600 bg-ink-900/60 px-3 text-sm text-fg-100 sm:w-64">
+                    {monthOptions.map((m) => <option key={m} value={m}>{monthName(m)}{snapshots.some((x) => x.period === m && x.fixedTargets?.length) || tabSnapshots.some((x) => x.period === m && x.fixed) ? ' — есть фиксация' : ''}</option>)}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-0.5 rounded-xl border border-ink-700 bg-ink-900 p-0.5">
-                  {([['all', 'Все рестораны'], ['one', 'Один ресторан']] as const).map(([id, label]) => (
+                  {([['all', 'Весь город'], ['one', 'Один ресторан']] as const).map(([id, label]) => (
                     <button key={id} onClick={() => setMatrixScope(id)} className={`h-9 rounded-lg text-sm transition-colors ${matrixScope === id ? 'bg-brand-500/20 font-medium text-fg-50' : 'text-fg-400 hover:text-fg-100'}`}>{label}</button>
                   ))}
                 </div>
@@ -352,7 +343,7 @@ export default function IikoSettings() {
                 {oneRest && oneTab && !tabMatchesRestaurant && <div className="text-[11px] text-bad">Ресторан «{oneRest}» сверяется с другой вкладкой: «{realTitle(matchRestaurant(edits, oneRest))}». Чтобы цены не попали не туда, выберите её тут или измените вкладку в Справочники → Точки.</div>}
                 <div className="flex flex-wrap items-center gap-3">
                   <button onClick={doSyncOne} disabled={oneSyncing || !matrixPeriod || !tabMatchesRestaurant} className="btn bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-                    <ISync width={16} height={16} className={oneSyncing ? 'animate-spin' : ''} /> {oneSyncing ? 'Читаю таблицу…' : 'Зафиксировать цены ресторана'}
+                    <ISync width={16} height={16} className={oneSyncing ? 'animate-spin' : ''} /> {oneSyncing ? 'Читаю таблицу…' : 'Зафиксировать матрицу ресторана'}
                   </button>
                   {oneResult && (
                     <span className={`chip ${oneResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
@@ -368,24 +359,24 @@ export default function IikoSettings() {
         <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-ink-700 bg-ink-900/40 px-4 py-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="min-w-0 flex-1 text-[15px] font-medium text-fg-100">Алматы</span>
           <button onClick={doSyncMatrix} disabled={matrixSyncing || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn order-2 bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Зафиксировать'}
+            <ISync width={16} height={16} className={matrixSyncing ? 'animate-spin' : ''} /> {matrixSyncing ? 'Читаю таблицу…' : 'Зафиксировать матрицу'}
           </button>
           {matrixSyncResult && (
               <span className={`chip order-3 ${matrixSyncResult.ok && matrixSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : matrixSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
                 {matrixSyncResult.ok && !matrixSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-                {matrixSyncResult.ok ? (matrixSyncResult.period ? `Цены зафиксированы за ${matrixSyncResult.period}` : 'Готово') + (matrixSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${matrixSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : matrixSyncResult.message}
+                {matrixSyncResult.ok ? (matrixSyncResult.period ? `Матрица Алматы зафиксирована за ${monthName(matrixSyncResult.period)}` : 'Готово') + (matrixSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${matrixSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : matrixSyncResult.message}
               </span>
             )}
         </div>
         <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-ink-700 bg-ink-900/40 px-4 py-3 ${MATRIX_SNAPSHOTS && matrixScope === 'one' ? 'hidden' : ''}`}>
           <span className="min-w-0 flex-1 text-[15px] font-medium text-fg-100">Астана</span>
           <button onClick={doSyncAstana} disabled={astanaSyncing || !form?.astanaSheetId || (MATRIX_SNAPSHOTS && !matrixPeriod)} className="btn order-2 bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-60">
-            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Зафиксировать'}
+            <ISync width={16} height={16} className={astanaSyncing ? 'animate-spin' : ''} /> {astanaSyncing ? 'Читаю таблицу…' : 'Зафиксировать матрицу'}
           </button>
           {astanaSyncResult && (
               <span className={`chip order-3 ${astanaSyncResult.ok && astanaSyncResult.conflicts?.length ? 'border-warn/40 bg-warn/10 text-warn' : astanaSyncResult.ok ? 'border-good/30 bg-good/10 text-good' : 'border-bad/30 bg-bad/10 text-bad'}`}>
                 {astanaSyncResult.ok && !astanaSyncResult.conflicts?.length ? <ICheck width={13} height={13} /> : <IClose width={13} height={13} />}
-                {astanaSyncResult.ok ? (astanaSyncResult.period ? `Цены зафиксированы за ${astanaSyncResult.period}` : 'Обновлено') + (astanaSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${astanaSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : astanaSyncResult.message}
+                {astanaSyncResult.ok ? (astanaSyncResult.period ? `Матрица Астаны зафиксирована за ${monthName(astanaSyncResult.period)}` : 'Обновлено') + (astanaSyncResult.conflicts?.length ? ` · пропущены вкладки с занятым названием: ${astanaSyncResult.conflicts.join(', ')} — переименуйте в таблице` : '') : astanaSyncResult.message}
               </span>
             )}
         </div>
@@ -396,22 +387,23 @@ export default function IikoSettings() {
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
                 <span className="mr-1 font-medium text-fg-300">Зафиксировано</span>
                 {snapshots.map((x) => (
-                  <span key={x.period} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
-                    {x.periodLabel}
-                    <button title="Удалить эти цены (этот период начнёт брать цены более раннего периода)" className="ml-1 text-fg-500 hover:text-bad"
-                      onClick={async () => { if (window.confirm(`Удалить зафиксированные цены за «${x.periodLabel}»? Этот период станет брать цены ближайшего более раннего периода.`) && await deleteMatrixSnapshot(x.period)) { loadSnapshots(); await refreshMatrix() } }}>×</button>
+                  <span key={x.period} className="chip border-ink-600 bg-ink-800/60 text-fg-300" title={x.fixedAt ? `Записано ${new Date(x.fixedAt).toLocaleString('ru-RU')}` : ''}>
+                    {x.periodLabel}{x.fixedTargets?.length ? ` · ${x.fixedTargets.map((t) => t === 'astana' ? 'Астана' : 'Алматы').join(', ')}` : ' · цены'}
+                    <button title="Снять фиксацию (этот период начнёт брать матрицу более раннего периода)" className="ml-1 text-fg-500 hover:text-bad"
+                      onClick={async () => { if (window.confirm(`Снять фиксацию матрицы за «${x.periodLabel}» (оба города)? Этот период станет брать матрицу ближайшего более раннего периода.`) && await deleteMatrixSnapshot(x.period)) { loadSnapshots(); await refreshMatrix() } }}>×</button>
                   </span>
                 ))}
               </div>
             ) : <div className="text-xs text-fg-500">Пока ничего не зафиксировано</div>}
+            {/* снимки с отметкой «цены» — старые фиксации цен за отрезок или авто-копии прошлых месяцев: не помечены как зафиксированный город */}
             {tabSnapshots.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-400">
-                <span className="mr-1 font-medium text-fg-300">Отдельно по ресторанам</span>
+                <span className="mr-1 font-medium text-fg-300">Отдельные рестораны</span>
                 {tabSnapshots.map((x) => (
                   <span key={`${x.tab}:${x.period}`} className="chip border-ink-600 bg-ink-800/60 text-fg-300">
                     {x.tab} — {x.periodLabel}
                     <button title="Удалить цены этого ресторана за период (он вернётся к ценам всех ресторанов)" className="ml-1 text-fg-500 hover:text-bad"
-                      onClick={async () => { if (window.confirm(`Удалить цены «${x.tab}» за «${x.periodLabel}»? Ресторан вернётся к ценам всех ресторанов.`) && await deleteMatrixSnapshot(x.period, x.tab)) { loadSnapshots(); await refreshMatrix() } }}>×</button>
+                      onClick={async () => { if (window.confirm(`Снять фиксацию матрицы «${x.tab}» за «${x.periodLabel}»? Ресторан вернётся к матрице всего города.`) && await deleteMatrixSnapshot(x.period, x.tab)) { loadSnapshots(); await refreshMatrix() } }}>×</button>
                   </span>
                 ))}
               </div>

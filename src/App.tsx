@@ -26,7 +26,7 @@ const NAV: { id: PageId; label: string; icon: (p: any) => JSX.Element; hint: str
   { id: 'pricecheck', label: 'Проверка цен', icon: IScale, hint: 'План против факта' },
   ...(DYNAMICS ? [{ id: 'dynamics' as const, label: 'Динамика цен', icon: IChart, hint: 'История цены по позициям' }] : []),
   { id: 'data', label: 'Справочники', icon: IDatabase, hint: 'Компании, товары, точки' },
-  { id: 'iiko', label: 'Фиксация месяца', icon: ISync, hint: 'Матрица, привязки, закупки', adminOnly: true },
+  { id: 'iiko', label: 'Фиксация матрицы', icon: ISync, hint: 'Матрица и цены за месяц', adminOnly: true },
   { id: 'users', label: 'Команда', icon: IUser, hint: 'Пользователи вашей сети', adminOnly: true },
 ]
 
@@ -66,7 +66,7 @@ export default function App() {
   })
   // Город — только в Проверке цен: сужает и список точек, и таблицу (город точки — Справочники → Точки)
   const [cityPricecheck, setCityPricecheck] = useState<string | null>(null)
-  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, matrixPriceLabel, saveError, datasetPartial, setAllPeriods, monthFix } = useEdits()
+  const { rows: allRows, period, periodKey, periods, setPeriod, restaurants, matchingIsStale, matrixPriceLabel, saveError, datasetPartial, setAllPeriods } = useEdits()
   // Справочники — база названий и привязок: месяц там ни при чём. Пока открыта эта страница, весь набор данных — закупки ВСЕХ загруженных
   // месяцев и обоих городов; уходим со страницы — возвращается открытый месяц. (Страницы остаются смонтированными, поэтому следим за page.)
   useEffect(() => { setAllPeriods(page === 'data') }, [page, setAllPeriods])
@@ -175,7 +175,7 @@ export default function App() {
           <header className="shrink-0 border-b border-ink-700/50 bg-ink-950">
             {matchingIsStale && (
               <div className="border-b border-warn/30 bg-warn/10 px-8 py-1.5 text-center text-[11px] font-medium text-warn">
-                План-цены ещё не загружены: подключите Google-таблицу и синхронизируйте её (Фиксация месяца → Зафиксировать месяц) — тогда появится сверка с матрицей.
+                План-цены ещё не загружены: подключите Google-таблицу и синхронизируйте её (Фиксация матрицы → Зафиксировать матрицу) — тогда появится сверка с матрицей.
               </div>
             )}
             {datasetPartial && (
@@ -194,8 +194,7 @@ export default function App() {
                 <h1 className="text-lg font-bold text-fg-50">{nav.find((n) => n.id === page)!.label}</h1>
                 {page === 'dynamics' ? <p className="text-xs text-fg-500">История закупочной цены позиции по загруженным периодам</p> : page === 'data' ? null : <p className="text-xs text-fg-500">
                   Период: <span className="text-fg-300">{period}</span>
-                  {monthFix ? <span title="Матрица, привязки и закупки — как на момент фиксации; изменения в Справочниках и таблице на этот месяц не действуют"> · <span className="text-amber-300">Месяц зафиксирован</span></span>
-                    : matrixPriceLabel && <span title="Для сверки берутся плановые цены, действовавшие в первый день этого периода"> · Плановые цены: <span className="text-fg-300">{matrixPriceLabel}</span></span>}
+                  {matrixPriceLabel && <span title="Для сверки берутся плановые цены, действовавшие в первый день этого периода"> · Плановые цены: <span className="text-fg-300">{matrixPriceLabel}</span></span>}
                 </p>}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">

@@ -10,9 +10,8 @@ import {
   listOrgs, listUsersByOrg, findUserByEmail, createUser, deleteUser, getUser, updateUserPassword,
   orgDataDir, wipeOrgKeepConnection, clearOrgFiles, CONNECTION_KEYS,
   getEnabledRestaurants, enableRestaurant, disableRestaurant, discoverRestaurants,
-  getMatrix, saveMatrix, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData, freezePastMonthsOnce,
+  getMatrix, saveMatrix, unionAllMatrices, snapshotMeta, getCatalog, saveCatalog, getMatrixSnapshot, saveMatrixSnapshot, listMatrixSnapshots, deleteMatrixSnapshot, saveMatrixTabSnapshot, listMatrixTabSnapshots, deleteMatrixTabSnapshot, resolveMatrixFor, exportOrgData, resetOrgData, freezePastMonthsOnce,
   restoreUsersFromBackup, iikoLocked, iikoLockValues,
-  getViewDataset, getMonthFix, saveMonthFix, deleteMonthFix, listMonthFixes, isMonthKey, fixedMonthOf,
 } from './store.js'
 import * as editsDb from './editsDb.js'
 import { audit, auditUser, auditEdit, auditFailedLogin, CAT } from './audit.js'
@@ -98,14 +97,6 @@ async function runSync(orgId, trigger, explicitPeriod, city) {
       ? getSeedPeriods().map((d) => ({ period: d.period, periodLabel: d.periodLabel }))
       : [explicitPeriod ? { period: explicitPeriod, periodLabel: periodLabelFor(explicitPeriod) } : resolveLivePeriod(settings)]
     if (!targets.length) throw new Error('Нет ни одного периода для загрузки')
-    // зафиксированный месяц из iiko не перезаписываем: он показывается таким, каким его зафиксировали
-    const fixedT = targets.filter((t) => getMonthFix(orgId, t.period))
-    if (fixedT.length && fixedT.length === targets.length) {
-      const msg = `${fixedT.map((t) => t.periodLabel ?? t.period).join(', ')} зафиксирован — закупки за него не обновляются. Чтобы обновить, снимите фиксацию месяца (Фиксация месяца), загрузите и зафиксируйте заново.`
-      if (trigger !== 'manual') return { ok: true, skipped: msg } // автообновление просто пропускает зафиксированный месяц, без ошибки в статусе
-      throw new Error(msg)
-    }
-    for (const t of fixedT) targets.splice(targets.indexOf(t), 1)
     let positions = 0
     const loaded = [] // что именно загрузили: период и число строк — для индикатора на странице «Обновление»
     const fetchStatsByPeriod = []
@@ -309,10 +300,9 @@ app.get('/api/data', requireAuth, (req, res) => {
     // Старая отдельная загрузка ровно этого отрезка берётся, если она свежее всех месяцев, из которых его можно собрать,
     // или если собрать отрезок целиком не получается (у месяцев нет раскладки по дням); иначе — сборка из месяцев
     // («1–31 октября», загруженное раньше месяца, показывало бы устаревшие закупки)
-    // старую отдельную загрузку отрезка не берём, если какой-то его месяц зафиксирован — показываем копию из фиксации
-    const stored = overlap.some((p) => getMonthFix(req.auth.orgId, p.period)) ? null : periods.find((p) => p.period === period)
+    const stored = periods.find((p) => p.period === period)
     if (stored && (!overlap.length || overlap.every((p) => (p.updatedAt ?? 0) <= (stored.updatedAt ?? 0)))) return res.json(getDataset(req.auth.orgId, period))
-    const months = overlap.map((p) => ({ period: p.period, dataset: getViewDataset(req.auth.orgId, p.period) }))
+    const months = overlap.map((p) => ({ period: p.period, dataset: getDataset(req.auth.orgId, p.period) }))
     const composed = composeRange(months, from, to)
     // какой-то месяц отрезка не загружен или собрать целиком нельзя (нет раскладки по дням) — старая загрузка полнее
     const allMonths = []; for (let y = +from.slice(0, 4), m = +from.slice(5, 7); `${y}-${String(m).padStart(2, '0')}` <= to.slice(0, 7); m === 12 ? (y++, m = 1) : m++) allMonths.push(`${y}-${String(m).padStart(2, '0')}`)
@@ -320,7 +310,7 @@ app.get('/api/data', requireAuth, (req, res) => {
     if (stored && incomplete) return res.json(getDataset(req.auth.orgId, period))
     return res.json(composed)
   }
-  res.json(getViewDataset(req.auth.orgId, period))
+  res.json(getDataset(req.auth.orgId, period))
 })
 
 app.get('/api/status', requireAuth, (req, res) => res.json({ ...getStatus(req.auth.orgId), syncing: !!syncing[req.auth.orgId], schedule: describeSchedule(req.auth.orgId), manualLinks: getSettings(req.auth.orgId).manualLinks === true, manualFreeze: Number(getSettings(req.auth.orgId).manualFreeze) || 0 }))
@@ -767,6 +757,10 @@ async function matrixSyncHandler(req, res) {
     const merged = mergeMatching(prev, matching, [...Object.values(sheetMap), ...ownTabs])
     merged.tabsByTarget = { ...(prev?.tabsByTarget ?? {}), [target]: ownTabs }
     merged.allTabsByTarget = { ...(prev?.allTabsByTarget ?? {}), [target]: summary.allTabs ?? [] }
+    // фиксация матрицы за МЕСЯЦ: город помечается зафиксированным — его рестораны больше не получают новых названий из таблицы
+    // отметки берём только у снимка ЭТОГО же месяца (prev может быть снимком более раннего месяца — его отметки сюда не переносим)
+    if (period && MONTH_RE.test(period)) merged.fixedTargets = [...new Set([...(getMatrixSnapshot(orgId, period)?.fixedTargets ?? []), target])]
+    else if (period) delete merged.fixedTargets
     if (period) {
       saveMatrixSnapshot(orgId, period, merged)
       // «все рестораны» за тот же период перекрывает прежние отдельные цены ресторанов этого города за него
@@ -832,36 +826,9 @@ app.get('/api/matching', requireAuth, (req, res) => {
   // null, если ещё не синхронизировали вообще — фронт сам падает на вшитую матрицу
   const period = MATRIX_SNAPSHOTS && typeof req.query.period === 'string' && isValidPeriod(req.query.period) ? req.query.period : null
   const resolved = resolveMatrixFor(req.auth.orgId, period)
-  const { snapshotPeriod, tabSnapshots } = resolved
+  const { snapshotPeriod, tabSnapshots, fixedCities } = resolved
   const matching = stripTabs(resolved.matching, excludedTabsOf(getSettings(req.auth.orgId))) // служебные листы в программу не попадают
-  // зафиксированный месяц (или отрезок внутри него): привязки и правки Справочников — как на момент фиксации
-  const fixMonth = period ? fixedMonthOf(req.auth.orgId, period) : null
-  const fix = fixMonth ? getMonthFix(req.auth.orgId, fixMonth) : null
-  const monthFix = fix ? { month: fixMonth, fixedAt: fix.fixedAt ?? null, by: fix.by ?? null, edits: fix.edits ?? null } : null
-  res.json(matching ? { ...matching, snapshotPeriod, snapshotLabel: snapshotPeriod ? periodLabelFor(snapshotPeriod) : null, tabSnapshots, monthFix } : null)
-})
-
-// ── Фиксация месяца (см. store.js «Фиксация месяца») ──
-app.get('/api/month-fix', requireAuth, (req, res) => res.json({ months: listMonthFixes(req.auth.orgId).map((x) => ({ ...x, label: periodLabelFor(x.month) })) }))
-// Снимок матрицы за месяц клиент пишет перед этим обычной фиксацией цен (POST /api/matrix/sync с period=ГГГГ-ММ); здесь — закупки и связи
-app.post('/api/month-fix', requireAuth, requireAdmin, (req, res) => {
-  const orgId = req.auth.orgId, month = req.body?.month
-  if (!isMonthKey(month)) return res.status(400).json({ ok: false, message: 'Нужен месяц в формате ГГГГ-ММ' })
-  if (month >= new Date().toISOString().slice(0, 7)) return res.status(400).json({ ok: false, message: 'Зафиксировать можно только закончившийся месяц — текущий ещё пополняется закупками.' })
-  if (!listDatasetPeriods(orgId).some((p) => p.period === month)) return res.status(400).json({ ok: false, message: `Закупки за ${periodLabelFor(month)} ещё не загружены — сначала загрузите месяц из iiko.` })
-  if (!listMatrixSnapshots(orgId).includes(month)) return res.status(400).json({ ok: false, message: 'Сначала нужно зафиксировать матрицу за этот месяц.' })
-  const all = editsDb.getEditsForOrg(orgId)
-  const { rowComments, rowColors, ...edits } = all // цвета и заметки — рабочие отметки, остаются живыми
-  saveMonthFix(orgId, month, { fixedAt: new Date().toISOString(), by: req.auth.email ?? null, dataset: getDataset(orgId, month), edits })
-  audit(req, CAT.PRICES, 'Зафиксировал месяц', `${periodLabelFor(month)}: матрица, привязки и закупки`)
-  res.json({ ok: true })
-})
-app.delete('/api/month-fix', requireAuth, requireAdmin, (req, res) => {
-  const month = req.query.month
-  if (!isMonthKey(month)) return res.status(400).json({ ok: false, message: 'Нужен месяц в формате ГГГГ-ММ' })
-  deleteMonthFix(req.auth.orgId, month)
-  audit(req, CAT.PRICES, 'Снял фиксацию месяца', periodLabelFor(month))
-  res.json({ ok: true })
+  res.json(matching ? { ...matching, snapshotPeriod, snapshotLabel: snapshotPeriod ? periodLabelFor(snapshotPeriod) : null, tabSnapshots, fixedCities } : null)
 })
 
 app.delete('/api/matrix/snapshots', requireAuth, requireAdmin, (req, res) => {
@@ -873,10 +840,18 @@ app.delete('/api/matrix/snapshots', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: okDel })
 })
 app.get('/api/matrix/snapshots', requireAuth, (req, res) => {
+  const orgId = req.auth.orgId
   res.json({
-    periods: !MATRIX_SNAPSHOTS ? [] : listMatrixSnapshots(req.auth.orgId).map((p) => ({ period: p, periodLabel: periodLabelFor(p) })),
-    tabs: !MATRIX_SNAPSHOTS ? [] : listMatrixTabSnapshots(req.auth.orgId).map((t) => ({ ...t, periodLabel: periodLabelFor(t.period) })),
+    // fixedTargets — какие города зафиксированы этим снимком за месяц; fixedAt — время записи снимка
+    periods: !MATRIX_SNAPSHOTS ? [] : listMatrixSnapshots(orgId).map((p) => ({ period: p, periodLabel: periodLabelFor(p), ...snapshotMeta(orgId, p) })),
+    tabs: !MATRIX_SNAPSHOTS ? [] : listMatrixTabSnapshots(orgId).map((t) => ({ ...t, periodLabel: periodLabelFor(t.period), fixedAt: t.fixedAt ?? null })),
   })
+})
+
+// Справочники: товары и поставщики из всех матриц (общей и зафиксированных), см. unionAllMatrices
+app.get('/api/matching-all', requireAuth, (req, res) => {
+  const m = stripTabs(unionAllMatrices(req.auth.orgId), excludedTabsOf(getSettings(req.auth.orgId)))
+  res.json(m ? { ...m, snapshotPeriod: null, snapshotLabel: null, tabSnapshots: {} } : null)
 })
 
 
@@ -984,7 +959,7 @@ app.post('/api/org-data/restore', requireAuth, requireDeveloper, express.raw({ t
     if (!srcOrg) return res.status(400).json({ ok: false, message: srcOrgs.size ? 'В копии несколько организаций, и нет вашей — восстановление остановлено.' : 'В файле нет данных организации — это не restore.tar.' })
     const dir = resolvePath(orgDataDir(orgId))
     // 1) всё проверяем ДО записи: известные имена файлов, корректный JSON, база правок читается — иначе ничего не меняем
-    const KNOWN = /^(settings|status|venues|matrix|catalog)\.json$|^dataset-[\w.-]+\.json$|^matrixsnap-[\w.-]+\.json$|^matrixtab-[\w.-]+\.json$|^monthfix-\d{4}-\d{2}(\.dataset)?\.json$/
+    const KNOWN = /^(settings|status|venues|matrix|catalog)\.json$|^dataset-[\w.-]+\.json$|^matrixsnap-[\w.-]+\.json$|^matrixtab-[\w.-]+\.json$/
     const plan = []
     let savedSettings = null
     for (const [name, data] of files) {
